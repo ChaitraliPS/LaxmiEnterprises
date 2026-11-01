@@ -40,13 +40,36 @@ Product.hasOne(Inventory, {
   foreignKey: "productId",
   sourceKey: "productId",
   as: "inventory",
-  constraints: false,
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+  hooks: true,
 });
 Inventory.belongsTo(Product, {
   foreignKey: "productId",
   targetKey: "productId",
   as: "product",
-  constraints: false,
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+
+// Automatic Cascade: When a product is deleted, automatically delete corresponding inventory
+Product.afterDestroy(async (product, options) => {
+  const pId = product.productId || product.id;
+  if (pId) {
+    await Inventory.destroy({
+      where: { productId: pId },
+      transaction: options?.transaction,
+    });
+  }
+});
+
+Product.afterBulkDestroy(async (options) => {
+  if (options?.where?.productId) {
+    await Inventory.destroy({
+      where: { productId: options.where.productId },
+      transaction: options?.transaction,
+    });
+  }
 });
 
 export {

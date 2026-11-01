@@ -9,8 +9,9 @@ import DeleteConfirmModal from "./DeleteConfirmModal";
 import ExportMenu from "./ExportMenu";
 import { downloadCSV } from "../utils/exportUtils";
 import { calculateProductStock } from "../services/stockService";
+import { erpApi } from "../services/api";
 
-export default function ProductsPage({ products, onSaveProducts, inventory = [] }) {
+export default function ProductsPage({ products, onSaveProducts, onDeleteProduct, inventory = [] }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
@@ -126,9 +127,18 @@ export default function ProductsPage({ products, onSaveProducts, inventory = [] 
 
   const handleDeleteConfirm = () => {
     if (!deletingProduct) return;
-    const updated = products.filter(p => p.id !== deletingProduct.id);
-    onSaveProducts(updated);
-    showToast(`✓ Product ${deletingProduct.name} deleted.`);
+    const prodId = deletingProduct.id || deletingProduct.productId;
+    const prodName = deletingProduct.name || "Product";
+
+    if (onDeleteProduct) {
+      onDeleteProduct(deletingProduct);
+    } else {
+      const updated = products.filter(p => (p.id !== prodId && p.productId !== prodId));
+      onSaveProducts(updated);
+      erpApi.deleteProduct(prodId).catch(() => {});
+    }
+
+    showToast(`✓ Product ${prodName} deleted from catalogue and inventory.`);
     setDeletingProduct(null);
   };
 

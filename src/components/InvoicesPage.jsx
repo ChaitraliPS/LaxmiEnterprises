@@ -39,6 +39,7 @@ export default function InvoicesPage({
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editInvoice, setEditInvoice] = useState(null);
   const [localToast, setLocalToast] = useState(null);
   const [reportDropdownOpen, setReportDropdownOpen] = useState(false);
 
@@ -54,13 +55,19 @@ export default function InvoicesPage({
   }, [invoices]);
 
   const handleAddInvoice = (newInv) => {
-    if (onCreateInvoice) {
+    if (editInvoice) {
+      const updated = invoices.map(inv => (inv.id === newInv.id || inv.invoiceNumber === newInv.id ? newInv : inv));
+      if (onSaveInvoices) onSaveInvoices(updated);
+      notify(`? Updated invoice ${newInv.id}`);
+    } else if (onCreateInvoice) {
       onCreateInvoice(newInv);
+      notify(`? Created invoice ${newInv.id} for ${newInv.clientName}`);
     } else if (onSaveInvoices) {
       onSaveInvoices([newInv, ...invoices]);
+      notify(`? Created invoice ${newInv.id} for ${newInv.clientName}`);
     }
     setIsCreateModalOpen(false);
-    notify(`✓ Created invoice ${newInv.id} for ${newInv.clientName}`);
+    setEditInvoice(null);
   };
 
   const notify = (msg) => {
@@ -116,14 +123,14 @@ export default function InvoicesPage({
       const q = Math.floor(fyMo / 3) + 1; // Q1..Q4
       // Calendar month ranges for each FY quarter
       const qRanges = {
-        1: { months: [3, 4, 5],  label: "Apr-Jun" },   // Q1
-        2: { months: [6, 7, 8],  label: "Jul-Sep" },   // Q2
+        1: { months: [3, 4, 5], label: "Apr-Jun" },   // Q1
+        2: { months: [6, 7, 8], label: "Jul-Sep" },   // Q2
         3: { months: [9, 10, 11], label: "Oct-Dec" },  // Q3
-        4: { months: [0, 1, 2],  label: "Jan-Mar" },   // Q4
+        4: { months: [0, 1, 2], label: "Jan-Mar" },   // Q4
       };
       const { months, label: qLabel } = qRanges[q];
       const fyYear = calMo >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-      const fyEnd  = fyYear + 1;
+      const fyEnd = fyYear + 1;
       filtered = invoices.filter(inv => {
         const d = parseInvDate(inv);
         if (!d) return false;
@@ -140,7 +147,7 @@ export default function InvoicesPage({
       // Indian Financial Year: Apr 1 of fyYear -> Mar 31 of fyYear+1
       const calMo = now.getMonth();
       const fyYear = calMo >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-      const fyEnd  = fyYear + 1;
+      const fyEnd = fyYear + 1;
       const fyStart = new Date(fyYear, 3, 1);   // Apr 1
       const fyEndDate = new Date(fyEnd, 2, 31);  // Mar 31
       filtered = invoices.filter(inv => {
@@ -166,11 +173,11 @@ export default function InvoicesPage({
     ];
 
     const rows = filtered.map(inv => {
-      const taxable  = Number(inv.amount    || inv.subtotal  || 0);
-      const gst      = Number(inv.tax       || (Number(inv.cgstTotal || 0) + Number(inv.sgstTotal || 0) + Number(inv.igstTotal || 0)) || Math.round(taxable * 0.18));
-      const total    = Number(inv.total     || inv.grandTotal || 0);
-      const paid     = Number(inv.paidAmount  || 0);
-      const balance  = Number(inv.balanceDue  || Math.max(0, total - paid));
+      const taxable = Number(inv.amount || inv.subtotal || 0);
+      const gst = Number(inv.tax || (Number(inv.cgstTotal || 0) + Number(inv.sgstTotal || 0) + Number(inv.igstTotal || 0)) || Math.round(taxable * 0.18));
+      const total = Number(inv.total || inv.grandTotal || 0);
+      const paid = Number(inv.paidAmount || 0);
+      const balance = Number(inv.balanceDue || Math.max(0, total - paid));
       return [
         inv.id || inv.invoiceNumber || "",
         inv.clientName || "",
@@ -190,10 +197,10 @@ export default function InvoicesPage({
     // ── Summary totals ───────────────────────────────────────────────────
     const sum = (key, idx) => filtered.reduce((s, inv) => s + Number(rows[filtered.indexOf(inv)][idx]), 0);
     const totTaxable = filtered.reduce((s, _, i) => s + parseFloat(rows[i][6]), 0);
-    const totGST     = filtered.reduce((s, _, i) => s + parseFloat(rows[i][7]), 0);
-    const totTotal   = filtered.reduce((s, _, i) => s + parseFloat(rows[i][8]), 0);
-    const totPaid    = filtered.reduce((s, _, i) => s + parseFloat(rows[i][9]), 0);
-    const totBal     = filtered.reduce((s, _, i) => s + parseFloat(rows[i][10]), 0);
+    const totGST = filtered.reduce((s, _, i) => s + parseFloat(rows[i][7]), 0);
+    const totTotal = filtered.reduce((s, _, i) => s + parseFloat(rows[i][8]), 0);
+    const totPaid = filtered.reduce((s, _, i) => s + parseFloat(rows[i][9]), 0);
+    const totBal = filtered.reduce((s, _, i) => s + parseFloat(rows[i][10]), 0);
 
     const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
 
@@ -206,8 +213,8 @@ export default function InvoicesPage({
       ...rows.map(r => r.map(esc).join(",")),
       "",
       [esc("TOTAL"), esc(""), esc(""), esc(""), esc(""), esc(""),
-       esc(totTaxable.toFixed(2)), esc(totGST.toFixed(2)), esc(totTotal.toFixed(2)),
-       esc(totPaid.toFixed(2)), esc(totBal.toFixed(2)), esc("")].join(",")
+      esc(totTaxable.toFixed(2)), esc(totGST.toFixed(2)), esc(totTotal.toFixed(2)),
+      esc(totPaid.toFixed(2)), esc(totBal.toFixed(2)), esc("")].join(",")
     ].join("\n");
 
     const BOM = "\uFEFF"; // UTF-8 BOM for Excel compatibility
@@ -294,7 +301,7 @@ export default function InvoicesPage({
     if (window.confirm(`Are you sure you want to delete invoice ${id}?`)) {
       const updated = invoices.filter(inv => inv.id !== id && inv.invoiceNumber !== id && inv.invoiceNo !== id);
       if (onSaveInvoices) onSaveInvoices(updated);
-      erpApi.deleteInvoice(id).catch(() => {});
+      erpApi.deleteInvoice(id).catch(() => { });
       notify(`✓ Invoice ${id} deleted.`);
     }
   };
@@ -341,48 +348,48 @@ export default function InvoicesPage({
             >
               <FileText size={15} />
               <span>Download Report</span>
-            <ChevronDown size={14} style={{ marginLeft: 2, transition: "transform 0.2s", transform: reportDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
-          </button>
-          {reportDropdownOpen && (
-            <>
-              <div
-                onClick={() => setReportDropdownOpen(false)}
-                style={{ position: "fixed", inset: 0, zIndex: 99 }}
-              />
-              <div style={{
-                position: "absolute", top: "calc(100% + 6px)", right: 0,
-                background: "var(--card-bg)", border: "1px solid var(--border)",
-                borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
-                zIndex: 100, minWidth: 190, overflow: "hidden"
-              }}>
-                {[
-                  { key: "monthly",   label: "Monthly Report",   sub: "Current month invoices" },
-                  { key: "quarterly", label: "Quarterly Report", sub: "Current quarter invoices" },
-                  { key: "yearly",    label: "Yearly Report",    sub: "Current financial year" },
-                ].map(({ key, label, sub }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => downloadReport(key)}
-                    style={{
-                      width: "100%", textAlign: "left", background: "none",
-                      border: "none", padding: "11px 16px", cursor: "pointer",
-                      display: "flex", flexDirection: "column", gap: 2,
-                      borderBottom: key !== "yearly" ? "1px solid var(--border)" : "none"
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = "var(--hover-bg, rgba(0,91,181,0.06))"}
-                    onMouseLeave={e => e.currentTarget.style.background = "none"}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6 }}>
-                      <Download size={13} style={{ color: "var(--primary)" }} />
-                      {label}
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", paddingLeft: 19 }}>{sub}</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+              <ChevronDown size={14} style={{ marginLeft: 2, transition: "transform 0.2s", transform: reportDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
+            </button>
+            {reportDropdownOpen && (
+              <>
+                <div
+                  onClick={() => setReportDropdownOpen(false)}
+                  style={{ position: "fixed", inset: 0, zIndex: 99 }}
+                />
+                <div style={{
+                  position: "absolute", top: "calc(100% + 6px)", right: 0,
+                  background: "var(--card-bg)", border: "1px solid var(--border)",
+                  borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+                  zIndex: 100, minWidth: 190, overflow: "hidden"
+                }}>
+                  {[
+                    { key: "monthly", label: "Monthly Report", sub: "Current month invoices" },
+                    { key: "quarterly", label: "Quarterly Report", sub: "Current quarter invoices" },
+                    { key: "yearly", label: "Yearly Report", sub: "Current financial year" },
+                  ].map(({ key, label, sub }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => downloadReport(key)}
+                      style={{
+                        width: "100%", textAlign: "left", background: "none",
+                        border: "none", padding: "11px 16px", cursor: "pointer",
+                        display: "flex", flexDirection: "column", gap: 2,
+                        borderBottom: key !== "yearly" ? "1px solid var(--border)" : "none"
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = "var(--hover-bg, rgba(0,91,181,0.06))"}
+                      onMouseLeave={e => e.currentTarget.style.background = "none"}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 13, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6 }}>
+                        <Download size={13} style={{ color: "var(--primary)" }} />
+                        {label}
+                      </span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", paddingLeft: 19 }}>{sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -626,13 +633,12 @@ export default function InvoicesPage({
                           title="Click to cycle status: Paid -> Pending -> Overdue"
                           style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
                         >
-                          <span className={`badge ${
-                            inv.status === "Paid"
+                          <span className={`badge ${inv.status === "Paid"
                               ? "paid"
                               : inv.status === "Pending"
                                 ? "pending-payment"
                                 : "overdue"
-                          }`}>
+                            }`}>
                             <span
                               className={`badge-dot ${inv.status === "Paid" ? "pulse" : ""}`}
                               style={{
@@ -649,64 +655,16 @@ export default function InvoicesPage({
                         </button>
                       </td>
 
-                      {/* ACTION BUTTONS: Direct Download PDF, View */}
+                      {/* ACTION BUTTONS: View only � all other actions inside the view modal */}
                       <td>
-                        <div className="row-actions" style={{ justifyContent: "center", gap: 6 }}>
-                          {/* 1. Direct PDF Download Button */}
+                        <div className="row-actions" style={{ justifyContent: "center" }}>
                           <button
                             type="button"
-                            onClick={() => handleDownloadPDF(inv)}
-                            title="Download PDF directly to PC"
-                            style={{
-                              background: "rgba(0, 91, 181, 0.08)",
-                              color: "var(--primary)",
-                              border: "1px solid rgba(0, 91, 181, 0.25)",
-                              borderRadius: 6,
-                              padding: "4px 8px",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 4,
-                              fontSize: "11.5px",
-                              fontWeight: 600,
-                              cursor: "pointer"
-                            }}
-                          >
-                            <Download size={13} />
-                            <span>PDF</span>
-                          </button>
-
-
-                          {/* 3. View / Print Modal Button */}
-                          <button
-                            type="button"
+                            title={`View ${inv.id}`}
                             onClick={() => setSelectedInvoice(inv)}
-                            title="Preview & Print Invoice"
-                            style={{
-                              background: "none",
-                              border: "1px solid var(--border)",
-                              borderRadius: 6,
-                              padding: 5,
-                              color: "var(--text-main)",
-                              cursor: "pointer"
-                            }}
+                            style={{ color: "var(--accent)" }}
                           >
                             <Eye size={14} />
-                          </button>
-
-                          {/* 4. Delete Invoice */}
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteInvoice(inv.id)}
-                            title="Delete Invoice Record"
-                            style={{
-                              background: "none",
-                              border: "none",
-                              padding: 5,
-                              color: "var(--danger)",
-                              cursor: "pointer"
-                            }}
-                          >
-                            <Trash2 size={14} />
                           </button>
                         </div>
                       </td>
@@ -726,6 +684,11 @@ export default function InvoicesPage({
         invoice={selectedInvoice}
         company={company}
         client={clients.find(c => c.id === selectedInvoice?.clientId || c.name === selectedInvoice?.clientName)}
+        onEdit={(inv) => {
+          setSelectedInvoice(null);
+          setEditInvoice(inv);
+          setIsCreateModalOpen(true);
+        }}
         onDelete={(inv) => {
           setSelectedInvoice(null);
           handleDeleteInvoice(inv.id);
@@ -733,15 +696,19 @@ export default function InvoicesPage({
         showToast={notify}
       />
 
-      {/* CREATE INVOICE MODAL */}
+      {/* CREATE / EDIT INVOICE MODAL */}
       <InvoiceModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setEditInvoice(null);
+        }}
         onSave={handleAddInvoice}
         clients={clients}
         products={products}
         nextId={nextInvoiceId}
         company={company}
+        editInvoice={editInvoice}
         showToast={notify}
       />
     </div>

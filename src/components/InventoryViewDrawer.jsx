@@ -1,9 +1,7 @@
 import React, { useState, useRef } from "react";
 import {
-  X, Boxes, ShoppingCart, Warehouse, AlertTriangle, CheckCircle2,
-  Barcode, Printer, Pencil, Trash2, ChevronLeft, ChevronRight,
-  IndianRupee, Layers, TrendingUp, Package, ShieldCheck, Tag,
-  RefreshCw, Plus, Minus, Download, ArrowUpRight, Check, MapPin
+  X, Warehouse, Barcode, Printer, Pencil, ChevronLeft, ChevronRight,
+  IndianRupee, Layers, TrendingUp, Plus, Minus, Check, MapPin
 } from "lucide-react";
 
 export default function InventoryViewDrawer({
@@ -159,35 +157,8 @@ export default function InventoryViewDrawer({
               </div>
             </div>
 
-            {/* Quick Actions */}
+            {/* Close only */}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {onEdit && (
-                <button
-                  type="button"
-                  className="outline"
-                  onClick={() => { onClose(); onEdit(inventoryItem); }}
-                  title="Edit inventory parameters"
-                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", fontSize: "0.8rem" }}
-                >
-                  <Pencil size={13} /> Edit
-                </button>
-              )}
-
-              {onDelete && (
-                <button
-                  type="button"
-                  className="icon-btn"
-                  onClick={() => {
-                    onClose();
-                    onDelete(inventoryItem);
-                  }}
-                  title="Delete inventory entry"
-                  style={{ color: "var(--danger)" }}
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
-
               <button className="icon-btn" onClick={onClose} aria-label="Close inspector drawer">
                 <X size={18} />
               </button>
@@ -695,13 +666,9 @@ export default function InventoryViewDrawer({
           borderTop: "1px solid var(--border)",
           background: "var(--table-head)",
           display: "flex",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           alignItems: "center"
         }}>
-          <button type="button" className="outline" onClick={onClose}>
-            Close Drawer
-          </button>
-
           <div style={{ display: "flex", gap: 8 }}>
             {onEdit && (
               <button

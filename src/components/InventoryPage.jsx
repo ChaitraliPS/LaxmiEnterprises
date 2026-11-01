@@ -275,8 +275,8 @@ export default function InventoryPage({ inventory, onSaveInventory, products, on
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && (
-              <button 
-                onClick={() => setSearch("")} 
+              <button
+                onClick={() => setSearch("")}
                 style={{ border: "none", background: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
                 title="Clear search"
               >
@@ -402,9 +402,6 @@ export default function InventoryPage({ inventory, onSaveInventory, products, on
                           </button>
                           <button title="Record Stock Movement" onClick={() => handleOpenMovement(i)}>
                             <Pencil size={14} />
-                          </button>
-                          <button title="Delete Record" onClick={() => setDeletingInventory(i)}>
-                            <Trash2 size={14} style={{ color: "var(--danger)" }} />
                           </button>
                         </div>
                       </td>

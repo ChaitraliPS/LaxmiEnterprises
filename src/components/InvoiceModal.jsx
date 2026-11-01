@@ -38,6 +38,7 @@ export default function InvoiceModal({
   nextId = "LE-INV-2026-001",
   company = {},
   defaultClient = null,
+  editInvoice = null,
   showToast
 }) {
   if (!isOpen) return null;
@@ -109,14 +110,32 @@ export default function InvoiceModal({
 
   useEffect(() => {
     if (isOpen) {
-      setForm(prev => ({
-        ...prev,
-        id: nextId || prev.id,
-        date: getTodayLocalDate(),
-        dueDate: getLocalDateInDays(30),
-      }));
+      if (editInvoice) {
+        setForm({
+          id: editInvoice.id || editInvoice.invoiceNumber || nextId,
+          clientName: editInvoice.clientName || "",
+          clientId: editInvoice.clientId || "",
+          date: editInvoice.date || getTodayLocalDate(),
+          dueDate: editInvoice.dueDate || getLocalDateInDays(30),
+          category: editInvoice.category || "Animal Feed",
+          status: editInvoice.status || "Paid",
+          paymentMethod: editInvoice.paymentMethod || editInvoice.paymentMode || "UPI Commercial / NEFT",
+          paidAmountInput: editInvoice.paidAmount !== undefined ? editInvoice.paidAmount : (editInvoice.status === "Paid" ? (editInvoice.total || 0) : 0),
+          notes: editInvoice.notes || ""
+        });
+        if (Array.isArray(editInvoice.items) && editInvoice.items.length > 0) {
+          setItems(editInvoice.items);
+        }
+      } else {
+        setForm(prev => ({
+          ...prev,
+          id: nextId || prev.id,
+          date: getTodayLocalDate(),
+          dueDate: getLocalDateInDays(30),
+        }));
+      }
     }
-  }, [isOpen, nextId]);
+  }, [isOpen, nextId, editInvoice]);
 
   // Calculations
   const taxableAmount = items.reduce((sum, it) => sum + (Number(it.taxable) || 0), 0);
@@ -431,7 +450,7 @@ export default function InvoiceModal({
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700, color: "var(--text-main)" }}>
-                Create Commercial Tax Invoice
+                {editInvoice ? `Edit Tax Invoice: ${editInvoice.id || editInvoice.invoiceNumber}` : "Create Commercial Tax Invoice"}
               </h3>
               <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
                 Itemized GST sales invoice with product catalog link, stock deduction & customer ledger cascade
@@ -965,7 +984,7 @@ export default function InvoiceModal({
                 Cancel
               </button>
               <button type="submit" className="primary" style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <Save size={15} /> Save & Issue Invoice
+                <Save size={15} /> {editInvoice ? "Update Invoice" : "Save & Issue Invoice"}
               </button>
             </div>
           </div>

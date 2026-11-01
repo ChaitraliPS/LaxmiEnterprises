@@ -144,8 +144,19 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
-        <div className="modal-header">
+      <div
+        className="modal-card"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: 680,
+          width: "95%",
+          maxHeight: "92vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden"
+        }}
+      >
+        <div className="modal-header" style={{ flexShrink: 0 }}>
           <h3>
             <Package size={19} style={{ color: "var(--primary)" }} />
             {isEditing ? `Edit Product: ${productToEdit.name}` : "Add New Catalogue Product"}
@@ -155,8 +166,15 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} noValidate>
-          <div className="modal-body" style={{ maxHeight: "78vh", overflowY: "auto" }}>
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
+        >
+          <div
+            className="modal-body"
+            style={{ flex: 1, minHeight: 0, overflowY: "auto", maxHeight: "none" }}
+          >
             <ValidationSummary errors={errors} title="Please resolve the following product errors:" />
 
             <div className="form-grid">
@@ -246,6 +264,8 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 6,
                   color: unitProfit >= 0 ? "#059669" : "#dc2626",
                   fontWeight: 600
                 }}>
@@ -282,49 +302,53 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                   </span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-                  <div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600 }}>Opening Base</label>
                     <input
                       type="number"
                       min="0"
                       className="form-input"
+                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
                       value={form.openingStock}
                       onChange={(e) => handleStockParamChange("openingStock", e.target.value)}
                       title="Initial baseline stock units"
                     />
                   </div>
 
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ fontSize: "0.75rem", color: "#059669", fontWeight: 600 }}>+ Inward Received</label>
                     <input
                       type="number"
                       min="0"
                       className="form-input"
+                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
                       value={form.inwardStock}
                       onChange={(e) => handleStockParamChange("inwardStock", e.target.value)}
                       title="Total inward procured / supplier receipts (synced with Purchases)"
                     />
                   </div>
 
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ fontSize: "0.75rem", color: "#d97706", fontWeight: 600 }}>− Outward Sold</label>
                     <input
                       type="number"
                       min="0"
                       className="form-input"
+                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
                       value={form.outwardStock}
                       onChange={(e) => handleStockParamChange("outwardStock", e.target.value)}
                       title="Total outward dispatched / billed sales (synced with Invoices)"
                     />
                   </div>
 
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ fontSize: "0.75rem", color: "#dc2626", fontWeight: 600 }}>− Reserved Hold</label>
                     <input
                       type="number"
                       min="0"
                       className="form-input"
+                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
                       value={form.reservedStock}
                       onChange={(e) => handleStockParamChange("reservedStock", e.target.value)}
                       title="Allocated orders or quarantine units"
@@ -372,7 +396,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
             </div>
           </div>
 
-          <div className="modal-footer">
+          <div className="modal-footer" style={{ flexShrink: 0 }}>
             <button type="button" className="outline" onClick={onClose}>
               Cancel
             </button>

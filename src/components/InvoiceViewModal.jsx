@@ -1,7 +1,6 @@
 import React from "react";
 import {
-  X, Download, Printer, CheckCircle2,
-  Building2, Phone, Mail, MapPin, Receipt, ShieldCheck, Trash2
+  X, Download, Receipt, ShieldCheck, Edit3
 } from "lucide-react";
 import { generateInvoicePDF, numberToWordsINR } from "../services/pdfService";
 
@@ -12,6 +11,7 @@ export default function InvoiceViewModal({
   company = {},
   client = null,
   onDelete,
+  onEdit,
   showToast
 }) {
   if (!isOpen || !invoice) return null;
@@ -35,20 +35,11 @@ export default function InvoiceViewModal({
   const handleDownloadPDF = () => {
     try {
       const { fileName } = generateInvoicePDF(invoice, companyInfo, client || {});
-      if (showToast) {
-        showToast(`✓ Downloaded ${fileName} to your PC`);
-      }
+      if (showToast) showToast(`✓ Downloaded ${fileName} to your PC`);
     } catch (err) {
       console.error("PDF generation failed:", err);
-      if (showToast) {
-        showToast("⚠️ Failed to generate PDF: " + err.message);
-      }
+      if (showToast) showToast("⚠️ Failed to generate PDF: " + err.message);
     }
-  };
-
-
-  const handlePrint = () => {
-    window.print();
   };
 
   const statusClass = (invoice.status || "Paid").toLowerCase();
@@ -60,7 +51,7 @@ export default function InvoiceViewModal({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 840, width: "95vw", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
       >
-        {/* MODAL ACTION BAR */}
+        {/* ── MODAL HEADER — title + close only ── */}
         <div className="modal-header" style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="mini-avatar" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
@@ -71,68 +62,23 @@ export default function InvoiceViewModal({
                 Tax Invoice: <span style={{ color: "var(--primary)" }}>{invoice.id}</span>
               </h3>
               <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                GST Tax Invoice Preview • Ready for PDF Download & Print
+                GST Tax Invoice Preview • Ready for PDF Download
               </span>
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-
-            <button
-              type="button"
-              className="primary"
-              onClick={handleDownloadPDF}
-              title="Download branded Tax Invoice PDF on your PC"
-              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.82rem", padding: "6px 14px" }}
-            >
-              <Download size={15} />
-              <span>Download PDF</span>
-            </button>
-
-            <button
-              type="button"
-              className="outline"
-              onClick={handlePrint}
-              title="Print document or Print to PDF"
-              style={{ padding: "6px 10px" }}
-            >
-              <Printer size={15} />
-            </button>
-
-            {onDelete && (
-              <button
-                type="button"
-                className="outline"
-                onClick={() => onDelete(invoice)}
-                title="Delete this tax invoice"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 10px",
-                  fontSize: "0.82rem",
-                  color: "var(--danger)",
-                  borderColor: "var(--danger)",
-                  background: "rgba(239, 68, 68, 0.06)"
-                }}
-              >
-                <Trash2 size={15} />
-              </button>
-            )}
-
-            <button
-              type="button"
-              className="modal-close-btn"
-              onClick={onClose}
-              aria-label="Close invoice viewer"
-              style={{ marginLeft: 6 }}
-            >
-              <X size={17} />
-            </button>
-          </div>
+          {/* Close only — no duplicate download button */}
+          <button
+            type="button"
+            className="modal-close-btn"
+            onClick={onClose}
+            aria-label="Close invoice viewer"
+          >
+            <X size={17} />
+          </button>
         </div>
 
-        {/* PRINTABLE INVOICE PAPER BODY */}
+        {/* ── PRINTABLE INVOICE PAPER BODY ── */}
         <div className="modal-body" style={{ overflowY: "auto", padding: 24, background: "#f8fafc" }}>
           <div
             className="invoice-paper"
@@ -243,33 +189,21 @@ export default function InvoiceViewModal({
 
             {/* Billed By & Billed To Split Cards */}
             <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, margin: "20px 0" }}>
-              {/* Supplier Box */}
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 14 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: "#005bb5", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
                   Billed By (Supplier)
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>
-                  {companyInfo.name}
-                </div>
-                <div style={{ fontSize: 11.5, color: "#475569", marginTop: 4 }}>
-                  Industrial Estate, Pune - 411038
-                </div>
-                <div style={{ fontSize: 11.5, color: "#475569", marginTop: 2 }}>
-                  State: Maharashtra (State Code: 27)
-                </div>
-                <div style={{ fontSize: 11.5, color: "#475569", marginTop: 2 }}>
-                  Place of Supply: Maharashtra (27)
-                </div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>{companyInfo.name}</div>
+                <div style={{ fontSize: 11.5, color: "#475569", marginTop: 4 }}>Industrial Estate, Pune - 411038</div>
+                <div style={{ fontSize: 11.5, color: "#475569", marginTop: 2 }}>State: Maharashtra (State Code: 27)</div>
+                <div style={{ fontSize: 11.5, color: "#475569", marginTop: 2 }}>Place of Supply: Maharashtra (27)</div>
               </div>
 
-              {/* Customer Box */}
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: 14 }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: "#002b5c", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
                   Billed To (Customer / Recipient)
                 </div>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>
-                  {invoice.clientName}
-                </div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>{invoice.clientName}</div>
                 <div style={{ fontSize: 11.5, color: "#475569", marginTop: 4 }}>
                   Account ID: <strong>{invoice.clientId || "CL-001"}</strong>
                 </div>
@@ -326,9 +260,7 @@ export default function InvoiceViewModal({
                           <td style={{ padding: "10px 12px", textAlign: "right" }}>
                             ₹{Number(it.rate || 0).toLocaleString("en-IN")}
                           </td>
-                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#64748b" }}>
-                            {itemGst}%
-                          </td>
+                          <td style={{ padding: "10px 12px", textAlign: "center", color: "#64748b" }}>{itemGst}%</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600 }}>
                             ₹{itemTaxable.toLocaleString("en-IN")}
                           </td>
@@ -349,20 +281,12 @@ export default function InvoiceViewModal({
                           Commercial supply order as per agreed technical specification & delivery challan
                         </div>
                       </td>
-                      <td style={{ padding: "12px", textAlign: "center", fontFamily: "monospace", color: "#475569" }}>
-                        8481 / 7318
-                      </td>
+                      <td style={{ padding: "12px", textAlign: "center", fontFamily: "monospace", color: "#475569" }}>8481 / 7318</td>
                       <td style={{ padding: "12px", textAlign: "center" }}>1 Lot</td>
-                      <td style={{ padding: "12px", textAlign: "right" }}>
-                        ₹{amount.toLocaleString("en-IN")}
-                      </td>
+                      <td style={{ padding: "12px", textAlign: "right" }}>₹{amount.toLocaleString("en-IN")}</td>
                       <td style={{ padding: "12px", textAlign: "center", color: "#64748b" }}>18% GST</td>
-                      <td style={{ padding: "12px", textAlign: "right", fontWeight: 600 }}>
-                        ₹{amount.toLocaleString("en-IN")}
-                      </td>
-                      <td style={{ padding: "12px", textAlign: "right", fontWeight: 800, color: "#005bb5" }}>
-                        ₹{total.toLocaleString("en-IN")}
-                      </td>
+                      <td style={{ padding: "12px", textAlign: "right", fontWeight: 600 }}>₹{amount.toLocaleString("en-IN")}</td>
+                      <td style={{ padding: "12px", textAlign: "right", fontWeight: 800, color: "#005bb5" }}>₹{total.toLocaleString("en-IN")}</td>
                     </tr>
                   )}
                 </tbody>
@@ -371,7 +295,6 @@ export default function InvoiceViewModal({
 
             {/* Calculations & Bank Details Split */}
             <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 20, marginTop: 20 }}>
-              {/* Left Column: Words & Bank details */}
               <div>
                 <div style={{ background: "#f1f5f9", padding: "10px 14px", borderRadius: 6, border: "1px solid #e2e8f0" }}>
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: "#005bb5", textTransform: "uppercase" }}>
@@ -395,7 +318,6 @@ export default function InvoiceViewModal({
                 </div>
               </div>
 
-              {/* Right Column: Financial Calculation Box */}
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 6, padding: "14px 16px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#475569", marginBottom: 6 }}>
                   <span>Taxable Subtotal:</span>
@@ -429,7 +351,6 @@ export default function InvoiceViewModal({
                   <span>₹{total.toLocaleString("en-IN")}</span>
                 </div>
 
-                {/* Payment settlement breakdown */}
                 {invoice.paidAmount !== undefined && (
                   <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #e2e8f0" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#059669", marginBottom: 4 }}>
@@ -487,38 +408,42 @@ export default function InvoiceViewModal({
           </div>
         </div>
 
-        {/* MODAL FOOTER */}
-        <div className="modal-footer" style={{ padding: "12px 20px", background: "var(--card-bg)", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" className="outline" onClick={onClose}>
-              Close
-            </button>
-            {onDelete && (
-              <button
-                type="button"
-                className="outline danger"
-                onClick={() => onDelete(invoice)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  color: "var(--danger)",
-                  borderColor: "var(--danger)",
-                  background: "rgba(239, 68, 68, 0.06)"
-                }}
-                title="Delete this tax invoice"
-              >
-                <Trash2 size={15} />
-                <span>Delete Invoice</span>
-              </button>
-            )}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--text-muted)", marginLeft: 6 }}>
-              <ShieldCheck size={16} color="#10b981" />
-              <span>Verified Tax Invoice</span>
-            </div>
+        {/* ── MODAL FOOTER ── */}
+        <div
+          className="modal-footer"
+          style={{
+            padding: "12px 20px",
+            background: "var(--card-bg)",
+            borderTop: "1px solid var(--border)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10
+          }}
+        >
+          {/* Left: verified badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--text-muted)" }}>
+            <ShieldCheck size={16} color="#10b981" />
+            <span>Verified Tax Invoice</span>
           </div>
 
-          <div style={{ display: "flex", gap: 10 }}>
+          {/* Right: Edit Invoice | Download PDF */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              type="button"
+              className="outline"
+              onClick={() => {
+                if (onEdit) onEdit(invoice);
+                onClose();
+              }}
+              style={{ display: "flex", alignItems: "center", gap: 6 }}
+              title="Edit this invoice"
+            >
+              <Edit3 size={14} />
+              <span>Edit Invoice</span>
+            </button>
+
             <button
               type="button"
               className="primary"
@@ -530,6 +455,7 @@ export default function InvoiceViewModal({
             </button>
           </div>
         </div>
+
       </div>
     </div>
   );

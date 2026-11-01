@@ -1,22 +1,11 @@
 import React, { useState, useEffect } from "react";
 import {
-  Database, Download, Upload, RefreshCw, CheckCircle2,
+  Database, Download, RefreshCw, CheckCircle2,
   FileText, ShieldCheck, Users, Package, ShoppingCart,
   Receipt, MessageCircle, AlertCircle
 } from "lucide-react";
 import { erpApi } from "../services/api";
 
-function downloadJsonFile(data, filename) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
 
 function exportToCsv(data, filename) {
   if (!data || !data.length) return;
@@ -73,48 +62,6 @@ export default function DataHubPage({
     }
   };
 
-  const handleMasterBackup = () => {
-    const backup = {
-      version: "2026.1",
-      exportedAt: new Date().toISOString(),
-      company,
-      clients,
-      products,
-      inventory,
-      invoices,
-      purchases,
-      expoLeads,
-    };
-    downloadJsonFile(
-      backup,
-      `Laxmi_Enterprises_ERP_Backup_${new Date().toISOString().slice(0, 10)}.json`
-    );
-    if (showToast) showToast("✓ Master Database Backup exported (.json)");
-  };
-
-  const handleRestoreFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const parsed = JSON.parse(event.target.result);
-        if (parsed.clients && setClients) setClients(parsed.clients);
-        if (parsed.products && setProducts) setProducts(parsed.products);
-        if (parsed.inventory && setInventory) setInventory(parsed.inventory);
-        if (parsed.purchases && setPurchases) setPurchases(parsed.purchases);
-        if (parsed.expoLeads && setExpoLeads) setExpoLeads(parsed.expoLeads);
-
-        if (showToast) showToast("✓ Database successfully restored from backup file");
-      } catch (err) {
-        if (showToast) showToast("Error parsing backup JSON: " + err.message);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  };
-
   const handleSyncToDatabase = async () => {
     setSyncing(true);
     try {
@@ -145,7 +92,7 @@ export default function DataHubPage({
             Data Hub & Database Management
           </h1>
           <p className="page-subtitle">
-            Direct MySQL database status, JSON backup/restore, and CSV audit registers.
+            Direct MySQL database status, cloud data synchronization, and CSV audit registers.
           </p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
@@ -207,22 +154,6 @@ export default function DataHubPage({
                 Database: laxmi_enterprises_db • Host: 127.0.0.1:3306 (Hostinger Ready)
               </p>
             </div>
-          </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <button
-              type="button"
-              className="primary"
-              onClick={handleMasterBackup}
-              style={{ display: "flex", alignItems: "center", gap: 6 }}
-            >
-              <Download size={15} />
-              <span>Download JSON Backup</span>
-            </button>
-            <label className="outline button" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", margin: 0 }}>
-              <Upload size={15} />
-              <span>Restore Backup</span>
-              <input type="file" accept=".json" onChange={handleRestoreFile} style={{ display: "none" }} />
-            </label>
           </div>
         </div>
       </div>

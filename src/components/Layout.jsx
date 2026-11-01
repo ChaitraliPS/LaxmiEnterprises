@@ -21,7 +21,7 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
     "/revenue": ["Revenue Intelligence", "Track financial milestones, invoicing and gross earnings"],
     "/products": ["Product Catalogue", "Manage supplies, pricing tiers, stock levels & safety thresholds"],
     "/inventory": ["Inventory Logistics", "Track inward receipts, outward dispatches, SKU flow & bay storage"],
-    "/data-hub": ["Data Hub & Cloud Sync", "Enterprise data registers, CSV exports & MySQL database backups"],
+    "/data-hub": ["Data Hub & Cloud Sync", "Enterprise data registers, CSV exports & MySQL database synchronization"],
     "/workspace": ["Admin Workspace", "Enterprise settings, company registry, access controls & system configuration"],
     "/login": ["Authentication & Security", "User credentials, access levels and secure enterprise register"]
   };

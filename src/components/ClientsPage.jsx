@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
-  Users, Plus, Search, Filter, Pencil, Trash2, Receipt, Eye, X,
-  Building2, Milk, Tractor, Wheat, Phone, Mail, MapPin, Download,
+  Users, Plus, Search, Eye, X,
+  Milk, Tractor, Wheat, Phone, Mail, MapPin,
   RotateCcw, CheckCircle2, Calendar
 } from "lucide-react";
 import ClientModal from "./ClientModal";
@@ -439,7 +439,7 @@ export default function ClientsPage({
                         </div>
                       </td>
 
-                      {/* 5. Status + actions */}
+                      {/* 5. Status + View only */}
                       <td>
                         <div className="cl-status-actions">
                           <span className={`badge ${c.status === "Active" ? "success" : "muted"}`}>
@@ -456,15 +456,6 @@ export default function ClientsPage({
                           <div className="row-actions">
                             <button title={`View full profile of ${c.name}`} onClick={() => setViewingClient(c)} style={{ color: "var(--accent)" }}>
                               <Eye size={14} />
-                            </button>
-                            <button title={`Create invoice for ${c.name}`} onClick={() => setInvoiceForClient(c)} style={{ color: "var(--primary)" }}>
-                              <Receipt size={14} />
-                            </button>
-                            <button title="Edit client" onClick={() => handleOpenEdit(c)}>
-                              <Pencil size={14} />
-                            </button>
-                            <button title="Delete client" onClick={() => setDeletingClient(c)}>
-                              <Trash2 size={14} style={{ color: "var(--danger)" }} />
                             </button>
                           </div>
                         </div>

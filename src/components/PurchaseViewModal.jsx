@@ -1,9 +1,7 @@
 import React, { useRef } from "react";
 import {
-  X, Printer, Download, ShoppingCart, Milk, Tractor, Store, Wheat,
-  Building2, MapPin, Phone, Mail, Calendar, CheckCircle2, AlertTriangle,
-  Clock, Hash, FileText, Layers, IndianRupee, ShieldCheck, Tag,
-  CreditCard, MessageCircle, Trash2
+  X, Download, ShoppingCart, Milk, Tractor, Wheat,
+  MapPin, Phone, Mail, Calendar, ShieldCheck, Edit3
 } from "lucide-react";
 import { generatePurchaseInvoicePDF } from "../services/pdfService";
 import { getPurchaseWhatsAppUrl } from "../services/whatsappService";
@@ -72,115 +70,75 @@ export default function PurchaseViewModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div 
-        className="modal" 
-        onClick={e => e.stopPropagation()} 
+      <div
+        className="modal"
+        onClick={e => e.stopPropagation()}
         style={{ maxWidth: 860, width: "95%", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
       >
         {/* MODAL HEAD */}
-        <div className="modal-head" style={{ padding: "14px 22px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: isDairy ? "rgba(2, 132, 199, 0.15)" :
-                          isFarmer ? "rgba(217, 119, 6, 0.15)" : "rgba(16, 185, 129, 0.15)",
-              color: isDairy ? "#0284c7" :
-                     isFarmer ? "#d97706" : "#059669",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center"
-            }}>
-              <ShoppingCart size={20} />
-            </div>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
-                  Inward Procurement Voucher
-                </h3>
-                <span className={`client-type-badge ${
-                  isDairy ? "dairy" : isFarmer ? "farmers" : "feed-shop"
-                }`}>
-                  {isDairy ? <Milk size={12} /> : isFarmer ? <Tractor size={12} /> : <Wheat size={12} />}
-                  {purchase.category}
-                </span>
-                {isPartial && (
-                  <span className="badge warning" style={{ fontSize: "0.72rem" }}>
-                    Day 1 Partial
-                  </span>
-                )}
-              </div>
-              <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                PO Reference: <b>{purchase.id}</b> • Bill No: <b>{purchase.billNumber || "-"}</b>
-              </p>
-            </div>
-          </div>
+       <div
+  className="modal-head"
+  style={{
+    padding: "14px 22px",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12
+  }}
+>
+  {/* LEFT: icon + title + PO ref */}
+  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+    <div style={{
+      width: 36,
+      height: 36,
+      borderRadius: 8,
+      flexShrink: 0,
+      background: isDairy ? "rgba(2, 132, 199, 0.15)" :
+                  isFarmer ? "rgba(217, 119, 6, 0.15)" : "rgba(16, 185, 129, 0.15)",
+      color: isDairy ? "#0284c7" :
+             isFarmer ? "#d97706" : "#059669",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center"
+    }}>
+      <ShoppingCart size={20} />
+    </div>
+    <div style={{ minWidth: 0 }}>
+      <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
+        Inward Procurement Voucher
+      </h3>
+      <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+        PO Reference: <b>{purchase.id}</b> • Bill No: <b>{purchase.billNumber || "-"}</b>
+      </p>
+    </div>
+  </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="primary"
-              onClick={handleDownloadPDF}
-              title="Download professional Purchase Invoice & Payment Receipt PDF"
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", fontSize: "0.82rem" }}
-            >
-              <Download size={14} /> Download Receipt
-            </button>
-
-            <button
-              type="button"
-              className="outline"
-              onClick={handleWhatsApp}
-              title={`Share Purchase Receipt with ${purchase.vendorName || "supplier"} on WhatsApp`}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 12px",
-                fontSize: "0.82rem",
-                color: "#128C7E",
-                borderColor: "#25D366",
-                background: "rgba(37, 211, 102, 0.08)"
-              }}
-            >
-              <MessageCircle size={15} style={{ color: "#25D366" }} /> WhatsApp
-            </button>
-
-            <button className="outline" onClick={handlePrint} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", fontSize: "0.82rem" }} title="Print Voucher">
-              <Printer size={15} />
-            </button>
-
-            {onDelete && (
-              <button
-                type="button"
-                className="outline"
-                onClick={() => onDelete(purchase)}
-                title="Delete this purchase voucher"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 10px",
-                  fontSize: "0.82rem",
-                  color: "var(--danger)",
-                  borderColor: "var(--danger)",
-                  background: "rgba(239, 68, 68, 0.06)"
-                }}
-              >
-                <Trash2 size={15} />
-              </button>
-            )}
-
-            <button className="icon-btn" onClick={onClose} aria-label="Close modal">
-              <X size={18} />
-            </button>
-          </div>
-        </div>
+  {/* RIGHT: badges + close */}
+  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+    <span
+      className={`client-type-badge ${
+        isDairy ? "dairy" : isFarmer ? "farmers" : "feed-shop"
+      }`}
+      style={{ whiteSpace: "nowrap" }}
+    >
+      {isDairy ? <Milk size={12} /> : isFarmer ? <Tractor size={12} /> : <Wheat size={12} />}
+      {purchase.category}
+    </span>
+    {isPartial && (
+      <span className="badge warning" style={{ fontSize: "0.72rem", whiteSpace: "nowrap" }}>
+        Day 1 Partial
+      </span>
+    )}
+    <button className="icon-btn" onClick={onClose} aria-label="Close modal">
+      <X size={18} />
+    </button>
+  </div>
+</div>
 
         {/* MODAL BODY (PRINTABLE VOUCHER AREA) */}
         <div className="modal-body" ref={printRef} style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
-          
+
           {/* VOUCHER HEADER WITH ENTERPRISE & SUPPLIER INFO */}
           <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20, background: "var(--table-hover)", padding: 18, borderRadius: 10, border: "1px solid var(--border)" }}>
             <div>
@@ -212,7 +170,7 @@ export default function PurchaseViewModal({
                   Proprietor / Rep: <b>{purchase.contactPerson}</b>
                 </div>
               )}
-              
+
               <div style={{ fontSize: "0.82rem", marginTop: 6, lineHeight: 1.5 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--text-main)" }}>
                   <MapPin size={13} style={{ color: "var(--primary)" }} />
@@ -566,42 +524,22 @@ export default function PurchaseViewModal({
         </div>
 
         {/* MODAL FOOTER */}
+        {/* MODAL FOOTER */}
         <div className="modal-footer" style={{ padding: "14px 24px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button type="button" className="outline" onClick={onClose}>
-              Close
-            </button>
-            {onDelete && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--text-muted)" }}>
+            <ShieldCheck size={16} color="#10b981" />
+            <span>Verified Inward Voucher</span>
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            {onEdit && (
               <button
                 type="button"
                 className="outline"
-                onClick={() => {
-                  if (window.confirm(`Are you sure you want to delete purchase voucher "${purchase.id}"?`)) {
-                    onClose();
-                    onDelete(purchase);
-                  }
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  color: "var(--danger)",
-                  borderColor: "var(--danger)"
-                }}
-              >
-                <Trash2 size={14} />
-                Delete Voucher
-              </button>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {onEdit && (
-              <button 
-                type="button" 
-                className="outline" 
                 onClick={() => { onClose(); onEdit(purchase); }}
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
               >
-                Edit Voucher
+                <Edit3 size={14} />
+                <span>Edit Voucher</span>
               </button>
             )}
             <button
@@ -611,11 +549,7 @@ export default function PurchaseViewModal({
               style={{ display: "flex", alignItems: "center", gap: 6 }}
             >
               <Download size={15} />
-              Download Receipt PDF
-            </button>
-            <button type="button" className="outline" onClick={handlePrint} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Printer size={15} />
-              Print
+              <span>Download Receipt PDF</span>
             </button>
           </div>
         </div>

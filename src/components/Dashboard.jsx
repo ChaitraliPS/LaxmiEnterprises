@@ -1,14 +1,12 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 import {
-  TrendingUp, AlertTriangle, Users, IndianRupee, Package, Boxes,
-  Download
+  TrendingUp, AlertTriangle, Users, IndianRupee, Package, Boxes
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
   Tooltip, PieChart, Pie, Cell
 } from "recharts";
-
 export function StatCard({ title, value, change, icon: Icon, positive = true }) {
   return (
     <div className="stat-card">
@@ -27,7 +25,6 @@ export function StatCard({ title, value, change, icon: Icon, positive = true }) 
     </div>
   );
 }
-
 export const getMonthlyRevenue = (invoices = []) => {
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const map = {};
@@ -43,16 +40,13 @@ export const getMonthlyRevenue = (invoices = []) => {
   });
   return months.map(m => ({ month: m, revenue: map[m] }));
 };
-
 export default function Dashboard({ clients = [], products = [], inventory = [], invoices = [], onExportMaster, adminProfile }) {
   // Connected reactively to live products and inventory state!
   const lowStockItems = products.filter(p => Number(p.stock) <= Number(p.minStock));
   const totalWarehouseUnits = products.reduce((sum, p) => sum + (Number(p.stock) || 0), 0);
-
   // Total dynamic revenue calculated from invoices
   const totalRevenueNumber = (invoices || []).reduce((sum, inv) => sum + Number(inv.grandTotal || inv.total || 0), 0);
   const formattedRevenue = `₹${totalRevenueNumber.toLocaleString("en-IN")}`;
-
   // Donut chart calculated from live products
   const inStockCount = products.filter(p => Number(p.stock) > Number(p.minStock)).length;
   const lowStockCount = products.filter(p => Number(p.stock) > 0 && Number(p.stock) <= Number(p.minStock)).length;
@@ -61,23 +55,11 @@ export default function Dashboard({ clients = [], products = [], inventory = [],
   const inStockPercent = Math.round((inStockCount / totalProdCount) * 100);
   const lowStockPercent = Math.round((lowStockCount / totalProdCount) * 100);
   const outOfStockPercent = Math.max(0, 100 - inStockPercent - lowStockPercent);
-
   return (
     <div className="page">
       <div className="page-actions" style={{ flexWrap: "wrap", gap: 10 }}>
         <span className="date-pill">Fiscal Year 2026-27 • Corporate Overview</span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            type="button"
-            className="primary"
-            onClick={onExportMaster}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.85rem" }}
-          >
-            <Download size={15} /> Export Master Backup (.json)
-          </button>
-        </div>
       </div>
-
       {/* KPI METRICS */}
       <div className="stats-grid">
         <StatCard title="Total Clients" value={String(clients.length)} change="+8.2%" icon={Users} />
@@ -85,7 +67,6 @@ export default function Dashboard({ clients = [], products = [], inventory = [],
         <StatCard title="Active Catalogue" value={`${products.length} Products`} change="+4.8%" icon={Package} />
         <StatCard title="Warehouse Units" value={totalWarehouseUnits.toLocaleString("en-IN")} change="-2.4%" icon={Boxes} positive={false} />
       </div>
-
       {/* CHARTS GRID */}
       <div className="dashboard-grid">
         <div className="card chart-card">
@@ -111,12 +92,12 @@ export default function Dashboard({ clients = [], products = [], inventory = [],
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                 <XAxis dataKey="month" stroke="var(--text-muted)" fontSize={12} />
-                <YAxis 
-                  stroke="var(--text-muted)" 
-                  tickFormatter={(v) => `₹${v / 1000}k`} 
-                  fontSize={12} 
+                <YAxis
+                  stroke="var(--text-muted)"
+                  tickFormatter={(v) => `₹${v / 1000}k`}
+                  fontSize={12}
                 />
-                <Tooltip 
+                <Tooltip
                   formatter={(v) => [`₹${Number(v).toLocaleString("en-IN")}`, "Revenue"]}
                   contentStyle={{
                     background: "var(--card-bg)",
@@ -125,18 +106,17 @@ export default function Dashboard({ clients = [], products = [], inventory = [],
                     boxShadow: "var(--shadow-md)"
                   }}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="revenue" 
-                  stroke="var(--primary)" 
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="var(--primary)"
                   strokeWidth={3}
-                  fill="url(#brandRevGrad)" 
+                  fill="url(#brandRevGrad)"
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
-
         {/* DONUT CHART */}
         <div className="card">
           <div className="card-head">
@@ -148,22 +128,22 @@ export default function Dashboard({ clients = [], products = [], inventory = [],
           <div className="donut">
             <ResponsiveContainer width="100%" height={195}>
               <PieChart>
-                <Pie 
+                <Pie
                   data={[
                     { name: "In Stock", value: inStockCount || 1, color: "var(--primary)" },
                     { name: "Low Stock", value: lowStockCount, color: "var(--warning)" },
                     { name: "Out of Stock", value: outOfStockCount, color: "var(--danger)" }
-                  ]} 
-                  innerRadius={55} 
-                  outerRadius={78} 
-                  paddingAngle={4} 
+                  ]}
+                  innerRadius={55}
+                  outerRadius={78}
+                  paddingAngle={4}
                   dataKey="value"
                 >
                   <Cell fill="var(--primary)" />
                   <Cell fill="var(--warning)" />
                   <Cell fill="var(--danger)" />
                 </Pie>
-                <Tooltip 
+                <Tooltip
                   contentStyle={{
                     background: "var(--card-bg)",
                     borderColor: "var(--border)",
@@ -193,7 +173,6 @@ export default function Dashboard({ clients = [], products = [], inventory = [],
           </div>
         </div>
       </div>
-
       {/* LOWER DATA SECTION */}
       <div className="bottom-grid">
         <div className="card">
@@ -230,7 +209,6 @@ export default function Dashboard({ clients = [], products = [], inventory = [],
             </table>
           </div>
         </div>
-
         <div className="card">
           <div className="card-head">
             <div>

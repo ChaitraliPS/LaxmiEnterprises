@@ -1,13 +1,10 @@
 import React, { useState, useMemo } from "react";
 import {
-  ShoppingCart, Plus, Search, Eye, Pencil, Milk, Tractor, Store, Wheat, MapPin, Phone,
-  Mail, Calendar, TrendingUp, IndianRupee, AlertCircle, CheckCircle2,
-  Clock, ShieldCheck, RefreshCw, X, Filter, Building2, User,
-  Download, Trash2
+  ShoppingCart, Plus, Search, Eye, Milk, Tractor, Wheat, MapPin, Phone,
+  TrendingUp, IndianRupee, AlertCircle, CheckCircle2, X, Building2
 } from "lucide-react";
 import PurchaseModal from "./PurchaseModal";
 import PurchaseViewModal from "./PurchaseViewModal";
-import { generatePurchaseInvoicePDF } from "../services/pdfService";
 import { erpApi } from "../services/api";
 
 export const getPurchaseAmounts = (p) => {
@@ -46,15 +43,15 @@ export default function PurchasesPage({
   showToast
 }) {
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("All"); // "All" | "Animal Feed Shop" | "Dairy" | "Farmers"
-  const [statusFilter, setStatusFilter] = useState("All"); // "All" | "Paid" | "Pending" | "Partial"
-  
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+
   // Modals state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [viewingPurchase, setViewingPurchase] = useState(null);
 
-  // Compute Next PO ID
+  // Next PO ID
   const nextPOId = useMemo(() => {
     let maxNum = 0;
     (purchases || []).forEach(p => {
@@ -67,49 +64,38 @@ export default function PurchasesPage({
     return `LE-PUR-2026-${String(maxNum + 1).padStart(3, "0")}`;
   }, [purchases]);
 
-  // Aggregate Agribusiness Procurement KPIs
-  const totalPurchasesAmount = useMemo(() => {
-    return purchases.reduce((sum, p) => {
-      const { total } = getPurchaseAmounts(p);
-      return sum + total;
-    }, 0);
-  }, [purchases]);
-
-  const totalPaidAmount = useMemo(() => {
-    return purchases.reduce((sum, p) => {
-      const { paid } = getPurchaseAmounts(p);
-      return sum + paid;
-    }, 0);
-  }, [purchases]);
-
-  const totalBalanceDue = useMemo(() => {
-    return purchases.reduce((sum, p) => {
-      const { balance } = getPurchaseAmounts(p);
-      return sum + balance;
-    }, 0);
-  }, [purchases]);
-
-  const feedPurchasesCount = useMemo(() => {
-    return purchases.filter(p => p.category === "Animal Feed Shop").length;
-  }, [purchases]);
-
-  const dairyPurchasesCount = useMemo(() => {
-    return purchases.filter(p => p.category === "Dairy").length;
-  }, [purchases]);
-
-  const farmerPurchasesCount = useMemo(() => {
-    return purchases.filter(p => p.category === "Farmers").length;
-  }, [purchases]);
+  // KPIs
+  const totalPurchasesAmount = useMemo(
+    () => purchases.reduce((sum, p) => sum + getPurchaseAmounts(p).total, 0),
+    [purchases]
+  );
+  const totalPaidAmount = useMemo(
+    () => purchases.reduce((sum, p) => sum + getPurchaseAmounts(p).paid, 0),
+    [purchases]
+  );
+  const totalBalanceDue = useMemo(
+    () => purchases.reduce((sum, p) => sum + getPurchaseAmounts(p).balance, 0),
+    [purchases]
+  );
+  const feedPurchasesCount = useMemo(
+    () => purchases.filter(p => p.category === "Animal Feed Shop").length,
+    [purchases]
+  );
+  const dairyPurchasesCount = useMemo(
+    () => purchases.filter(p => p.category === "Dairy").length,
+    [purchases]
+  );
+  const farmerPurchasesCount = useMemo(
+    () => purchases.filter(p => p.category === "Farmers").length,
+    [purchases]
+  );
 
   // Filtered dataset
   const filteredPurchases = useMemo(() => {
     return (purchases || []).filter(p => {
-      // Category filter
       if (categoryFilter !== "All" && p.category !== categoryFilter) return false;
-      // Status filter
       if (statusFilter !== "All" && p.paymentStatus !== statusFilter) return false;
-      
-      // Search query
+
       const q = search.toLowerCase().trim();
       if (!q) return true;
 
@@ -146,7 +132,7 @@ export default function PurchasesPage({
 
   const handleSavePurchase = (saved) => {
     if (editingPurchase) {
-      const updated = purchases.map(p => p.id === saved.id ? saved : p);
+      const updated = purchases.map(p => (p.id === saved.id ? saved : p));
       if (onSavePurchases) onSavePurchases(updated);
       if (showToast) showToast(`✓ Updated Purchase Voucher ${saved.id}`);
     } else {
@@ -166,7 +152,13 @@ export default function PurchasesPage({
     const pId = purchaseToDelete.id || purchaseToDelete.purchaseId;
     const confirmMsg = `Are you sure you want to delete purchase voucher "${pId}" from ${purchaseToDelete.vendorName || purchaseToDelete.name}?`;
     if (window.confirm(confirmMsg)) {
-      const updated = purchases.filter(p => p.id !== pId && p.purchaseId !== pId && p.id !== purchaseToDelete.id && p.purchaseId !== purchaseToDelete.purchaseId);
+      const updated = purchases.filter(
+        p =>
+          p.id !== pId &&
+          p.purchaseId !== pId &&
+          p.id !== purchaseToDelete.id &&
+          p.purchaseId !== purchaseToDelete.purchaseId
+      );
       if (onSavePurchases) onSavePurchases(updated);
       erpApi.deletePurchase(pId).catch(() => {});
       setViewingPurchase(null);
@@ -174,43 +166,69 @@ export default function PurchasesPage({
     }
   };
 
-  const handleDownloadReceipt = (p) => {
-    try {
-      const { fileName } = generatePurchaseInvoicePDF(p, company);
-      if (showToast) showToast(`✓ Downloaded ${fileName} to your PC`);
-    } catch (err) {
-      console.error("PDF generation failed:", err);
-      if (showToast) showToast("⚠️ Failed to generate Receipt PDF: " + err.message);
-    }
-  };
-
   return (
-    <div className="page-content" style={{ padding: "20px 24px" }}>
-      
-      {/* TOP HEADER & ACTION BUTTONS */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
-        <div>
-          <h2 style={{ margin: "0 0 4px 0", fontSize: "1.4rem", display: "flex", alignItems: "center", gap: 8 }}>
-            <ShoppingCart size={24} style={{ color: "var(--primary)" }} />
-            Purchase & Inward Procurement
+    <div
+      className="page-content"
+      style={{
+        padding: "20px 24px",
+        width: "100%",
+        maxWidth: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        overflowX: "hidden"
+      }}
+    >
+      {/* HEADER */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 18,
+          flexWrap: "wrap"
+        }}
+      >
+        <div style={{ minWidth: 0, flex: "1 1 280px" }}>
+          <h2
+            style={{
+              margin: "0 0 2px 0",
+              fontSize: "1.25rem",
+              display: "flex",
+              alignItems: "center",
+              gap: 8
+            }}
+          >
+            <ShoppingCart size={22} style={{ color: "var(--primary)" }} />
+            Purchases
           </h2>
-          <p style={{ margin: 0, fontSize: "0.86rem", color: "var(--text-muted)" }}>
-            Inward inventory & raw materials: Animal feed shop stocks, Dairy milk procurement & Farmer direct farm supplies
+          <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
+            Animal feed stock, dairy milk procurement & farmer direct supplies
           </p>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" className="primary" onClick={handleOpenAdd} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Plus size={16} />
-            Record New Purchase
-          </button>
-        </div>
+        <button
+          type="button"
+          className="primary"
+          onClick={handleOpenAdd}
+          style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", flexShrink: 0 }}
+        >
+          <Plus size={16} />
+          Record New Purchase
+        </button>
       </div>
 
-      {/* KPI METRIC CARDS */}
-      <div className="stats-grid" style={{ marginBottom: 22 }}>
-        
-        {/* KPI 1: Gross Inward Purchases */}
+      {/* KPI CARDS */}
+      <div
+        className="stats-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 16,
+          marginBottom: 20
+        }}
+      >
+        {/* KPI 1 */}
         <div className="stat-card">
           <div className="stat-top">
             <span>Total Inward Purchases</span>
@@ -225,7 +243,7 @@ export default function PurchasesPage({
           </div>
         </div>
 
-        {/* KPI 2: Paid Outflow */}
+        {/* KPI 2 */}
         <div className="stat-card">
           <div className="stat-top">
             <span>Settled / Paid to Vendors</span>
@@ -241,11 +259,17 @@ export default function PurchasesPage({
           </div>
         </div>
 
-        {/* KPI 3: Outstanding Vendor Dues */}
+        {/* KPI 3 */}
         <div className="stat-card">
           <div className="stat-top">
             <span>Pending Vendor Dues</span>
-            <div className="stat-icon" style={{ background: totalBalanceDue > 0 ? "rgba(239, 68, 68, 0.12)" : "rgba(148, 163, 184, 0.12)", color: totalBalanceDue > 0 ? "var(--danger)" : "#64748b" }}>
+            <div
+              className="stat-icon"
+              style={{
+                background: totalBalanceDue > 0 ? "rgba(239, 68, 68, 0.12)" : "rgba(148, 163, 184, 0.12)",
+                color: totalBalanceDue > 0 ? "var(--danger)" : "#64748b"
+              }}
+            >
               <AlertCircle size={19} />
             </div>
           </div>
@@ -257,7 +281,7 @@ export default function PurchasesPage({
           </div>
         </div>
 
-        {/* KPI 4: Agribusiness Distribution */}
+        {/* KPI 4 */}
         <div className="stat-card">
           <div className="stat-top">
             <span>Procurement Distribution</span>
@@ -283,16 +307,24 @@ export default function PurchasesPage({
             <span>3 Agribusiness Sectors Active</span>
           </div>
         </div>
-
       </div>
 
-      {/* MAIN DATA TABLE CARD */}
-      <div className="card table-card">
-        
-        {/* CARD HEAD WITH CATEGORY FILTER TABS & SEARCH */}
-        <div className="card-head" style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)" }}>
-          
-          {/* CATEGORY FILTER TABS */}
+      {/* MAIN TABLE CARD */}
+      <div className="card table-card" style={{ maxWidth: "100%", overflow: "hidden" }}>
+        {/* CARD HEAD */}
+        <div
+          className="card-head"
+          style={{
+            padding: "14px 18px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap"
+          }}
+        >
+          {/* CATEGORY TABS */}
           <div className="filter-pills-bar" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               className={`filter-pill ${categoryFilter === "All" ? "active" : ""}`}
@@ -329,9 +361,9 @@ export default function PurchasesPage({
             </button>
           </div>
 
-          {/* SEARCH & STATUS FILTER */}
+          {/* SEARCH & STATUS */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <div className="search-bar" style={{ width: 260 }}>
+            <div className="search-bar" style={{ width: "100%", maxWidth: 260, minWidth: 180 }}>
               <Search size={15} />
               <input
                 type="text"
@@ -364,216 +396,253 @@ export default function PurchasesPage({
           </div>
         </div>
 
-        {/* PURCHASES TABLE */}
-        <div className="table-wrapper">
+        {/* TABLE */}
+        <div className="table-wrapper" style={{ width: "100%", overflowX: "auto" }}>
           {filteredPurchases.length === 0 ? (
             <div style={{ padding: "48px 20px", textAlign: "center", color: "var(--text-muted)" }}>
               <ShoppingCart size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
               <h4 style={{ margin: 0, fontSize: "1rem", color: "var(--text-main)" }}>No Purchases Found</h4>
               <p style={{ margin: "4px 0 16px 0", fontSize: "0.84rem" }}>
-                {search ? `No purchase records match "${search}". Try resetting the search.` : "No purchases recorded under this filter."}
+                {search
+                  ? `No purchase records match "${search}". Try resetting the search.`
+                  : "No purchases recorded under this filter."}
               </p>
               <button type="button" className="primary" onClick={handleOpenAdd} style={{ fontSize: "0.84rem" }}>
                 <Plus size={14} style={{ marginRight: 6 }} /> Record Inward Purchase
               </button>
             </div>
           ) : (
-            <table>
+            <table style={{ width: "100%", tableLayout: "auto" }}>
               <thead>
                 <tr>
-                  <th style={{ width: 130 }}>PO & Bill ID</th>
-                  <th>Supplier / Seller Account</th>
-                  <th style={{ width: 200 }}>Village, Taluka & Contact</th>
-                  <th style={{ width: 280 }}>Procured Goods & Inward Volume</th>
-                  <th style={{ width: 110 }}>Bill Date</th>
-                  <th style={{ textAlign: "right", width: 140 }}>Inward Total (₹)</th>
-                  <th style={{ width: 110, textAlign: "center" }}>Status</th>
-                  <th style={{ textAlign: "center", width: 110 }}>Actions</th>
+                  <th>PO & Bill ID</th>
+                  <th>Supplier</th>
+                  <th>Procured Goods</th>
+                  <th>Bill Date</th>
+                  <th style={{ textAlign: "right" }}>Inward Total (₹)</th>
+                  <th style={{ textAlign: "center" }}>Status</th>
+                  <th style={{ textAlign: "center", width: 70 }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredPurchases.map((p) => {
                   const isDairy = p.category === "Dairy";
                   const isFarmer = p.category === "Farmers";
-                  const isFeed = p.category === "Animal Feed Shop";
 
-                  // Unified numerical math
-                  const { taxable: pTaxable, total: pEffectiveTotal, paid: pPaid, balance: pBalance, status: pStatus } = getPurchaseAmounts(p);
+                  const {
+                    taxable: pTaxable,
+                    total: pTotal,
+                    paid: pPaid,
+                    balance: pBalance
+                  } = getPurchaseAmounts(p);
 
-                  // Procurement quantity & unit resolution
-                  const qty = Number(p.inwardQty || p.quantity || (isDairy ? p.milkQuantity : (isFarmer ? p.farmQuantity : p.feedQuantity)) || 1);
+                  const qty = Number(
+                    p.inwardQty ||
+                      p.quantity ||
+                      (isDairy ? p.milkQuantity : isFarmer ? p.farmQuantity : p.feedQuantity) ||
+                      1
+                  );
                   const unit = p.unit || (isDairy ? "Liters" : isFarmer ? "Tonnes" : "Bags");
-                  const unitRate = Number(p.unitRate || p.rate || (isDairy ? p.ratePerLiter : null) || (qty > 0 && pTaxable > 0 ? Math.round(pTaxable / qty) : 0));
-                  const itemTitle = p.itemDescription || p.productName || (isDairy ? "Daily Raw Milk Batch" : isFarmer ? (p.farmItemsSupplied || "Direct Farm Harvest") : "Cattle Feed Stock");
+                  const unitRate = Number(
+                    p.unitRate ||
+                      p.rate ||
+                      (isDairy ? p.ratePerLiter : null) ||
+                      (qty > 0 && pTaxable > 0 ? Math.round(pTaxable / qty) : 0)
+                  );
+                  const itemTitle =
+                    p.itemDescription ||
+                    p.productName ||
+                    (isDairy
+                      ? "Daily Raw Milk Batch"
+                      : isFarmer
+                      ? p.farmItemsSupplied || "Direct Farm Harvest"
+                      : "Cattle Feed Stock");
+                  const location = [p.village, p.taluka, p.district].filter(Boolean).join(", ");
 
                   return (
                     <tr key={p.id}>
-                      {/* PO ID & Category */}
-                      <td>
+                      {/* PO ID */}
+                      <td style={{ whiteSpace: "nowrap" }}>
                         <button
                           type="button"
                           onClick={() => setViewingPurchase(p)}
-                          title="Click to view full voucher"
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: 0,
-                            cursor: "pointer",
-                            textAlign: "left"
-                          }}
+                          title="View voucher"
+                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
                         >
-                          <code style={{
-                            color: "var(--primary)",
-                            fontWeight: 700,
-                            background: "rgba(0, 91, 181, 0.08)",
-                            padding: "3px 7px",
-                            borderRadius: 4
-                          }}>
+                          <code
+                            style={{
+                              color: "var(--primary)",
+                              fontWeight: 700,
+                              background: "rgba(0,91,181,0.08)",
+                              padding: "3px 7px",
+                              borderRadius: 4,
+                              fontSize: 12
+                            }}
+                          >
                             {p.id}
                           </code>
                         </button>
                         <div style={{ marginTop: 4 }}>
-                          <span className={`client-type-badge ${
-                            isDairy ? "dairy" : isFarmer ? "farmers" : "feed-shop"
-                          }`}>
+                          <span
+                            className={`client-type-badge ${
+                              isDairy ? "dairy" : isFarmer ? "farmers" : "feed-shop"
+                            }`}
+                            style={{ whiteSpace: "nowrap" }}
+                          >
                             {isDairy ? <Milk size={11} /> : isFarmer ? <Tractor size={11} /> : <Wheat size={11} />}
                             {isDairy ? "Dairy" : isFarmer ? "Farmer" : "Feed Shop"}
                           </span>
                         </div>
                         {p.billNumber && (
-                          <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: 2 }}>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
                             Ref: {p.billNumber}
                           </div>
                         )}
                       </td>
 
-                      {/* Supplier / Seller Account */}
+                      {/* Supplier + Location + Contact */}
                       <td>
                         <div className="person">
-                          <div className="mini-avatar" style={{
-                            background: isDairy ? "rgba(2, 132, 199, 0.12)" :
-                                        isFarmer ? "rgba(217, 119, 6, 0.12)" : "rgba(16, 185, 129, 0.12)",
-                            color: isDairy ? "#0284c7" :
-                                   isFarmer ? "#d97706" : "#059669"
-                          }}>
+                          <div
+                            className="mini-avatar"
+                            style={{
+                              background: isDairy
+                                ? "rgba(2,132,199,0.12)"
+                                : isFarmer
+                                ? "rgba(217,119,6,0.12)"
+                                : "rgba(16,185,129,0.12)",
+                              color: isDairy ? "#0284c7" : isFarmer ? "#d97706" : "#059669"
+                            }}
+                          >
                             {(p.vendorName || p.name || "S")[0].toUpperCase()}
                           </div>
-                          <div>
+                          <div style={{ minWidth: 0 }}>
                             <b
-                              style={{ cursor: "pointer", color: "var(--text-main)", fontSize: "13px" }}
+                              style={{ cursor: "pointer", fontSize: 13 }}
                               onClick={() => setViewingPurchase(p)}
-                              title="Click to view purchase voucher"
                             >
                               {p.vendorName || p.name || "Registered Vendor"}
                             </b>
-                            {p.contactPerson && p.contactPerson.trim() && p.contactPerson !== (p.vendorName || p.name) && (
-                              <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: 1 }}>
-                                👤 {p.contactPerson}
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-muted)",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
+                                marginTop: 1
+                              }}
+                            >
+                              <MapPin size={11} style={{ flexShrink: 0 }} />
+                              <span>{location || "Location not added"}</span>
+                            </div>
+                            {p.contact && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "var(--text-muted)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 4
+                                }}
+                              >
+                                <Phone size={11} /> {p.contact}
                               </div>
                             )}
                           </div>
                         </div>
                       </td>
 
-                      {/* Common Info: Village, Taluka, District & Contact */}
+                      {/* Goods */}
                       <td>
-                        <div style={{ fontSize: "12px", lineHeight: 1.4 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-main)", fontWeight: 500 }}>
-                            <MapPin size={12} style={{ color: "var(--primary)", flexShrink: 0 }} />
-                            <span>{[p.village, p.taluka].filter(Boolean).join(", ") || "Location -"}</span>
-                          </div>
-                          <div style={{ color: "var(--text-muted)", fontSize: "11px", paddingLeft: 16 }}>
-                            Dist: <b>{p.district || "-"}</b>
-                          </div>
-                          {p.contact && (
-                            <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2, fontSize: "11px", color: "var(--text-muted)" }}>
-                              <Phone size={11} /> <span>{p.contact}</span>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Procured Goods & Inward Volume */}
-                      <td>
-                        <div style={{ fontSize: "12px", lineHeight: 1.45 }}>
-                          <div style={{ fontWeight: 600, color: "var(--text-main)" }}>
-                            {itemTitle}
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
-                            <span style={{
-                              background: "rgba(0, 91, 181, 0.08)",
-                              color: "var(--primary)",
-                              padding: "2px 7px",
-                              borderRadius: 4,
-                              fontSize: "11px",
-                              fontWeight: 600
-                            }}>
-                              Inward: {qty} {unit}
+                        <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+                          <div style={{ fontWeight: 600 }}>{itemTitle}</div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              marginTop: 3,
+                              flexWrap: "wrap"
+                            }}
+                          >
+                            <span
+                              style={{
+                                background: "rgba(0,91,181,0.08)",
+                                color: "var(--primary)",
+                                padding: "2px 7px",
+                                borderRadius: 4,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                whiteSpace: "nowrap"
+                              }}
+                            >
+                              {qty} {unit}
                             </span>
                             {unitRate > 0 && (
-                              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                              <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                                 @ ₹{unitRate.toLocaleString("en-IN")}/{unit.replace(/s$/, "")}
                               </span>
                             )}
                           </div>
-                          {/* Specific Quality Metrics */}
                           {isDairy && (p.fatPercent || p.snfPercent) && (
-                            <div style={{ color: "#0284c7", fontSize: "10.5px", marginTop: 3, fontWeight: 500 }}>
-                              🥛 Quality: {p.fatPercent ? `${p.fatPercent}% Fat` : ""} {p.snfPercent ? `• ${p.snfPercent}% SNF` : ""}
-                            </div>
-                          )}
-                          {isDairy && p.numberOfSuppliers > 0 && (
-                            <div style={{ color: "var(--text-muted)", fontSize: "10.5px" }}>
-                              👥 {p.numberOfSuppliers} Member Farmers
+                            <div style={{ color: "#0284c7", fontSize: 10.5, marginTop: 3 }}>
+                              🥛 {p.fatPercent ? `${p.fatPercent}% Fat` : ""}{" "}
+                              {p.snfPercent ? `• ${p.snfPercent}% SNF` : ""}
                             </div>
                           )}
                           {isFarmer && p.numberOfAnimals && (
-                            <div style={{ color: "#d97706", fontSize: "10.5px", marginTop: 2 }}>
-                              🚜 Cattle / Herd: {p.numberOfAnimals} Animals
+                            <div style={{ color: "#d97706", fontSize: 10.5, marginTop: 2 }}>
+                              🚜 {p.numberOfAnimals} Animals
                             </div>
                           )}
                         </div>
                       </td>
 
                       {/* Date */}
-                      <td style={{ fontSize: "12px" }}>
+                      <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>
                         <div>{p.date}</div>
                         {p.dueDate && p.dueDate !== p.date && (
-                          <div style={{ fontSize: "10.5px", color: "var(--text-muted)" }}>
-                            Due: {p.dueDate}
-                          </div>
+                          <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Due: {p.dueDate}</div>
                         )}
                       </td>
 
-                      {/* Inward Total & Settlement */}
-                      <td style={{ textAlign: "right" }}>
-                        <div style={{ fontWeight: 700, fontSize: "13.5px", color: "var(--text-main)" }}>
-                          ₹{pEffectiveTotal.toLocaleString("en-IN")}
+                      {/* Total */}
+                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>
+                          ₹{pTotal.toLocaleString("en-IN")}
                         </div>
-                        <div style={{ fontSize: "11px", color: "#10b981", fontWeight: 500 }}>
+                        <div style={{ fontSize: 11, color: "#10b981", fontWeight: 500 }}>
                           Paid: ₹{pPaid.toLocaleString("en-IN")}
                         </div>
                         {pBalance > 0 ? (
-                          <div style={{ fontSize: "11px", color: "var(--danger)", fontWeight: 600, marginTop: 1 }}>
+                          <div style={{ fontSize: 11, color: "var(--danger)", fontWeight: 600 }}>
                             Due: ₹{pBalance.toLocaleString("en-IN")}
                           </div>
                         ) : (
-                          <div style={{ fontSize: "10px", color: "#10b981" }}>
-                            ✓ Settled in Full
-                          </div>
+                          <div style={{ fontSize: 10, color: "#10b981" }}>✓ Settled in Full</div>
                         )}
                       </td>
 
                       {/* Status */}
-                      <td style={{ textAlign: "center" }}>
-                        <span className={`badge ${
-                          p.paymentStatus === "Paid" ? "success" :
-                          p.paymentStatus === "Partial" ? "warning" : "muted"
-                        }`}>
+                      <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                        <span
+                          className={`badge ${
+                            p.paymentStatus === "Paid"
+                              ? "success"
+                              : p.paymentStatus === "Partial"
+                              ? "warning"
+                              : "muted"
+                          }`}
+                        >
                           <span
-                            className={`badge-dot ${p.paymentStatus === "Paid" ? "pulse" : ""}`}
                             style={{
-                              background: p.paymentStatus === "Paid" ? "#10b981" : p.paymentStatus === "Partial" ? "#f59e0b" : "#94a3b8",
+                              background:
+                                p.paymentStatus === "Paid"
+                                  ? "#10b981"
+                                  : p.paymentStatus === "Partial"
+                                  ? "#f59e0b"
+                                  : "#94a3b8",
                               width: 6,
                               height: 6,
                               borderRadius: "50%",
@@ -585,35 +654,15 @@ export default function PurchasesPage({
                         </span>
                       </td>
 
-                      {/* Row Actions */}
+                      {/* Action: sirf View */}
                       <td style={{ textAlign: "center" }}>
                         <div className="row-actions" style={{ justifyContent: "center" }}>
                           <button
-                            title={`View Full Voucher of ${p.id}`}
+                            title={`View ${p.id}`}
                             onClick={() => setViewingPurchase(p)}
                             style={{ color: "var(--accent)" }}
                           >
-                            <Eye size={14} />
-                          </button>
-                          <button
-                            title={`Download Purchase Invoice & Payment Receipt PDF (${p.id})`}
-                            onClick={() => handleDownloadReceipt(p)}
-                            style={{ color: "var(--primary)" }}
-                          >
-                            <Download size={14} />
-                          </button>
-                          <button
-                            title="Edit Purchase Record"
-                            onClick={() => handleOpenEdit(p)}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            title="Delete Purchase Record"
-                            onClick={() => handleDeletePurchase(p)}
-                            style={{ color: "var(--danger)" }}
-                          >
-                            <Trash2 size={14} />
+                            <Eye size={15} />
                           </button>
                         </div>
                       </td>
@@ -626,11 +675,14 @@ export default function PurchasesPage({
         </div>
       </div>
 
-      {/* MODAL 1: ADD / EDIT PURCHASE */}
+      {/* MODAL 1: ADD / EDIT */}
       <PurchaseModal
         key={editingPurchase ? editingPurchase.id : "new-purchase"}
         isOpen={modalOpen}
-        onClose={() => { setModalOpen(false); setEditingPurchase(null); }}
+        onClose={() => {
+          setModalOpen(false);
+          setEditingPurchase(null);
+        }}
         onSave={handleSavePurchase}
         purchaseToEdit={editingPurchase}
         nextId={nextPOId}
@@ -638,17 +690,19 @@ export default function PurchasesPage({
         products={products}
       />
 
-      {/* MODAL 2: VIEW PURCHASE VOUCHER */}
+      {/* MODAL 2: VIEW VOUCHER */}
       <PurchaseViewModal
         isOpen={!!viewingPurchase}
         onClose={() => setViewingPurchase(null)}
         purchase={viewingPurchase}
         company={company}
-        onEdit={(p) => { setViewingPurchase(null); handleOpenEdit(p); }}
+        onEdit={(p) => {
+          setViewingPurchase(null);
+          handleOpenEdit(p);
+        }}
         onDelete={handleDeletePurchase}
         showToast={showToast}
       />
-
     </div>
   );
 }

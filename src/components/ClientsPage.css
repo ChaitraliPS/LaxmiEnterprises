@@ -161,7 +161,14 @@
 .cl-due { margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted, #64748b); }
 .cl-due.has-due { color: var(--danger, #ef4444); font-weight: 800; }
 
-.cl-status-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.cl-status-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cl-status-actions .row-actions { margin: 0; }
 
 /* Stack rows into cards on tablets and phones */
 @media (max-width: 900px) {

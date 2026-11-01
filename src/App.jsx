@@ -157,7 +157,12 @@ export default function App() {
       const existingProductIds = new Set();
 
       const updatedExisting = (prevInv || [])
-        .filter((inv) => prodMap.has(String(inv.productId || inv.id || inv.sku)))
+        .filter((inv) => {
+          const invProdId = String(inv.productId || inv.id || inv.sku);
+          const invProdName = (inv.product || inv.productName || "").trim().toLowerCase();
+          const prodNames = new Set((newProducts || []).map((p) => (p.name || "").trim().toLowerCase()).filter(Boolean));
+          return prodMap.has(invProdId) || (invProdName && prodNames.has(invProdName));
+        })
         .map((inv) => {
           const pId = String(inv.productId || inv.id || inv.sku);
           existingProductIds.add(pId);
@@ -236,6 +241,43 @@ export default function App() {
       .syncInventory(newInventory)
       .then(refreshStockData)
       .catch((e) => console.warn("Failed to sync inventory to DB:", e.message));
+  };
+
+  const handleDeleteProductCascade = (productToDelete) => {
+    if (!productToDelete) return;
+    const targetId = String(productToDelete.id || productToDelete.productId);
+    const targetName = (productToDelete.name || "").trim().toLowerCase();
+
+    // 1. Update products in state and localStorage
+    const updatedProducts = (products || []).filter(
+      (p) => String(p.id || p.productId) !== targetId
+    );
+    setProducts(updatedProducts);
+    localStorage.setItem("le_products", JSON.stringify(updatedProducts));
+
+    // 2. Cascade delete from inventory in state and localStorage
+    setInventory((prevInv) => {
+      const updatedInv = (prevInv || []).filter((inv) => {
+        const invProdId = String(inv.productId || inv.id || inv.sku);
+        const invProdName = (inv.product || inv.productName || "").trim().toLowerCase();
+        if (invProdId === targetId) return false;
+        if (targetName && invProdName === targetName) return false;
+        return true;
+      });
+      localStorage.setItem("le_inventory", JSON.stringify(updatedInv));
+      return updatedInv;
+    });
+
+    // 3. Delete from backend DB via API (MySQL foreign key cascade handles inventory)
+    erpApi
+      .deleteProduct(targetId)
+      .then(() => {
+        refreshStockData();
+      })
+      .catch((e) => {
+        console.warn("Cascade delete API call fallback to syncProducts:", e.message);
+        erpApi.syncProducts(updatedProducts).then(refreshStockData).catch(() => {});
+      });
   };
 
   // Admin Profile state (synced with authenticated user from MySQL)
@@ -836,6 +878,7 @@ export default function App() {
               <ProductsPage 
                 products={products} 
                 onSaveProducts={saveProducts}
+                onDeleteProduct={handleDeleteProductCascade}
                 inventory={inventory}
               />
             } 
