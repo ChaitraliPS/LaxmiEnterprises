@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Package, Plus, Search, Filter, Pencil, Trash2, Download, AlertTriangle, Eye, X,
-  Calculator, IndianRupee, Tag, CheckCircle2
+  Calculator, IndianRupee, Tag, CheckCircle2, RefreshCw
 } from "lucide-react";
 import ProductModal from "./ProductModal";
 import ProductStockModal from "./ProductStockModal";
@@ -11,7 +11,21 @@ import { downloadCSV } from "../utils/exportUtils";
 import { calculateProductStock } from "../services/stockService";
 import { erpApi } from "../services/api";
 
-export default function ProductsPage({ products, onSaveProducts, onDeleteProduct, inventory = [] }) {
+export default function ProductsPage({ products, onSaveProducts, onDeleteProduct, inventory = [], onRefresh }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (onRefresh) onRefresh();
+  }, [onRefresh]);
+
+  const handleManualRefresh = async () => {
+    if (onRefresh) {
+      setIsRefreshing(true);
+      await onRefresh();
+      setTimeout(() => setIsRefreshing(false), 500);
+      showToast("✓ Products synchronized with MySQL database");
+    }
+  };
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);

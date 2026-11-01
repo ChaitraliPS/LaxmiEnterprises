@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Receipt, Download, Plus, Search, X, Trash2,
   CheckCircle2, AlertTriangle, TrendingUp, IndianRupee, Clock,
@@ -33,8 +33,23 @@ export default function InvoicesPage({
   products = [],
   company = {},
   showToast,
-  onOpenCreateInvoice
+  onOpenCreateInvoice,
+  onRefresh
 }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (onRefresh) onRefresh();
+  }, [onRefresh]);
+
+  const handleManualRefresh = async () => {
+    if (onRefresh) {
+      setIsRefreshing(true);
+      await onRefresh();
+      setTimeout(() => setIsRefreshing(false), 500);
+      notify("✓ Sales synchronized with MySQL database");
+    }
+  };
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedInvoice, setSelectedInvoice] = useState(null);
@@ -328,6 +343,18 @@ export default function InvoicesPage({
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {/* Add Sale Button */}
+          {onRefresh && (
+            <button
+              type="button"
+              className="outline"
+              onClick={handleManualRefresh}
+              title="Sync & refresh from database"
+              style={{ display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <RefreshCw size={15} style={{ animation: isRefreshing ? "spin 1s linear infinite" : "none" }} />
+              <span>Sync DB</span>
+            </button>
+          )}
           <button
             type="button"
             className="primary"

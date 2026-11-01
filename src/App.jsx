@@ -129,23 +129,50 @@ export default function App() {
     return [];
   });
 
-  // Server se products + inventory dobara load (single source of truth = MySQL)
-  const refreshStockData = async () => {
+  // Central MySQL Database Synchronization (Master Single Source of Truth)
+  const fetchMasterDataFromDB = async () => {
     try {
       const res = await erpApi.getAllData();
-      const data = res.data;
-      if (Array.isArray(data?.products)) {
+      const data = res?.data;
+      if (!data) return;
+
+      if (Array.isArray(data.clients)) {
+        setClients(data.clients);
+        localStorage.setItem("le_clients", JSON.stringify(data.clients));
+      }
+      if (Array.isArray(data.vendors)) {
+        setVendors(data.vendors);
+        localStorage.setItem("le_vendors", JSON.stringify(data.vendors));
+      }
+      if (Array.isArray(data.invoices)) {
+        setInvoices(data.invoices);
+        localStorage.setItem("le_invoices", JSON.stringify(data.invoices));
+      }
+      if (Array.isArray(data.purchases)) {
+        setPurchases(data.purchases);
+        localStorage.setItem("le_purchases", JSON.stringify(data.purchases));
+      }
+      if (Array.isArray(data.products)) {
         setProducts(data.products);
         localStorage.setItem("le_products", JSON.stringify(data.products));
       }
-      if (Array.isArray(data?.inventory)) {
+      if (Array.isArray(data.inventory)) {
         setInventory(data.inventory);
         localStorage.setItem("le_inventory", JSON.stringify(data.inventory));
       }
+      if (Array.isArray(data.expoLeads)) {
+        setExpoLeads(data.expoLeads);
+        localStorage.setItem("le_expo_leads", JSON.stringify(data.expoLeads));
+      }
+      if (data.company && data.company.name) {
+        setCompany(data.company);
+        localStorage.setItem("le_company", JSON.stringify(data.company));
+      }
     } catch (e) {
-      console.warn("Failed to refresh stock data:", e.message);
+      console.warn("Failed to sync live data from MySQL:", e.message);
     }
   };
+  const refreshStockData = fetchMasterDataFromDB;
 
   const saveProducts = (newProducts) => {
     setProducts(newProducts);
@@ -338,7 +365,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState(null);
   const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
 
-  // Purge legacy mock keys and verify live JWT session on load
+  // Live JWT session verification & Master MySQL real-time synchronization
   useEffect(() => {
     localStorage.removeItem("le_user_credentials");
     localStorage.removeItem("le_team_members");
@@ -357,120 +384,27 @@ export default function App() {
       }
     });
 
-    // Auto-normalize Categories of existing products
-    try {
-      const storedProds = JSON.parse(localStorage.getItem("le_products") || "[]");
-      let prodList = Array.isArray(storedProds) ? [...storedProds] : [];
-      let prodsUpdated = false;
+    // 1. Initial live database load on mount
+    fetchMasterDataFromDB();
 
-      // Map any legacy categories (Hardware, Electrical, etc.) to valid agribusiness sectors
-      prodList = prodList.map(p => {
-        let cat = p.category;
-        if (!["Animal Feed", "Dairy Milk", "Farmer Direct"].includes(cat)) {
-          cat = cat === "Dairy" ? "Dairy Milk" : cat === "Farmers" ? "Farmer Direct" : "Animal Feed";
-          prodsUpdated = true;
-          return { ...p, category: cat };
-        }
-        return p;
-      });
+    // 2. Real-time sync: when window tab gains focus or user returns to tab
+    const handleSyncOnFocus = () => {
+      fetchMasterDataFromDB();
+    };
+    window.addEventListener("focus", handleSyncOnFocus);
+    document.addEventListener("visibilitychange", handleSyncOnFocus);
 
-      if (prodsUpdated) {
-        setProducts(prodList);
-        localStorage.setItem("le_products", JSON.stringify(prodList));
-        erpApi.syncProducts(prodList).catch(() => {});
-      }
+    // 3. Background periodic sync polling every 10 seconds to keep live with remote DB
+    const syncInterval = setInterval(fetchMasterDataFromDB, 10000);
 
-      // Auto-normalize Categories of existing vendors
-      const storedVendors = JSON.parse(localStorage.getItem("le_vendors") || "[]");
-      let vendorList = Array.isArray(storedVendors) ? [...storedVendors] : [];
-      let vendorsUpdated = false;
-      vendorList = vendorList.map(v => {
-        const c = String(v.category || "").trim().toLowerCase();
-        let target = "Animal Feed Shop";
-        if (c.includes("dairy") || c.includes("milk")) target = "Dairy";
-        else if (c.includes("farm")) target = "Farmers";
-        else target = "Animal Feed Shop";
-
-        if (v.category !== target) {
-          vendorsUpdated = true;
-          return { ...v, category: target };
-        }
-        return v;
-      });
-      if (vendorsUpdated) {
-        setVendors(vendorList);
-        localStorage.setItem("le_vendors", JSON.stringify(vendorList));
-        erpApi.syncVendors(vendorList).catch(() => {});
-      }
-
-      // Auto-normalize purchases so that partial payments correctly track paidAmount and balanceDue
-      const storedPurchases = JSON.parse(localStorage.getItem("le_purchases") || "[]");
-      let purchaseList = Array.isArray(storedPurchases) ? [...storedPurchases] : [];
-      let purchasesUpdated = false;
-      purchaseList = purchaseList.map(p => {
-        const taxable = Number(p.taxableAmount ?? p.amount ?? p.subtotal ?? 0);
-        const gst = Number(p.gstAmount ?? p.tax ?? p.cgst ?? 0);
-        const total = Number(p.totalAmount ?? p.total ?? p.grandTotal ?? (taxable + gst) ?? 0);
-        const status = p.paymentStatus || p.status || "Pending";
-        let paid = Number(p.paidAmount ?? 0);
-        let changed = false;
-
-        if (status === "Partial" && (paid <= 0 || paid >= total) && total > 0) {
-          paid = Math.round(total / 2);
-          changed = true;
-        } else if (status === "Paid" && paid !== total && total > 0) {
-          paid = total;
-          changed = true;
-        }
-
-        const bal = Math.max(0, total - paid);
-        if (p.totalAmount !== total || p.grandTotal !== total || p.paidAmount !== paid || p.balanceDue !== bal || changed) {
-          purchasesUpdated = true;
-          return {
-            ...p,
-            totalAmount: total,
-            grandTotal: total,
-            total: total,
-            subtotal: taxable,
-            taxableAmount: taxable,
-            amount: taxable,
-            paidAmount: paid,
-            balanceDue: bal,
-            paymentStatus: status,
-            status: status
-          };
-        }
-        return p;
-      });
-      if (purchasesUpdated) {
-        setPurchases(purchaseList);
-        localStorage.setItem("le_purchases", JSON.stringify(purchaseList));
-        erpApi.syncPurchases(purchaseList).catch(() => {});
-      }
-
-      // Auto-normalize existing invoices with legacy "Hardware" category to "Animal Feed"
-      const storedInvoices = JSON.parse(localStorage.getItem("le_invoices") || "[]");
-      let invList = Array.isArray(storedInvoices) ? [...storedInvoices] : [];
-      let invsUpdated = false;
-      invList = invList.map(inv => {
-        if (!inv.category || inv.category.toLowerCase().includes("hardware") || inv.category.toLowerCase().includes("industrial")) {
-          invsUpdated = true;
-          return {
-            ...inv,
-            category: "Animal Feed"
-          };
-        }
-        return inv;
-      });
-      if (invsUpdated) {
-        setInvoices(invList);
-        localStorage.setItem("le_invoices", JSON.stringify(invList));
-        erpApi.syncInvoices(invList).catch(() => {});
-      }
-    } catch (e) {
-      console.warn("Auto sync error:", e);
-    }
+    return () => {
+      window.removeEventListener("focus", handleSyncOnFocus);
+      document.removeEventListener("visibilitychange", handleSyncOnFocus);
+      clearInterval(syncInterval);
+    };
   }, []);
+
+    
 
   const showGlobalToast = (msg) => {
     setToastMessage(msg);
@@ -687,51 +621,7 @@ export default function App() {
     localStorage.setItem("le_theme", activeTheme);
   }, [theme]);
 
-  // Load all live ERP records from MySQL database on initial load
-  useEffect(() => {
-    erpApi
-      .getAllData()
-      .then((res) => {
-        const data = res.data;
-        if (data) {
-          if (Array.isArray(data.clients)) {
-            setClients(data.clients);
-            localStorage.setItem("le_clients", JSON.stringify(data.clients));
-          }
-          if (Array.isArray(data.vendors)) {
-            setVendors(data.vendors);
-            localStorage.setItem("le_vendors", JSON.stringify(data.vendors));
-          }
-          if (Array.isArray(data.invoices)) {
-            setInvoices(data.invoices);
-            localStorage.setItem("le_invoices", JSON.stringify(data.invoices));
-          }
-          if (Array.isArray(data.purchases)) {
-            setPurchases(data.purchases);
-            localStorage.setItem("le_purchases", JSON.stringify(data.purchases));
-          }
-          if (Array.isArray(data.products)) {
-            setProducts(data.products);
-            localStorage.setItem("le_products", JSON.stringify(data.products));
-          }
-          if (Array.isArray(data.inventory)) {
-            setInventory(data.inventory);
-            localStorage.setItem("le_inventory", JSON.stringify(data.inventory));
-          }
-          if (Array.isArray(data.expoLeads)) {
-            setExpoLeads(data.expoLeads);
-            localStorage.setItem("le_expo_leads", JSON.stringify(data.expoLeads));
-          }
-          if (data.company && data.company.name) {
-            setCompany(data.company);
-            localStorage.setItem("le_company", JSON.stringify(data.company));
-          }
-        }
-      })
-      .catch((err) => {
-        console.warn("Backend MySQL notice:", err.message);
-      });
-  }, []);
+
 
   // If unauthenticated, show the Login Page directly
   if (!currentUser) {
@@ -763,6 +653,7 @@ export default function App() {
       )}
 
       <Layout 
+        onRefreshAll={fetchMasterDataFromDB}
         currentTheme={theme} 
         onSelectTheme={setTheme}
         adminProfile={adminProfile}
@@ -798,6 +689,7 @@ export default function App() {
             path="/clients" 
             element={
               <ClientsPage 
+                onRefresh={fetchMasterDataFromDB}
                 clients={clients} 
                 onSaveClients={saveClients} 
                 invoices={invoices} 
@@ -813,6 +705,7 @@ export default function App() {
             path="/vendors" 
             element={
               <VendorsPage 
+                onRefresh={fetchMasterDataFromDB}
                 vendors={vendors} 
                 onSaveVendors={saveVendors}
               />
@@ -822,6 +715,7 @@ export default function App() {
             path="/purchases" 
             element={
               <PurchasesPage 
+                onRefresh={fetchMasterDataFromDB}
                 purchases={purchases} 
                 onSavePurchases={savePurchases} 
                 onCreatePurchase={handleCreatePurchaseCascade}
@@ -849,6 +743,7 @@ export default function App() {
             path="/invoices" 
             element={
               <InvoicesPage 
+                onRefresh={fetchMasterDataFromDB}
                 invoices={invoices} 
                 onSaveInvoices={saveInvoices} 
                 onCreateInvoice={handleCreateInvoiceCascade}
@@ -876,6 +771,7 @@ export default function App() {
             path="/products" 
             element={
               <ProductsPage 
+                onRefresh={fetchMasterDataFromDB}
                 products={products} 
                 onSaveProducts={saveProducts}
                 onDeleteProduct={handleDeleteProductCascade}

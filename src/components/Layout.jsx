@@ -3,11 +3,20 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Users, Truck, ShoppingCart, MessageCircle, Receipt,
   IndianRupee, Package, Boxes, ShieldCheck, X, Menu, Database,
-  Search, Bell, LogOut
+  Search, Bell, LogOut, RefreshCw
 } from "lucide-react";
 import ThemeSelector from "./ThemeSelector";
 
-export default function Layout({ children, currentTheme, onSelectTheme, adminProfile, currentUser, onLogout }) {
+export default function Layout({ children, currentTheme, onSelectTheme, adminProfile, currentUser, onLogout, onRefreshAll }) {
+  const [isRefreshingGlobal, setIsRefreshingGlobal] = useState(false);
+
+  const handleGlobalRefresh = async () => {
+    if (onRefreshAll) {
+      setIsRefreshingGlobal(true);
+      await onRefreshAll();
+      setTimeout(() => setIsRefreshingGlobal(false), 500);
+    }
+  };
   const [open, setOpen] = useState(false);
   const location = useLocation();
 
@@ -174,6 +183,17 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
             
 
             {/* Color Palette Switcher */}
+            {onRefreshAll && (
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={handleGlobalRefresh}
+                title="Sync & refresh all data with database"
+                style={{ cursor: "pointer" }}
+              >
+                <RefreshCw size={17} style={{ animation: isRefreshingGlobal ? "spin 1s linear infinite" : "none" }} />
+              </button>
+            )}
             <ThemeSelector currentTheme={currentTheme} onSelectTheme={onSelectTheme} />
 
             <div className="search-box">

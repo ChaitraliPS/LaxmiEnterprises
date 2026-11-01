@@ -1,602 +1,482 @@
-import React, { useRef, useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
-  X, MessageCircle, Phone, MapPin, Mail, Calendar,
-  Building2, Wheat, Milk, Tractor, Store, Smartphone,
-  Printer, Pencil, Trash2, CheckCircle2, Clock, Send,
-  Tag, Copy, Check, User, Sparkles, ExternalLink, UserCheck
+  Users, Plus, Search, MessageCircle, MapPin, CheckCircle2, Send,
+  Building2, Wheat, Milk, Tractor, Smartphone, Eye, X, Trash2, Phone
 } from "lucide-react";
-import {
-  getWhatsAppUrl,
-  renderWhatsAppMessage,
-  downloadVCardFile,
-  normalizeWhatsAppNumber
-} from "../services/whatsappService";
+import ExpoLeadModal from "./ExpoLeadModal";
+import ExpoLeadViewModal from "./ExpoLeadViewModal";
+import WhatsAppBulkModal from "./WhatsAppBulkModal";
+import { downloadVCardFile } from "../services/whatsappService";
 
-export default function ExpoLeadViewModal({
-  isOpen,
-  onClose,
-  lead,
-  company = {},
-  onEdit,
-  onDelete,
-  onStatusChange,
-  onConvertToClient,
-  showToast
-}) {
-  const printRef = useRef(null);
-  const [copiedMobile, setCopiedMobile] = useState(false);
-  const [copiedMessage, setCopiedMessage] = useState(false);
+// Field-name fallbacks (DB / API may use different keys)
+const getMobile = (l) => l.mobile || l.mobileNumber || l.phone || l.contact || "";
+const getRemark = (l) => l.remark || l.note || l.notes || "";
+const getDate = (l) => l.date || l.visitDate || l.createdAt || "";
+const fmtDate = (d) => {
+  if (!d) return "—";
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d);
+};
 
-  if (!isOpen || !lead) return null;
+const theme = (cat) =>
+  cat === "Dairy"
+    ? { cls: "dairy", bg: "rgba(2, 132, 199, 0.12)", fg: "#0284c7", Icon: Milk, label: "Dairy" }
+    : cat === "Farmers"
+    ? { cls: "farmers", bg: "rgba(217, 119, 6, 0.12)", fg: "#d97706", Icon: Tractor, label: "Farmer" }
+    : { cls: "feed-shop", bg: "rgba(16, 185, 129, 0.12)", fg: "#059669", Icon: Wheat, label: cat === "Animal Feed Shop" ? "Feed Shop" : "General" };
 
-  const isFeed = lead.category === "Animal Feed Shop";
-  const isDairy = lead.category === "Dairy";
-  const isFarmer = lead.category === "Farmers";
+const statusClass = (s) =>
+  s === "Converted" ? "success" : s === "Followed Up" || s === "Interested" ? "warning" : "muted";
 
-  const getStatusBadgeClass = (status) => {
-    switch (status) {
-      case "Converted":
-        return "success";
-      case "Interested":
-      case "Followed Up":
-        return "warning";
-      default:
-        return "muted";
-    }
-  };
-
-  const personalizedMessage = `Namaskar ${lead.name} ji! 🙏\n\nThank you for visiting the Laxmi Enterprises stall at *${lead.expoName || "Agri Expo"}*.\n\n📝 *Your Inquiry Remark:* ${lead.remark || "Cattle Feed & Agro Supplies"}\n\nOur team is pleased to connect with you from ${lead.village || "your village"}. Please let us know how we can assist you with product catalogues and wholesale rates!\n\n*${company.name || "Laxmi Enterprises"}* | 📞 ${company.phone || "+91 98765 43210"}`;
-
-  const handleLaunchWhatsApp = () => {
-    const url = getWhatsAppUrl(lead.mobile, personalizedMessage);
-    window.open(url, "_blank", "noopener,noreferrer");
-    if (onStatusChange && lead.status === "New Lead") {
-      onStatusChange(lead.id, "Followed Up");
-    }
-    if (showToast) {
-      showToast(`✓ Opened WhatsApp chat with ${lead.name}`);
-    }
-  };
-
-  const handleDownloadSingleVCF = () => {
-    downloadVCardFile([lead], `${(lead.name || "Expo_Lead").replace(/\s+/g, "_")}_Contact.vcf`);
-    if (showToast) {
-      showToast(`✓ Downloaded vCard (.vcf) for ${lead.name}`);
-    }
-  };
-
-  const handleCopyMobile = () => {
-    const num = normalizeWhatsAppNumber(lead.mobile);
-    navigator.clipboard.writeText(num || lead.mobile);
-    setCopiedMobile(true);
-    setTimeout(() => setCopiedMobile(false), 2000);
-    if (showToast) showToast(`✓ Copied phone number to clipboard`);
-  };
-
-  const handleCopyMessage = () => {
-    navigator.clipboard.writeText(personalizedMessage);
-    setCopiedMessage(true);
-    setTimeout(() => setCopiedMessage(false), 2000);
-    if (showToast) showToast(`✓ Copied WhatsApp message template`);
-  };
-
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleStatusSelect = (e) => {
-    const newStatus = e.target.value;
-    if (onStatusChange) {
-      onStatusChange(lead.id, newStatus);
-      if (showToast) showToast(`✓ Status updated to ${newStatus}`);
-    }
-  };
-
+function DeleteConfirmModal({ isOpen, onClose, onConfirm, title, message }) {
+  if (!isOpen) return null;
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 840, width: "95%", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
-      >
-        {/* MODAL HEAD */}
-        <div className="modal-head" style={{ padding: "14px 22px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: isDairy ? "rgba(2, 132, 199, 0.15)" :
-                          isFarmer ? "rgba(217, 119, 6, 0.15)" :
-                          isFeed ? "rgba(16, 185, 129, 0.15)" : "rgba(37, 211, 102, 0.15)",
-              color: isDairy ? "#0284c7" :
-                     isFarmer ? "#d97706" :
-                     isFeed ? "#059669" : "#128C7E",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center"
-            }}>
-              {isDairy ? <Milk size={22} /> : isFarmer ? <Tractor size={22} /> : isFeed ? <Wheat size={22} /> : <Store size={22} />}
-            </div>
-
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <h3 style={{ margin: 0, fontSize: "1.1rem" }}>
-                  Expo Visitor Lead Record
-                </h3>
-                <span className={`client-type-badge ${isDairy ? "dairy" : isFarmer ? "farmers" : "feed-shop"}`}>
-                  {isDairy ? <Milk size={11} /> : isFarmer ? <Tractor size={11} /> : <Wheat size={11} />}
-                  {lead.category || "Visitor"}
-                </span>
-                <span className={`badge ${getStatusBadgeClass(lead.status)}`} style={{ fontSize: "0.72rem" }}>
-                  {lead.status || "New Lead"}
-                </span>
-              </div>
-              <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                Visitor ID: <b>{lead.id}</b> • Event: <b>{lead.expoName}</b> • Date: <b>{lead.date}</b>
-              </p>
-            </div>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420, padding: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(239, 68, 68, 0.12)", color: "var(--danger)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Trash2 size={20} />
           </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="primary"
-              onClick={handleLaunchWhatsApp}
-              title={`Chat directly with ${lead.name} on WhatsApp`}
-              style={{
-                background: "#25D366",
-                borderColor: "#25D366",
-                color: "#fff",
-                fontWeight: 700,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 12px",
-                fontSize: "0.82rem"
-              }}
-            >
-              <MessageCircle size={15} /> WhatsApp
-            </button>
-
-            <button
-              type="button"
-              className="outline"
-              onClick={handleDownloadSingleVCF}
-              title="Download vCard (.vcf) contact file for this visitor"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 10px",
-                fontSize: "0.82rem",
-                color: "#128C7E",
-                borderColor: "#25D366"
-              }}
-            >
-              <Smartphone size={14} /> vCard
-            </button>
-
-            <button
-              type="button"
-              className="outline"
-              onClick={handlePrint}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", fontSize: "0.82rem" }}
-              title="Print Lead Summary"
-            >
-              <Printer size={15} />
-            </button>
-
-            {onDelete && (
-              <button
-                type="button"
-                className="outline"
-                onClick={() => {
-                  if (window.confirm(`Are you sure you want to remove ${lead.name} (${lead.village}) from the Expo visitor registry?`)) {
-                    onClose();
-                    onDelete(lead);
-                  }
-                }}
-                title="Delete this visitor entry"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 10px",
-                  fontSize: "0.82rem",
-                  color: "var(--danger)",
-                  borderColor: "var(--danger)",
-                  background: "rgba(239, 68, 68, 0.06)"
-                }}
-              >
-                <Trash2 size={15} />
-              </button>
-            )}
-
-            <button className="icon-btn" onClick={onClose} aria-label="Close modal">
-              <X size={18} />
-            </button>
-          </div>
+          <h3 style={{ margin: 0, fontSize: "1.05rem" }}>{title}</h3>
         </div>
-
-        {/* MODAL BODY */}
-        <div className="modal-body" ref={printRef} style={{ flex: 1, overflowY: "auto", padding: "22px 24px" }}>
-          
-          {/* VISITOR MAIN PROFILE BANNER */}
-          <div style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 12,
-            padding: 18,
-            marginBottom: 20,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 16
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{
-                width: 56,
-                height: 56,
-                borderRadius: "50%",
-                background: isDairy ? "rgba(2, 132, 199, 0.15)" :
-                            isFarmer ? "rgba(217, 119, 6, 0.15)" : "rgba(16, 185, 129, 0.15)",
-                color: isDairy ? "#0284c7" :
-                       isFarmer ? "#d97706" : "#059669",
-                fontSize: "1.4rem",
-                fontWeight: 800,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: "2px solid var(--border)"
-              }}>
-                {(lead.name || "V")[0]}
-              </div>
-
-              <div>
-                <h3 style={{ margin: "0 0 4px 0", fontSize: "1.25rem", color: "var(--text-main)" }}>
-                  {lead.name}
-                </h3>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--primary)", fontWeight: 600, fontSize: "0.88rem" }}>
-                    <MapPin size={14} />
-                    <span>{lead.village}</span>
-                  </div>
-                  {(lead.taluka || lead.district) && (
-                    <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
-                      ({lead.taluka ? `${lead.taluka}, ` : ""}{lead.district || "Maharashtra"})
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Status Selector */}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-              <span style={{ fontSize: "0.75rem", textTransform: "uppercase", fontWeight: 700, color: "var(--text-muted)" }}>
-                Lead Pipeline Stage:
-              </span>
-              <select
-                className="form-select"
-                value={lead.status || "New Lead"}
-                onChange={handleStatusSelect}
-                style={{
-                  fontSize: "0.82rem",
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  fontWeight: 600,
-                  cursor: "pointer"
-                }}
-              >
-                <option value="New Lead">⚪ New Lead</option>
-                <option value="Followed Up">🟡 Followed Up</option>
-                <option value="Interested">🟠 Interested</option>
-                <option value="Converted">🟢 Converted / Customer</option>
-              </select>
-            </div>
-          </div>
-
-          {/* TWO COLUMN GRID: CONTACT INFO & EVENT DETAILS */}
-          <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 20 }}>
-            
-            {/* COLUMN 1: CONTACT DETAILS */}
-            <div style={{ background: "var(--table-hover)", padding: 16, borderRadius: 10, border: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                <Phone size={16} style={{ color: "var(--primary)" }} />
-                <h4 style={{ margin: 0, fontSize: "0.95rem", color: "var(--text-main)" }}>
-                  Contact Information
-                </h4>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: "0.84rem" }}>
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", display: "block" }}>
-                    Mobile Number (Primary):
-                  </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                    <strong style={{ fontSize: "1.05rem", color: "var(--text-main)", letterSpacing: "0.5px" }}>
-                      +91 {lead.mobile}
-                    </strong>
-                    <button
-                      type="button"
-                      onClick={handleCopyMobile}
-                      className="icon-btn"
-                      title="Copy Mobile Number"
-                      style={{ padding: 4, width: 24, height: 24 }}
-                    >
-                      {copiedMobile ? <Check size={13} style={{ color: "#10b981" }} /> : <Copy size={13} />}
-                    </button>
-                    <a
-                      href={`tel:${lead.mobile}`}
-                      className="icon-btn"
-                      title="Direct Call"
-                      style={{ padding: 4, width: 24, height: 24, color: "var(--primary)" }}
-                    >
-                      <Phone size={13} />
-                    </a>
-                  </div>
-                </div>
-
-                {lead.email && (
-                  <div>
-                    <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", display: "block" }}>
-                      Email Address:
-                    </span>
-                    <a
-                      href={`mailto:${lead.email}`}
-                      style={{ color: "var(--primary)", textDecoration: "none", fontWeight: 500 }}
-                    >
-                      {lead.email}
-                    </a>
-                  </div>
-                )}
-
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", display: "block" }}>
-                    Full Geographic Address:
-                  </span>
-                  <span style={{ color: "var(--text-main)" }}>
-                    {lead.village}{lead.taluka ? `, Taluka: ${lead.taluka}` : ""}{lead.district ? `, District: ${lead.district}` : ""}, Maharashtra
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* COLUMN 2: EXHIBITION & SECTOR INTEL */}
-            <div style={{ background: "var(--table-hover)", padding: 16, borderRadius: 10, border: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                <Calendar size={16} style={{ color: "var(--primary)" }} />
-                <h4 style={{ margin: 0, fontSize: "0.95rem", color: "var(--text-main)" }}>
-                  Exhibition & Sector Intel
-                </h4>
-              </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: "0.84rem" }}>
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", display: "block" }}>
-                    Exhibition / Agri Mela Name:
-                  </span>
-                  <strong style={{ color: "var(--text-main)", fontSize: "0.95rem" }}>
-                    {lead.expoName}
-                  </strong>
-                </div>
-
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", display: "block" }}>
-                    Stall Interaction Date:
-                  </span>
-                  <span style={{ color: "var(--text-main)", fontWeight: 600 }}>
-                    📅 {lead.date}
-                  </span>
-                </div>
-
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", display: "block" }}>
-                    Agribusiness Classification:
-                  </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
-                    <span className={`client-type-badge ${isDairy ? "dairy" : isFarmer ? "farmers" : "feed-shop"}`}>
-                      {isDairy ? <Milk size={12} /> : isFarmer ? <Tractor size={12} /> : <Wheat size={12} />}
-                      {lead.category || "General Agri Visitor"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          {/* VISITOR NOTE & INQUIRY REMARK CARD */}
-          <div style={{
-            background: "rgba(245, 158, 11, 0.05)",
-            border: "1px solid rgba(245, 158, 11, 0.3)",
-            borderRadius: 10,
-            padding: 18,
-            marginBottom: 20
-          }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Tag size={17} style={{ color: "#d97706" }} />
-                <h4 style={{ margin: 0, fontSize: "0.95rem", color: "var(--text-main)" }}>
-                  Visitor Inquiry & Requirement Remark
-                </h4>
-              </div>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-                Recorded Note
-              </span>
-            </div>
-
-            <div style={{
-              background: "var(--card-bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "14px 16px",
-              fontSize: "0.92rem",
-              lineHeight: 1.6,
-              color: "var(--text-main)",
-              fontStyle: "italic"
-            }}>
-              "{lead.remark}"
-            </div>
-          </div>
-
-          {/* DIRECT WHATSAPP PREVIEW & 1-CLICK CAMPAIGN CARD */}
-          <div style={{
-            background: "rgba(37, 211, 102, 0.05)",
-            border: "1px solid rgba(37, 211, 102, 0.3)",
-            borderRadius: 10,
-            padding: 18
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <MessageCircle size={18} style={{ color: "#25D366" }} />
-                <h4 style={{ margin: 0, fontSize: "0.95rem", color: "#128C7E" }}>
-                  Personalized WhatsApp Broadcast Preview
-                </h4>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  className="outline"
-                  onClick={handleCopyMessage}
-                  style={{ fontSize: "0.78rem", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4 }}
-                >
-                  {copiedMessage ? <Check size={12} style={{ color: "#10b981" }} /> : <Copy size={12} />}
-                  Copy Text
-                </button>
-              </div>
-            </div>
-
-            <pre style={{
-              background: "var(--card-bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: 12,
-              fontSize: "0.82rem",
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              fontFamily: "inherit",
-              color: "var(--text-main)",
-              margin: 0
-            }}>
-              {personalizedMessage}
-            </pre>
-
-            <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="primary"
-                onClick={handleLaunchWhatsApp}
-                style={{
-                  background: "#25D366",
-                  borderColor: "#25D366",
-                  color: "#fff",
-                  fontWeight: 700,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 16px",
-                  fontSize: "0.85rem"
-                }}
-              >
-                <Send size={14} /> Send WhatsApp Message
-              </button>
-            </div>
-          </div>
-
+        <p style={{ margin: "0 0 16px 0", fontSize: "0.88rem", color: "var(--text-main)" }}>{message}</p>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button type="button" className="outline" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary" style={{ background: "var(--danger)" }} onClick={onConfirm}>Delete</button>
         </div>
-
-        {/* MODAL FOOTER */}
-        <div className="modal-footer" style={{ padding: "14px 24px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button type="button" className="outline" onClick={onClose}>
-              Close
-            </button>
-            {onDelete && (
-              <button
-                type="button"
-                className="outline"
-                onClick={() => {
-                  if (window.confirm(`Are you sure you want to remove ${lead.name} (${lead.village}) from the Expo visitor registry?`)) {
-                    onClose();
-                    onDelete(lead);
-                  }
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  color: "var(--danger)",
-                  borderColor: "var(--danger)"
-                }}
-              >
-                <Trash2 size={14} />
-                Delete Lead
-              </button>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {onConvertToClient && lead.status !== "Converted" && (
-              <button
-                type="button"
-                className="outline"
-                onClick={() => {
-                  onClose();
-                  onConvertToClient(lead);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  borderColor: "var(--primary)",
-                  color: "var(--primary)",
-                  background: "rgba(0, 91, 181, 0.08)",
-                  fontWeight: 600
-                }}
-                title="Convert this lead into a registered Client in Customer Master"
-              >
-                <UserCheck size={14} />
-                Convert to Client Account
-              </button>
-            )}
-            {onEdit && (
-              <button
-                type="button"
-                className="outline"
-                onClick={() => {
-                  onClose();
-                  onEdit(lead);
-                }}
-                style={{ display: "flex", alignItems: "center", gap: 6 }}
-              >
-                <Pencil size={14} />
-                Edit Visitor
-              </button>
-            )}
-            <button
-              type="button"
-              className="primary"
-              onClick={handleLaunchWhatsApp}
-              style={{
-                background: "#25D366",
-                borderColor: "#25D366",
-                color: "#fff",
-                fontWeight: 700,
-                display: "flex",
-                alignItems: "center",
-                gap: 6
-              }}
-            >
-              <MessageCircle size={15} />
-              Chat on WhatsApp
-            </button>
-          </div>
-        </div>
-
       </div>
+    </div>
+  );
+}
+
+export default function ExpoPage({
+  expoLeads = [],
+  onSaveExpoLeads,
+  onConvertToClient,
+  company = {},
+  showToast
+}) {
+  const [search, setSearch] = useState("");
+  const [sectorFilter, setSectorFilter] = useState("All");
+  const [eventFilter, setEventFilter] = useState("All");
+
+  const [leadModalOpen, setLeadModalOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState(null);
+  const [deletingLead, setDeletingLead] = useState(null);
+  const [viewingLead, setViewingLead] = useState(null);
+  const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
+  const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
+
+  const nextLeadId = useMemo(() => {
+    let maxNum = 0;
+    (expoLeads || []).forEach((l) => {
+      const match = l.id && l.id.match(/\d+$/);
+      if (match) maxNum = Math.max(maxNum, parseInt(match[0], 10));
+    });
+    return `EXP-${String(maxNum + 1).padStart(3, "0")}`;
+  }, [expoLeads]);
+
+  const availableEvents = useMemo(() => {
+    const set = new Set((expoLeads || []).map((l) => l.expoName).filter(Boolean));
+    return ["All", ...Array.from(set)];
+  }, [expoLeads]);
+
+  const uniqueVillagesCount = useMemo(() => {
+    return new Set((expoLeads || []).map((l) => (l.village || "").toLowerCase().trim()).filter(Boolean)).size;
+  }, [expoLeads]);
+
+  const followedUpCount = useMemo(
+    () => (expoLeads || []).filter((l) => l.status === "Followed Up" || l.status === "Converted").length,
+    [expoLeads]
+  );
+
+  const count = (cat) => expoLeads.filter((l) => l.category === cat).length;
+
+  const filteredLeads = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return (expoLeads || []).filter((lead) => {
+      if (sectorFilter !== "All" && lead.category !== sectorFilter) return false;
+      if (eventFilter !== "All" && lead.expoName !== eventFilter) return false;
+      if (!q) return true;
+      return [lead.name, lead.village, getMobile(lead), getRemark(lead), lead.expoName, lead.taluka, lead.district]
+        .some((v) => v && String(v).toLowerCase().includes(q));
+    });
+  }, [expoLeads, sectorFilter, eventFilter, search]);
+
+  // Handlers
+  const handleOpenAdd = () => { setEditingLead(null); setLeadModalOpen(true); };
+  const handleOpenEdit = (lead) => { setEditingLead(lead); setLeadModalOpen(true); };
+
+  const handleSaveLead = (saved) => {
+    let updated;
+    if (editingLead) {
+      updated = expoLeads.map((l) => (l.id === saved.id ? saved : l));
+      if (showToast) showToast(`✓ Updated details for ${saved.name}`);
+    } else {
+      updated = [saved, ...expoLeads];
+      if (showToast) showToast(`✓ Added Expo Lead: ${saved.name} (${saved.village})`);
+    }
+    if (onSaveExpoLeads) onSaveExpoLeads(updated);
+    setLeadModalOpen(false);
+    setEditingLead(null);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!deletingLead) return;
+    const updated = expoLeads.filter((l) => l.id !== deletingLead.id);
+    if (onSaveExpoLeads) onSaveExpoLeads(updated);
+    if (showToast) showToast(`✓ Removed ${deletingLead.name} from Expo Registry`);
+    setSelectedLeadIds((prev) => { const n = new Set(prev); n.delete(deletingLead.id); return n; });
+    setDeletingLead(null);
+    if (viewingLead && viewingLead.id === deletingLead.id) setViewingLead(null);
+  };
+
+  const handleStatusChange = (leadId, newStatus) => {
+    const updated = expoLeads.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l));
+    if (onSaveExpoLeads) onSaveExpoLeads(updated);
+    if (viewingLead && viewingLead.id === leadId) setViewingLead((prev) => ({ ...prev, status: newStatus }));
+  };
+
+  const handleDownloadVCF = () => {
+    downloadVCardFile(expoLeads, `Laxmi_Enterprises_Expo_Contacts.vcf`);
+    if (showToast) showToast("✓ Downloaded vCard (.vcf) for WhatsApp Broadcast Lists");
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedLeadIds.size === filteredLeads.length) setSelectedLeadIds(new Set());
+    else setSelectedLeadIds(new Set(filteredLeads.map((l) => l.id)));
+  };
+
+  const toggleSelectLead = (id) => {
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const hasFilters = sectorFilter !== "All" || eventFilter !== "All" || search.trim() !== "";
+
+  return (
+    <div
+      className="page"
+      style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowX: "hidden" }}
+    >
+      {/* HEADER */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0, flex: "1 1 280px" }}>
+          <h2 style={{ margin: "0 0 2px 0", fontSize: "1.25rem", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 28, height: 28, borderRadius: 8, background: "#25D366", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <MessageCircle size={17} />
+            </span>
+            Expo Visitors
+          </h2>
+          <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
+            Agri expo visitor registry with WhatsApp follow-up campaigns
+          </p>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" className="primary" onClick={() => setWhatsAppModalOpen(true)}
+            style={{ background: "#25D366", borderColor: "#25D366", color: "#fff", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+            <Send size={15} /> WhatsApp Bulk
+          </button>
+          <button type="button" className="primary" onClick={handleOpenAdd}
+            style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+            <Plus size={16} /> Add Visitor
+          </button>
+        </div>
+      </div>
+
+      {/* KPI CARDS */}
+      <div className="stats-grid"
+        style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16, marginBottom: 20 }}>
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Total Visitors</span>
+            <div className="stat-icon" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}><Users size={19} /></div>
+          </div>
+          <div className="stat-value">{expoLeads.length}</div>
+          <div className="trend positive"><span>Registered at stall</span></div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Villages Covered</span>
+            <div className="stat-icon" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}><MapPin size={19} /></div>
+          </div>
+          <div className="stat-value" style={{ color: "#10b981" }}>{uniqueVillagesCount}</div>
+          <div className="trend positive"><span>Rural outreach</span></div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>WhatsApp Follow-ups</span>
+            <div className="stat-icon" style={{ background: "rgba(37, 211, 102, 0.15)", color: "#128C7E" }}><MessageCircle size={19} /></div>
+          </div>
+          <div className="stat-value" style={{ color: "#128C7E" }}>{followedUpCount}</div>
+          <div className="trend positive">
+            <span>{expoLeads.length > 0 ? Math.round((followedUpCount / expoLeads.length) * 100) : 0}% engagement</span>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Sectors Profiled</span>
+            <div className="stat-icon" style={{ background: "rgba(245, 158, 11, 0.12)", color: "#d97706" }}><Building2 size={19} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+            <div>
+              <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>Feed Shop</small>
+              <strong style={{ fontSize: "1.1rem", color: "#059669" }}>{count("Animal Feed Shop")}</strong>
+            </div>
+            <div style={{ borderLeft: "1px solid var(--border)", paddingLeft: 10 }}>
+              <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>Dairy</small>
+              <strong style={{ fontSize: "1.1rem", color: "#0284c7" }}>{count("Dairy")}</strong>
+            </div>
+            <div style={{ borderLeft: "1px solid var(--border)", paddingLeft: 10 }}>
+              <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>Farmers</small>
+              <strong style={{ fontSize: "1.1rem", color: "#d97706" }}>{count("Farmers")}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* TABLE CARD */}
+      <div className="card table-card" style={{ maxWidth: "100%", overflow: "hidden" }}>
+        <div className="card-head" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div className="filter-pills-bar" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className={`filter-pill ${sectorFilter === "All" ? "active" : ""}`} onClick={() => setSectorFilter("All")}>
+              All ({expoLeads.length})
+            </button>
+            <button className={`filter-pill ${sectorFilter === "Animal Feed Shop" ? "active" : ""}`} onClick={() => setSectorFilter("Animal Feed Shop")} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <Wheat size={13} style={{ color: "#059669" }} /> Feed Shop ({count("Animal Feed Shop")})
+            </button>
+            <button className={`filter-pill ${sectorFilter === "Dairy" ? "active" : ""}`} onClick={() => setSectorFilter("Dairy")} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <Milk size={13} style={{ color: "#0284c7" }} /> Dairy ({count("Dairy")})
+            </button>
+            <button className={`filter-pill ${sectorFilter === "Farmers" ? "active" : ""}`} onClick={() => setSectorFilter("Farmers")} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <Tractor size={13} style={{ color: "#d97706" }} /> Farmers ({count("Farmers")})
+            </button>
+          </div>
+        </div>
+
+        {/* TOOLBAR */}
+        <div className="table-toolbar" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div className="local-search" style={{ flex: "1 1 260px", maxWidth: 420 }}>
+            <Search size={16} />
+            <input
+              placeholder="Search name, village, mobile, note..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch("")}
+                style={{ border: "none", background: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                title="Clear search">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          <select className="form-select" style={{ maxWidth: 240, fontSize: "0.82rem", padding: "8px 10px" }}
+            value={eventFilter} onChange={(e) => setEventFilter(e.target.value)}>
+            {availableEvents.map((ev) => (
+              <option key={ev} value={ev}>{ev === "All" ? "All exhibitions" : ev}</option>
+            ))}
+          </select>
+
+          {hasFilters && (
+            <button type="button" onClick={() => { setSearch(""); setSectorFilter("All"); setEventFilter("All"); }}
+              style={{ border: "none", background: "transparent", color: "var(--danger)", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              <X size={13} /> Clear filters
+            </button>
+          )}
+
+          <span style={{ marginLeft: "auto", fontSize: "12px", color: "var(--text-muted)", fontWeight: 600 }}>
+            Showing {filteredLeads.length} of {expoLeads.length} visitors
+          </span>
+        </div>
+
+        {/* SELECTION BAR */}
+        {selectedLeadIds.size > 0 && (
+          <div style={{ background: "rgba(37, 211, 102, 0.12)", borderTop: "1px solid rgba(37, 211, 102, 0.3)", borderBottom: "1px solid rgba(37, 211, 102, 0.3)", padding: "10px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <span style={{ fontSize: "0.86rem", fontWeight: 700, color: "#128C7E", display: "flex", alignItems: "center", gap: 6 }}>
+              <CheckCircle2 size={16} /> {selectedLeadIds.size} selected
+            </span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="primary" onClick={() => setWhatsAppModalOpen(true)}
+                style={{ background: "#25D366", borderColor: "#25D366", fontSize: "0.8rem", padding: "5px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+                <Send size={14} /> Send WhatsApp to selected
+              </button>
+              <button type="button" className="outline" onClick={() => setSelectedLeadIds(new Set())}
+                style={{ fontSize: "0.8rem", padding: "5px 10px" }}>
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TABLE */}
+        <div className="table-wrap" style={{ width: "100%", overflowX: "auto" }}>
+          {filteredLeads.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon"><MessageCircle size={26} style={{ color: "#25D366" }} /></div>
+              <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Expo Visitors Found</h4>
+              <p style={{ fontSize: 13, marginBottom: 16 }}>
+                {expoLeads.length === 0
+                  ? "No expo visitors recorded yet."
+                  : "No visitors match your current search or filters."}
+              </p>
+              <button type="button" className="primary" onClick={handleOpenAdd} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Plus size={15} /> Add Visitor
+              </button>
+            </div>
+          ) : (
+            <table style={{ width: "100%", tableLayout: "auto" }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 40, textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
+                  <th>Visitor</th>
+                  <th>Location & Contact</th>
+                  <th>Inquiry Note</th>
+                  <th>Event</th>
+                  <th style={{ textAlign: "center" }}>Status</th>
+                  <th style={{ textAlign: "center", width: 70 }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLeads.map((lead) => {
+                  const t = theme(lead.category);
+                  const isSelected = selectedLeadIds.has(lead.id);
+                  const mobile = getMobile(lead);
+                  const remark = getRemark(lead);
+                  const place = [lead.taluka, lead.district].filter(Boolean).join(", ");
+
+                  return (
+                    <tr key={lead.id} style={{ background: isSelected ? "rgba(37, 211, 102, 0.04)" : "transparent" }}>
+                      <td style={{ textAlign: "center" }}>
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelectLead(lead.id)} />
+                      </td>
+
+                      {/* Visitor */}
+                      <td>
+                        <div className="person">
+                          <div className="mini-avatar" style={{ background: t.bg, color: t.fg }}>
+                            {(lead.name || "V")[0].toUpperCase()}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <b style={{ color: "var(--text-main)", fontSize: 13, cursor: "pointer" }}
+                              onClick={() => setViewingLead(lead)} title="View visitor details">
+                              {lead.name}
+                            </b>
+                            <div style={{ marginTop: 3 }}>
+                              <span className={`client-type-badge ${t.cls}`} style={{ whiteSpace: "nowrap" }}>
+                                <t.Icon size={11} /> {t.label}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Location + contact */}
+                      <td>
+                        <div style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 600, color: "var(--text-main)" }}>
+                            <MapPin size={12} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                            <span>{lead.village || "—"}</span>
+                          </div>
+                          {place && (
+                            <div style={{ fontSize: 11, color: "var(--text-muted)", paddingLeft: 17 }}>{place}</div>
+                          )}
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2, fontSize: 11.5, color: "var(--text-muted)" }}>
+                            <Phone size={11} style={{ flexShrink: 0 }} /> <span>{mobile || "—"}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Note */}
+                      <td style={{ maxWidth: 260 }}>
+                        <div style={{
+                          fontSize: 12, lineHeight: 1.4, color: remark ? "var(--text-main)" : "var(--text-muted)",
+                          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"
+                        }} title={remark}>
+                          {remark || "No note added"}
+                        </div>
+                      </td>
+
+                      {/* Event */}
+                      <td style={{ fontSize: 12 }}>
+                        <div style={{ fontWeight: 600, color: "var(--text-main)" }}>{lead.expoName || "—"}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{fmtDate(getDate(lead))}</div>
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                        <span className={`badge ${statusClass(lead.status)}`}>{lead.status || "New Lead"}</span>
+                      </td>
+
+                      {/* Action: sirf View */}
+                      <td style={{ textAlign: "center" }}>
+                        <div className="row-actions" style={{ justifyContent: "center" }}>
+                          <button title={`View ${lead.name}`} onClick={() => setViewingLead(lead)} style={{ color: "var(--accent)" }}>
+                            <Eye size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* MODALS */}
+      <ExpoLeadModal
+        key={editingLead ? editingLead.id : "new-expo-lead"}
+        isOpen={leadModalOpen}
+        onClose={() => { setLeadModalOpen(false); setEditingLead(null); }}
+        onSave={handleSaveLead}
+        leadToEdit={editingLead}
+        nextId={nextLeadId}
+        company={company}
+      />
+
+      <WhatsAppBulkModal
+        isOpen={whatsAppModalOpen}
+        onClose={() => setWhatsAppModalOpen(false)}
+        leads={selectedLeadIds.size > 0 ? expoLeads.filter((l) => selectedLeadIds.has(l.id)) : expoLeads}
+        company={company}
+        showToast={showToast}
+      />
+
+      <DeleteConfirmModal
+        isOpen={!!deletingLead}
+        onClose={() => setDeletingLead(null)}
+        onConfirm={handleDeleteConfirm}
+        title="Confirm Lead Removal"
+        message={deletingLead ? `Are you sure you want to remove ${deletingLead.name} (${deletingLead.village}) from the Expo visitor registry?` : ""}
+      />
+
+      <ExpoLeadViewModal
+        isOpen={!!viewingLead}
+        onClose={() => setViewingLead(null)}
+        lead={viewingLead}
+        company={company}
+        onEdit={(lead) => { setViewingLead(null); handleOpenEdit(lead); }}
+        onDelete={(lead) => { setViewingLead(null); setDeletingLead(lead); }}
+        onStatusChange={handleStatusChange}
+        onConvertToClient={onConvertToClient}
+        showToast={showToast}
+      />
     </div>
   );
 }

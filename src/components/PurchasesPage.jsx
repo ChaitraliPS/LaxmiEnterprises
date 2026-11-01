@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   ShoppingCart, Plus, Search, Eye, Milk, Tractor, Wheat, MapPin, Phone,
-  TrendingUp, IndianRupee, AlertCircle, CheckCircle2, X, Building2
+  TrendingUp, IndianRupee, AlertCircle, CheckCircle2, X, Building2, RefreshCw
 } from "lucide-react";
 import PurchaseModal from "./PurchaseModal";
 import PurchaseViewModal from "./PurchaseViewModal";
@@ -40,8 +40,23 @@ export default function PurchasesPage({
   clients = [],
   products = [],
   company = {},
-  showToast
+  showToast,
+  onRefresh
 }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (onRefresh) onRefresh();
+  }, [onRefresh]);
+
+  const handleManualRefresh = async () => {
+    if (onRefresh) {
+      setIsRefreshing(true);
+      await onRefresh();
+      setTimeout(() => setIsRefreshing(false), 500);
+      if (showToast) showToast("✓ Purchases synchronized with MySQL database");
+    }
+  };
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -207,15 +222,29 @@ export default function PurchasesPage({
           </p>
         </div>
 
-        <button
-          type="button"
-          className="primary"
-          onClick={handleOpenAdd}
-          style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", flexShrink: 0 }}
-        >
-          <Plus size={16} />
-          Record New Purchase
-        </button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {onRefresh && (
+            <button
+              type="button"
+              className="outline"
+              onClick={handleManualRefresh}
+              title="Sync & refresh from database"
+              style={{ display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <RefreshCw size={15} style={{ animation: isRefreshing ? "spin 1s linear infinite" : "none" }} />
+              <span>Sync DB</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="primary"
+            onClick={handleOpenAdd}
+            style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", flexShrink: 0 }}
+          >
+            <Plus size={16} />
+            Record New Purchase
+          </button>
+        </div>
       </div>
 
       {/* KPI CARDS */}
