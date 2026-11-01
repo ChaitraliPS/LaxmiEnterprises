@@ -249,7 +249,7 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   currentY += boxH + 6;
 
   // 5. ITEMIZED PARTICULARS TABLE (via jspdf-autotable)
-  const categoryDesc = invoice.category || "Industrial Hardware & Engineering Supplies";
+  const categoryDesc = (invoice.category && !invoice.category.toLowerCase().includes("hardware") && !invoice.category.toLowerCase().includes("industrial")) ? invoice.category : "Animal Feed & Agro Supplies";
   const hsnMap = {
     "Hardware": "7318 (Industrial Fasteners & Screws)",
     "Electrical": "8544 (Insulated Cables & Fittings)",
@@ -555,7 +555,7 @@ export function generatePurchaseInvoicePDF(purchase = {}, company = {}) {
   const taxableAmount = Number(purchase.taxableAmount) || 0;
   const gstRate = Number(purchase.gstRate) || 0;
   const gstAmount = Number(purchase.gstAmount) || Math.round(taxableAmount * (gstRate / 100));
-  const totalAmount = Number(purchase.totalAmount) || (taxableAmount + gstAmount);
+  const totalAmount = Number(purchase.totalAmount || purchase.total || purchase.grandTotal) || (taxableAmount + gstAmount);
   const paidAmount = Number(purchase.paidAmount || purchase.day1Amount) || 0;
   const balanceDue = Math.max(0, totalAmount - paidAmount);
 

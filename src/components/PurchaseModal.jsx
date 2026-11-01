@@ -27,13 +27,23 @@ export default function PurchaseModal({
 
   const [form, setForm] = useState(() => {
     if (purchaseToEdit) {
-      const pTaxable = Number(purchaseToEdit.taxableAmount || purchaseToEdit.amount || 0);
+      const pTaxable = Number(purchaseToEdit.taxableAmount || purchaseToEdit.amount || purchaseToEdit.subtotal || 0);
       const pQty = Number(purchaseToEdit.inwardQty || purchaseToEdit.quantity || 1);
-      const pRate = pQty > 0 ? Math.round(pTaxable / pQty) : 1000;
+      const pRate = pQty > 0 && pTaxable > 0 ? Math.round(pTaxable / pQty) : (Number(purchaseToEdit.unitRate || purchaseToEdit.rate) || 1000);
       const pGst = Number(purchaseToEdit.gstRate !== undefined ? purchaseToEdit.gstRate : 5);
-      const pGstAmt = Math.round(pTaxable * (pGst / 100));
-      const pTotal = pTaxable + pGstAmt;
-      const pPaid = Number(purchaseToEdit.paidAmount !== undefined ? purchaseToEdit.paidAmount : pTotal);
+      const pGstAmt = Number(purchaseToEdit.gstAmount !== undefined ? purchaseToEdit.gstAmount : Math.round(pTaxable * (pGst / 100)));
+      const pTotal = Number(purchaseToEdit.totalAmount || purchaseToEdit.total || purchaseToEdit.grandTotal || (pTaxable + pGstAmt));
+      const status = purchaseToEdit.paymentStatus || purchaseToEdit.status || "Paid";
+      
+      let pPaid = pTotal;
+      if (status === "Paid") {
+        pPaid = pTotal;
+      } else if (status === "Pending") {
+        pPaid = 0;
+      } else if (status === "Partial") {
+        const rawPaid = Number(purchaseToEdit.paidAmount);
+        pPaid = (rawPaid > 0 && rawPaid < pTotal) ? rawPaid : (pTotal > 0 ? Math.round(pTotal / 2) : 0);
+      }
 
       return {
         ...purchaseToEdit,
@@ -54,7 +64,7 @@ export default function PurchaseModal({
         gstAmount: pGstAmt,
         totalAmount: pTotal,
         paidAmount: pPaid,
-        paymentStatus: purchaseToEdit.paymentStatus || purchaseToEdit.status || "Paid",
+        paymentStatus: status,
         paymentMethod: purchaseToEdit.paymentMethod || "RTGS / Bank Transfer",
         date: purchaseToEdit.date || new Date().toISOString().slice(0, 10),
         dueDate: purchaseToEdit.dueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -230,7 +240,8 @@ export default function PurchaseModal({
       } else if (newStatus === "Pending") {
         paid = 0;
       } else if (newStatus === "Partial") {
-        paid = Math.round(prev.totalAmount / 2);
+        const existing = Number(prev.paidAmount);
+        paid = (existing > 0 && existing < prev.totalAmount) ? existing : Math.round(prev.totalAmount / 2);
       }
       return {
         ...prev,
@@ -254,13 +265,10 @@ export default function PurchaseModal({
       newErrors.productId = "Please select a product from the existing catalogue.";
     }
 
-    // Vendor / Supplier Name
-    const vVal = validateRequiredText(form.vendorName, "Supplier / Farmer Name", 2);
-    if (!vVal.isValid) newErrors.vendorName = vVal.error;
-
-    // Contact Number
-    const mVal = validateMobile(form.contact, true);
-    if (!mVal.isValid) newErrors.contact = mVal.error;
+    // Registered Vendor Selection from directory
+    if (!form.vendorId && !form.vendorName) {
+      newErrors.vendorId = "Please select a registered supplier from the directory.";
+    }
 
     // PO ID
     const idVal = validateRequiredText(form.id, "Purchase Order ID", 2);
@@ -319,23 +327,29 @@ export default function PurchaseModal({
     } else if (form.paymentStatus === "Pending") {
       paidAmount = 0;
     } else {
-      paidAmount = Math.min(totalAmount, Math.max(0, Number(form.paidAmount) || 0));
+      const raw = Number(form.paidAmount) || 0;
+      paidAmount = (raw > 0 && raw < totalAmount) ? raw : Math.round(totalAmount / 2);
     }
     const currentBalance = Math.max(0, totalAmount - paidAmount);
+    const billNumber = form.billNumber || ("BILL-" + Math.floor(1000 + Math.random() * 9000));
 
     const payload = {
       ...form,
       purchaseId: form.id,
+      billNumber,
+      vendorInvoiceNo: billNumber,
       inwardQty,
       quantity: inwardQty,
       unitRate,
       rate: unitRate,
       taxableAmount,
       amount: taxableAmount,
+      subtotal: taxableAmount,
       gstRate,
       gstAmount,
       totalAmount,
       total: totalAmount,
+      grandTotal: totalAmount,
       paidAmount,
       balanceDue: currentBalance,
       status: form.paymentStatus,
@@ -504,52 +518,77 @@ export default function PurchaseModal({
                 </div>
               )}
 
-              <div className="form-grid">
-                <div className="form-group">
-                  <label>Supplier / Farmer Name <RequiredStar /></label>
-                  <input
-                    className={`form-input ${errors.vendorName ? "is-invalid" : ""}`}
-                    value={form.vendorName}
-                    onChange={(e) => handleFieldChange("vendorName", e.target.value)}
-                    placeholder="e.g. Ramesh Agro Agency or Tukaram Farmer"
-                    required
-                  />
-                  <FieldError error={errors.vendorName} />
+              {/* Selected Vendor Verified Info Card */}
+              {form.vendorName ? (
+                <div style={{
+                  background: "rgba(0, 91, 181, 0.05)",
+                  border: "1px solid rgba(0, 91, 181, 0.2)",
+                  borderRadius: 8,
+                  padding: "12px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  marginTop: 8
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 8,
+                      background: "rgba(0, 91, 181, 0.12)",
+                      color: "var(--primary)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 800,
+                      fontSize: "14px"
+                    }}>
+                      {form.vendorName[0]?.toUpperCase() || "V"}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: "0.92rem", color: "var(--text-main)" }}>
+                        {form.vendorName}
+                        {form.vendorId && (
+                          <span style={{
+                            marginLeft: 8,
+                            fontSize: "0.75rem",
+                            fontFamily: "monospace",
+                            background: "var(--card-bg, #fff)",
+                            border: "1px solid var(--border)",
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            color: "var(--primary)"
+                          }}>
+                            {form.vendorId}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 12, marginTop: 2 }}>
+                        {form.contact && <span><Phone size={11} style={{ display: "inline", marginRight: 3 }} />{form.contact}</span>}
+                        {form.village && <span><MapPin size={11} style={{ display: "inline", marginRight: 3 }} />{form.village}</span>}
+                        {form.vendorGstin && <span>GSTIN: <b>{form.vendorGstin}</b></span>}
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: "0.74rem",
+                    fontWeight: 600,
+                    color: "#059669",
+                    background: "rgba(16, 185, 129, 0.1)",
+                    padding: "3px 8px",
+                    borderRadius: 6
+                  }}>
+                    ✓ Verified Vendor Linked
+                  </span>
                 </div>
-
-                <div className="form-group">
-                  <label>Contact Number (Mobile) <RequiredStar /></label>
-                  <input
-                    className={`form-input ${errors.contact ? "is-invalid" : ""}`}
-                    value={form.contact}
-                    onChange={(e) => handleFieldChange("contact", e.target.value)}
-                    placeholder="10-digit mobile number"
-                    maxLength={10}
-                    required
-                  />
-                  <FieldError error={errors.contact} />
+              ) : (
+                <div style={{ fontSize: "0.80rem", color: "var(--text-muted)", fontStyle: "italic", marginTop: 6 }}>
+                  Select an existing vendor above to automatically link details.
                 </div>
-
-                <div className="form-group">
-                  <label>Village / City (गाव / शहर)</label>
-                  <input
-                    className="form-input"
-                    value={form.village}
-                    onChange={(e) => handleFieldChange("village", e.target.value)}
-                    placeholder="e.g. Baramati, Indapur, Pune"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Vendor Bill / Invoice Number</label>
-                  <input
-                    className="form-input"
-                    value={form.billNumber}
-                    onChange={(e) => handleFieldChange("billNumber", e.target.value)}
-                    placeholder="e.g. BILL-4061"
-                  />
-                </div>
-              </div>
+              )}
+              {errors.vendorId && <FieldError error={errors.vendorId} />}
             </div>
 
             {/* INWARD GOODS & QUANTITY (SINGLE, CLEAN SECTION) */}

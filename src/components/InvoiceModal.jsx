@@ -12,6 +12,23 @@ import {
   validatePaymentSettlement
 } from "../utils/validators";
 
+export const getTodayLocalDate = () => {
+  const d = new Date();
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${yr}-${mo}-${da}`;
+};
+
+export const getLocalDateInDays = (days = 30) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${yr}-${mo}-${da}`;
+};
+
 export default function InvoiceModal({
   isOpen,
   onClose,
@@ -31,8 +48,10 @@ export default function InvoiceModal({
     id: nextId,
     clientName: initialClient ? initialClient.name : "",
     clientId: initialClient ? initialClient.id : "",
-    date: new Date().toISOString().slice(0, 10),
-    dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    date: getTodayLocalDate(),
+    dueDate: getLocalDateInDays(30),
+    category: initialClient?.clientType?.toLowerCase().includes("dairy") ? "Dairy Milk" :
+              initialClient?.clientType?.toLowerCase().includes("farm") ? "Farmer Direct" : "Animal Feed",
     status: "Paid", // "Paid" | "Partial" | "Unpaid"
     paymentMethod: "UPI Commercial / NEFT",
     paidAmountInput: 0,
@@ -62,14 +81,15 @@ export default function InvoiceModal({
     return [
       {
         productId: "",
-        description: "Industrial Supplies & Hardware Item",
-        hsn: "7306",
+        description: "Animal Feed & Cattle Nutrition Stock",
+        hsn: "2309",
         qty: 1,
-        unit: "Nos",
-        rate: 500,
-        taxable: 500,
-        gstRate: 18,
-        total: 590
+        unit: "Bags",
+        rate: 750,
+        taxable: 750,
+        gstRate: 5,
+        total: 788,
+        category: "Animal Feed"
       }
     ];
   });
@@ -86,6 +106,17 @@ export default function InvoiceModal({
       }));
     }
   }, [defaultClient]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setForm(prev => ({
+        ...prev,
+        id: nextId || prev.id,
+        date: getTodayLocalDate(),
+        dueDate: getLocalDateInDays(30),
+      }));
+    }
+  }, [isOpen, nextId]);
 
   // Calculations
   const taxableAmount = items.reduce((sum, it) => sum + (Number(it.taxable) || 0), 0);
@@ -119,10 +150,18 @@ export default function InvoiceModal({
 
   const handleClientChange = (clientName) => {
     const found = clients.find(c => c.name === clientName);
+    let autoCat = undefined;
+    if (found?.clientType) {
+      const ct = found.clientType.toLowerCase();
+      if (ct.includes("feed")) autoCat = "Animal Feed";
+      else if (ct.includes("dairy") || ct.includes("milk")) autoCat = "Dairy Milk";
+      else if (ct.includes("farm")) autoCat = "Farmer Direct";
+    }
     setForm(prev => ({
       ...prev,
       clientName,
-      clientId: found ? found.id : prev.clientId
+      clientId: found ? found.id : prev.clientId,
+      ...(autoCat ? { category: autoCat } : {})
     }));
     if (errors.clientName) {
       setErrors(prev => ({ ...prev, clientName: null }));
@@ -219,8 +258,9 @@ export default function InvoiceModal({
       ...prev,
       {
         productId: p ? p.id : "",
-        description: p ? p.name : "Industrial Supplies & Hardware Item",
-        hsn: p ? (p.hsnCode || p.sku || "7306") : "7306",
+        description: p ? p.name : "Animal Feed & Cattle Nutrition Stock",
+        hsn: p ? (p.hsnCode || p.sku || "2309") : "2309",
+        category: p ? (p.category || "Animal Feed") : "Animal Feed",
         qty,
         unit: p ? (p.unit || "Nos") : "Nos",
         rate,
@@ -329,7 +369,7 @@ export default function InvoiceModal({
       grandTotal: grandTotal,
       paidAmount: actualPaid,
       balanceDue: balanceDue,
-      category: items[0]?.description || "Industrial Supplies",
+      category: form.category || items[0]?.category || (selectedClient?.clientType ? `${selectedClient.clientType}` : "Animal Feed"),
       items,
       clientExtra: {
         gstin: client.gstin,
@@ -440,6 +480,23 @@ export default function InvoiceModal({
                   required
                 />
                 <FieldError error={errors.date} />
+              </div>
+
+              {/* Sales Category Selector */}
+              <div className="form-group">
+                <label>Sales Category / Sector <RequiredStar /></label>
+                <select
+                  className="form-select"
+                  value={form.category || "Animal Feed"}
+                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                >
+                  <option value="Animal Feed">Animal Feed</option>
+                  <option value="Dairy Milk">Dairy Milk</option>
+                  <option value="Farmer Direct">Farmer Direct</option>
+                  <option value="Agricultural Supplies">Agricultural Supplies</option>
+                  <option value="General Trading">General Trading</option>
+                </select>
+                <span className="form-help">Trade sector classification</span>
               </div>
 
               {/* Client Selection */}

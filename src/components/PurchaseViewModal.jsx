@@ -65,8 +65,10 @@ export default function PurchaseViewModal({
     return [String(val)];
   };
 
-  const balanceDue = Math.max(0, (Number(purchase.totalAmount) || 0) - (Number(purchase.paidAmount) || 0));
-  const day1Amount = Number(purchase.day1Amount) || (isPartial ? Number(purchase.paidAmount) || 0 : Number(purchase.totalAmount) || 0);
+  const purchaseTotal = Number(purchase.totalAmount || purchase.total || purchase.grandTotal || 0);
+  const purchasePaid = Number(purchase.paidAmount !== undefined && purchase.paidAmount !== null && purchase.paidAmount !== "" ? purchase.paidAmount : (purchase.paymentStatus === "Paid" ? purchaseTotal : 0));
+  const balanceDue = Math.max(0, purchaseTotal - purchasePaid);
+  const day1Amount = Number(purchase.day1Amount) || (isPartial ? purchasePaid : purchaseTotal);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>

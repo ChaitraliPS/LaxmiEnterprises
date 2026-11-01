@@ -125,8 +125,7 @@ export default function LoginPage({
               borderRadius: 20
             }}
           >
-            <Database size={13} color="#10b981" />
-            <span>MySQL Online</span>
+            
           </div>
           {onSelectTheme && (
             <ThemeSelector currentTheme={currentTheme} onSelectTheme={onSelectTheme} />

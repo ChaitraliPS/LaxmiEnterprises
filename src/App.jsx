@@ -337,6 +337,94 @@ export default function App() {
         localStorage.setItem("le_products", JSON.stringify(prodList));
         erpApi.syncProducts(prodList).catch(() => {});
       }
+
+      // Auto-normalize Categories of existing vendors
+      const storedVendors = JSON.parse(localStorage.getItem("le_vendors") || "[]");
+      let vendorList = Array.isArray(storedVendors) ? [...storedVendors] : [];
+      let vendorsUpdated = false;
+      vendorList = vendorList.map(v => {
+        const c = String(v.category || "").trim().toLowerCase();
+        let target = "Animal Feed Shop";
+        if (c.includes("dairy") || c.includes("milk")) target = "Dairy";
+        else if (c.includes("farm")) target = "Farmers";
+        else target = "Animal Feed Shop";
+
+        if (v.category !== target) {
+          vendorsUpdated = true;
+          return { ...v, category: target };
+        }
+        return v;
+      });
+      if (vendorsUpdated) {
+        setVendors(vendorList);
+        localStorage.setItem("le_vendors", JSON.stringify(vendorList));
+        erpApi.syncVendors(vendorList).catch(() => {});
+      }
+
+      // Auto-normalize purchases so that partial payments correctly track paidAmount and balanceDue
+      const storedPurchases = JSON.parse(localStorage.getItem("le_purchases") || "[]");
+      let purchaseList = Array.isArray(storedPurchases) ? [...storedPurchases] : [];
+      let purchasesUpdated = false;
+      purchaseList = purchaseList.map(p => {
+        const taxable = Number(p.taxableAmount ?? p.amount ?? p.subtotal ?? 0);
+        const gst = Number(p.gstAmount ?? p.tax ?? p.cgst ?? 0);
+        const total = Number(p.totalAmount ?? p.total ?? p.grandTotal ?? (taxable + gst) ?? 0);
+        const status = p.paymentStatus || p.status || "Pending";
+        let paid = Number(p.paidAmount ?? 0);
+        let changed = false;
+
+        if (status === "Partial" && (paid <= 0 || paid >= total) && total > 0) {
+          paid = Math.round(total / 2);
+          changed = true;
+        } else if (status === "Paid" && paid !== total && total > 0) {
+          paid = total;
+          changed = true;
+        }
+
+        const bal = Math.max(0, total - paid);
+        if (p.totalAmount !== total || p.grandTotal !== total || p.paidAmount !== paid || p.balanceDue !== bal || changed) {
+          purchasesUpdated = true;
+          return {
+            ...p,
+            totalAmount: total,
+            grandTotal: total,
+            total: total,
+            subtotal: taxable,
+            taxableAmount: taxable,
+            amount: taxable,
+            paidAmount: paid,
+            balanceDue: bal,
+            paymentStatus: status,
+            status: status
+          };
+        }
+        return p;
+      });
+      if (purchasesUpdated) {
+        setPurchases(purchaseList);
+        localStorage.setItem("le_purchases", JSON.stringify(purchaseList));
+        erpApi.syncPurchases(purchaseList).catch(() => {});
+      }
+
+      // Auto-normalize existing invoices with legacy "Hardware" category to "Animal Feed"
+      const storedInvoices = JSON.parse(localStorage.getItem("le_invoices") || "[]");
+      let invList = Array.isArray(storedInvoices) ? [...storedInvoices] : [];
+      let invsUpdated = false;
+      invList = invList.map(inv => {
+        if (!inv.category || inv.category.toLowerCase().includes("hardware") || inv.category.toLowerCase().includes("industrial")) {
+          invsUpdated = true;
+          return {
+            ...inv,
+            category: "Animal Feed"
+          };
+        }
+        return inv;
+      });
+      if (invsUpdated) {
+        setInvoices(invList);
+        localStorage.setItem("le_invoices", JSON.stringify(invList));
+        erpApi.syncInvoices(invList).catch(() => {});
+      }
     } catch (e) {
       console.warn("Auto sync error:", e);
     }

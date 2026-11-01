@@ -171,24 +171,7 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
           
           <div className="top-actions">
             {/* Live MySQL Database Status Indicator */}
-            <div
-              className="gdrive-topbar-pill connected"
-              title="MySQL Database Connected & Synchronized"
-              style={{
-                borderColor: "rgba(16, 185, 129, 0.35)",
-                color: "#059669",
-                background: "rgba(16, 185, 129, 0.08)",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 12px",
-                borderRadius: 20
-              }}
-            >
-              <Database size={14} color="#10b981" />
-              <span className="gdrive-dot" style={{ background: "#10b981" }} />
-              <span className="topbar-pill-text" style={{ fontWeight: 600, fontSize: "0.8rem" }}>MySQL Online</span>
-            </div>
+            
 
             {/* Color Palette Switcher */}
             <ThemeSelector currentTheme={currentTheme} onSelectTheme={onSelectTheme} />

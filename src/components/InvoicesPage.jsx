@@ -9,6 +9,22 @@ import { erpApi } from "../services/api";
 import InvoiceViewModal from "./InvoiceViewModal";
 import InvoiceModal from "./InvoiceModal";
 
+export const formatDisplayDate = (dStr) => {
+  if (!dStr) return "—";
+  if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(dStr)) return dStr;
+  const match = String(dStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [_, y, m, d] = match;
+    return `${d}/${m}/${y}`;
+  }
+  const d = new Date(dStr);
+  if (isNaN(d.getTime())) return dStr;
+  const day = String(d.getDate()).padStart(2, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const yr = d.getFullYear();
+  return `${day}/${mo}/${yr}`;
+};
+
 export default function InvoicesPage({
   invoices = [],
   onSaveInvoices,
@@ -160,7 +176,7 @@ export default function InvoicesPage({
         inv.clientName || "",
         inv.date || inv.invoiceDate || "",
         inv.dueDate || "",
-        inv.category || "Hardware",
+        (inv.category && !inv.category.toLowerCase().includes("hardware")) ? inv.category : "Animal Feed",
         inv.paymentMethod || inv.paymentMode || "NEFT",
         taxable.toFixed(2),
         gst.toFixed(2),
@@ -303,16 +319,28 @@ export default function InvoicesPage({
           </p>
         </div>
 
-        {/* Download Report Dropdown */}
-        <div style={{ position: "relative" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {/* Add Sale Button */}
           <button
             type="button"
-            className="outline"
-            onClick={() => setReportDropdownOpen(o => !o)}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}
+            className="primary"
+            onClick={() => onOpenCreateInvoice ? onOpenCreateInvoice() : setIsCreateModalOpen(true)}
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
           >
-            <FileText size={15} />
-            <span>Download Report</span>
+            <Plus size={16} />
+            <span>Add Sale</span>
+          </button>
+
+          {/* Download Report Dropdown */}
+          <div style={{ position: "relative" }}>
+            <button
+              type="button"
+              className="outline"
+              onClick={() => setReportDropdownOpen(o => !o)}
+              style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}
+            >
+              <FileText size={15} />
+              <span>Download Report</span>
             <ChevronDown size={14} style={{ marginLeft: 2, transition: "transform 0.2s", transform: reportDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
           </button>
           {reportDropdownOpen && (
@@ -355,6 +383,7 @@ export default function InvoicesPage({
               </div>
             </>
           )}
+          </div>
         </div>
 
       </div>
@@ -550,21 +579,25 @@ export default function InvoicesPage({
                       {/* Category & Payment Mode */}
                       <td>
                         <div>
-                          <div style={{ fontWeight: 600, fontSize: "12.5px" }}>{inv.category || "Hardware"}</div>
+                          <div style={{ fontWeight: 600, fontSize: "12.5px" }}>
+                            {(inv.category && !inv.category.toLowerCase().includes("hardware") && !inv.category.toLowerCase().includes("industrial"))
+                              ? inv.category
+                              : (client?.clientType || inv.items?.[0]?.category || "Animal Feed")}
+                          </div>
                           <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{inv.paymentMethod || "NEFT / RTGS"}</div>
                         </div>
                       </td>
 
                       {/* Invoice Date */}
-                      <td style={{ fontSize: "12.5px" }}>{inv.date}</td>
+                      <td style={{ fontSize: "12.5px", fontWeight: 500 }}>{formatDisplayDate(inv.date)}</td>
 
                       {/* Due Date */}
                       <td style={{ fontSize: "12.5px" }}>
                         <span style={{
                           color: isOverdue ? "var(--danger)" : "inherit",
-                          fontWeight: isOverdue ? 700 : "normal"
+                          fontWeight: isOverdue ? 700 : "500"
                         }}>
-                          {inv.dueDate}
+                          {formatDisplayDate(inv.dueDate)}
                         </span>
                       </td>
 

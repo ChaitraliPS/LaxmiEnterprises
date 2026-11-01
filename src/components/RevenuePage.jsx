@@ -559,7 +559,11 @@ export default function Revenue({
                     </td>
                     <td>
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: "12.5px" }}>{inv.category || "Hardware"}</div>
+                        <div style={{ fontWeight: 600, fontSize: "12.5px" }}>
+                          {(inv.category && !inv.category.toLowerCase().includes("hardware") && !inv.category.toLowerCase().includes("industrial"))
+                            ? inv.category
+                            : (inv.clientType || "Animal Feed")}
+                        </div>
                         <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{inv.paymentMethod || "NEFT / RTGS"}</div>
                       </div>
                     </td>
