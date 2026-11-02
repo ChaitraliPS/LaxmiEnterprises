@@ -1,17 +1,16 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
-  Package, Plus, Search, Filter, Pencil, Trash2, Download, AlertTriangle, Eye, X,
+  Package, Plus, Search, Filter, Pencil, Download, AlertTriangle, Eye, X,
   Calculator, IndianRupee, Tag, CheckCircle2, RefreshCw
 } from "lucide-react";
 import ProductModal from "./ProductModal";
 import ProductStockModal from "./ProductStockModal";
-import DeleteConfirmModal from "./DeleteConfirmModal";
 import ExportMenu from "./ExportMenu";
 import { downloadCSV } from "../utils/exportUtils";
 import { calculateProductStock } from "../services/stockService";
 import { erpApi } from "../services/api";
 
-export default function ProductsPage({ products, onSaveProducts, onDeleteProduct, inventory = [], onRefresh }) {
+export default function ProductsPage({ products, onSaveProducts, inventory = [], onRefresh }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
@@ -23,14 +22,13 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
       setIsRefreshing(true);
       await onRefresh();
       setTimeout(() => setIsRefreshing(false), 500);
-      showToast("✓ Products synchronized with MySQL database");
+      showToast("✓ Products synchronized with database");
     }
   };
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [deletingProduct, setDeletingProduct] = useState(null);
   const [calculatingProduct, setCalculatingProduct] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -42,7 +40,7 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
   const nextId = useMemo(() => {
     const ids = products
       .map(p => {
-        const match = p.id.match(/\d+/);
+        const match = (p.id || p.productId || "").match(/\d+/);
         return match ? parseInt(match[0], 10) : 0;
       })
       .filter(n => !isNaN(n));
@@ -51,7 +49,7 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
   }, [products]);
 
   const categories = useMemo(() => {
-    const set = new Set(products.map(p => p.category));
+    const set = new Set(products.map(p => p.category).filter(Boolean));
     return ["All", ...Array.from(set)];
   }, [products]);
 
@@ -60,54 +58,65 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
       const matchesCategory = categoryFilter === "All" || p.category === categoryFilter;
       const q = search.toLowerCase().trim();
       const matchesSearch = !q || (
-        p.name.toLowerCase().includes(q) ||
-        p.id.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.id || p.productId || "").toLowerCase().includes(q) ||
+        (p.category || "").toLowerCase().includes(q)
       );
       return matchesCategory && matchesSearch;
     });
   }, [products, search, categoryFilter]);
 
-  // Specific Stock Aggregations across products and linked inventory
-  const totalUnits = useMemo(() => products.reduce((sum, p) => {
-    const inv = (inventory || []).find(i => 
-      (i.product && i.product.toLowerCase() === p.name.toLowerCase()) || 
-      (i.sku && i.sku.toLowerCase() === p.id.toLowerCase())
-    );
-    return sum + calculateProductStock(p, inv).currentAvailableStock;
-  }, 0), [products, inventory]);
+  // Per-unit breakdown: Do not add quantities of different units into one mixed total
+  const unitBreakdown = useMemo(() => {
+    const map = {};
+    products.forEach(p => {
+      const inv = (inventory || []).find(i => 
+        (i.product && i.product.toLowerCase() === (p.name || "").toLowerCase()) || 
+        (i.sku && i.sku.toLowerCase() === (p.id || p.productId || "").toLowerCase())
+      );
+      const m = calculateProductStock(p, inv);
+      const u = p.unitOfMeasure || p.unit || "Units";
+      map[u] = (map[u] || 0) + m.currentAvailableStock;
+    });
+    const parts = Object.entries(map).map(([unit, qty]) => `${qty.toLocaleString("en-IN")} ${unit}`);
+    return parts.length > 0 ? parts.join(", ") : "0 Units";
+  }, [products, inventory]);
 
-  const totalInwardUnits = useMemo(() => products.reduce((sum, p) => {
-    const inv = (inventory || []).find(i => 
-      (i.product && i.product.toLowerCase() === p.name.toLowerCase()) || 
-      (i.sku && i.sku.toLowerCase() === p.id.toLowerCase())
-    );
-    return sum + calculateProductStock(p, inv).inwardStock;
-  }, 0), [products, inventory]);
+  const inOutBreakdown = useMemo(() => {
+    const inMap = {};
+    const outMap = {};
+    products.forEach(p => {
+      const inv = (inventory || []).find(i => 
+        (i.product && i.product.toLowerCase() === (p.name || "").toLowerCase()) || 
+        (i.sku && i.sku.toLowerCase() === (p.id || p.productId || "").toLowerCase())
+      );
+      const m = calculateProductStock(p, inv);
+      const u = p.unitOfMeasure || p.unit || "Units";
+      inMap[u] = (inMap[u] || 0) + m.inwardStock;
+      outMap[u] = (outMap[u] || 0) + m.outwardStock;
+    });
+    const inParts = Object.entries(inMap).map(([u, q]) => `+${q} ${u}`).join(", ");
+    const outParts = Object.entries(outMap).map(([u, q]) => `−${q} ${u}`).join(", ");
+    return `(${inParts || "+0"} in / ${outParts || "−0"} out)`;
+  }, [products, inventory]);
 
-  const totalOutwardUnits = useMemo(() => products.reduce((sum, p) => {
-    const inv = (inventory || []).find(i => 
-      (i.product && i.product.toLowerCase() === p.name.toLowerCase()) || 
-      (i.sku && i.sku.toLowerCase() === p.id.toLowerCase())
-    );
-    return sum + calculateProductStock(p, inv).outwardStock;
-  }, 0), [products, inventory]);
-
+  // Total inventory valuation at COST: sum(stock balance x product costPrice)
   const totalValuation = useMemo(() => products.reduce((sum, p) => {
     const inv = (inventory || []).find(i => 
-      (i.product && i.product.toLowerCase() === p.name.toLowerCase()) || 
-      (i.sku && i.sku.toLowerCase() === p.id.toLowerCase())
+      (i.product && i.product.toLowerCase() === (p.name || "").toLowerCase()) || 
+      (i.sku && i.sku.toLowerCase() === (p.id || p.productId || "").toLowerCase())
     );
     return sum + calculateProductStock(p, inv).valuation;
   }, 0), [products, inventory]);
 
+  // Low stock count: Only products where reorderLevel is set and stock <= reorderLevel
   const lowCount = useMemo(() => products.filter(p => {
     const inv = (inventory || []).find(i => 
-      (i.product && i.product.toLowerCase() === p.name.toLowerCase()) || 
-      (i.sku && i.sku.toLowerCase() === p.id.toLowerCase())
+      (i.product && i.product.toLowerCase() === (p.name || "").toLowerCase()) || 
+      (i.sku && i.sku.toLowerCase() === (p.id || p.productId || "").toLowerCase())
     );
     const m = calculateProductStock(p, inv);
-    return m.currentAvailableStock <= m.minStock;
+    return m.minStock !== null && m.status === "Low Stock";
   }).length, [products, inventory]);
 
   const handleOpenAdd = () => {
@@ -122,38 +131,21 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
 
   const handleSaveProduct = (prodData) => {
     if (editingProduct) {
-      const updated = products.map(p => p.id === editingProduct.id ? prodData : p);
+      const updated = products.map(p => (p.id === editingProduct.id || p.productId === editingProduct.id) ? prodData : p);
       onSaveProducts(updated);
-      showToast(`✓ Updated ${prodData.name} and recalculated available stock!`);
+      showToast(`✓ Updated ${prodData.name} and synchronized stock ledger`);
     } else {
-      const exists = products.some(p => p.id.toLowerCase() === prodData.id.toLowerCase());
+      const exists = products.some(p => (p.id || p.productId || "").toLowerCase() === prodData.id.toLowerCase());
       if (exists) {
         showToast(`⚠️ A product with ID ${prodData.id} already exists.`);
         return;
       }
       const updated = [prodData, ...products];
       onSaveProducts(updated);
-      showToast(`✓ Added ${prodData.name} to catalogue with specific stock calculation!`);
+      showToast(`✓ Added ${prodData.name} to catalogue`);
     }
     setModalOpen(false);
     setEditingProduct(null);
-  };
-
-  const handleDeleteConfirm = () => {
-    if (!deletingProduct) return;
-    const prodId = deletingProduct.id || deletingProduct.productId;
-    const prodName = deletingProduct.name || "Product";
-
-    if (onDeleteProduct) {
-      onDeleteProduct(deletingProduct);
-    } else {
-      const updated = products.filter(p => (p.id !== prodId && p.productId !== prodId));
-      onSaveProducts(updated);
-      erpApi.deleteProduct(prodId).catch(() => {});
-    }
-
-    showToast(`✓ Product ${prodName} deleted from catalogue and inventory.`);
-    setDeletingProduct(null);
   };
 
   const handleExportCSV = () => {
@@ -161,41 +153,42 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
       "Product_ID",
       "Product_Name",
       "Category",
-      "Unit_Price_INR",
+      "Unit_of_Measure",
+      "Unit_Cost_Price_INR",
+      "Unit_Selling_Price_INR",
       "Opening_Stock",
       "Inward_Received",
       "Outward_Dispatched",
-      "Reserved_Hold",
       "Current_Available_Stock",
-      "Min_Stock_Limit",
-      "Buffer_Margin",
+      "Reorder_Level",
       "Status",
-      "Stock_Valuation_INR"
+      "Inventory_Valuation_At_Cost_INR"
     ];
     const rows = filtered.map(p => {
       const inv = (inventory || []).find(i => 
-        (i.product && i.product.toLowerCase() === p.name.toLowerCase()) || 
-        (i.sku && i.sku.toLowerCase() === p.id.toLowerCase())
+        (i.product && i.product.toLowerCase() === (p.name || "").toLowerCase()) || 
+        (i.sku && i.sku.toLowerCase() === (p.id || p.productId || "").toLowerCase())
       );
       const m = calculateProductStock(p, inv);
+      const uom = p.unitOfMeasure || p.unit || "Units";
       return [
-        `"${p.id}"`,
+        `"${p.id || p.productId}"`,
         `"${p.name}"`,
         `"${p.category}"`,
-        p.price,
+        `"${uom}"`,
+        p.costPrice || p.purchasePrice || 0,
+        p.price || p.sellingPrice || 0,
         m.openingStock,
         m.inwardStock,
         m.outwardStock,
-        m.reservedStock,
         m.currentAvailableStock,
-        m.minStock,
-        m.bufferMargin,
+        m.minStock !== null ? m.minStock : "Not set",
         `"${m.status}"`,
         m.valuation
       ];
     });
-    downloadCSV(`laxmi_enterprises_products_stock_audit_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
-    showToast("✓ Exported products catalogue with specific stock calculation audit.");
+    downloadCSV(`laxmi_enterprises_products_catalogue_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+    showToast("✓ Exported products catalogue with ledger audit.");
   };
 
   return (
@@ -223,9 +216,9 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
           </div>
           <div>
             <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Current Available Stock</div>
-            <div style={{ fontSize: "21px", fontWeight: 800 }}>{totalUnits.toLocaleString("en-IN")} Units</div>
+            <div style={{ fontSize: "18px", fontWeight: 800 }}>{unitBreakdown}</div>
             <div style={{ fontSize: "10.5px", color: "var(--text-muted)", marginTop: 1 }}>
-              (+{totalInwardUnits} in / −{totalOutwardUnits} out)
+              {inOutBreakdown}
             </div>
           </div>
         </div>
@@ -235,7 +228,7 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
             <IndianRupee size={20} />
           </div>
           <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Total Inventory Value</div>
+            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Inventory Valuation (at Cost)</div>
             <div style={{ fontSize: "21px", fontWeight: 800, color: "var(--success)" }}>₹{totalValuation.toLocaleString("en-IN")}</div>
           </div>
         </div>
@@ -267,7 +260,7 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <ExportMenu
-            label="Export Stock Audit"
+            label="Export Catalogue"
             category="Products"
             onExportCSV={handleExportCSV}
             showToast={showToast}
@@ -299,7 +292,7 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
             )}
           </div>
           <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 600 }}>
-            Showing {filtered.length} of {products.length} products • Specific calculation enabled
+            Showing {filtered.length} of {products.length} products • Ledger audit synchronized
           </span>
         </div>
 
@@ -318,14 +311,14 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
                   <th>Product ID</th>
                   <th>Product Name</th>
                   <th>Category</th>
-                  <th>Unit Price</th>
+                  <th>Pricing</th>
                   <th>
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <span>Current Available Stock</span>
+                      <span>Available Stock</span>
                       <Calculator size={13} style={{ color: "var(--primary)" }} />
                     </div>
                   </th>
-                  <th>Min Limit</th>
+                  <th>Reorder Level</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -333,16 +326,20 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
               <tbody>
                 {filtered.map(p => {
                   const inv = (inventory || []).find(i => 
-                    (i.product && i.product.toLowerCase() === p.name.toLowerCase()) || 
-                    (i.sku && i.sku.toLowerCase() === p.id.toLowerCase())
+                    (i.product && i.product.toLowerCase() === (p.name || "").toLowerCase()) || 
+                    (i.sku && i.sku.toLowerCase() === (p.id || p.productId || "").toLowerCase())
                   );
                   const metrics = calculateProductStock(p, inv);
                   const isOut = metrics.status === "Out of Stock";
                   const isLow = metrics.status === "Low Stock";
+                  const isNotSet = metrics.status === "Not set";
+                  const uom = p.unitOfMeasure || p.unit || "Units";
+                  const sellingRate = Number(p.price || p.sellingPrice || 0);
+                  const costRate = Number(p.costPrice || p.purchasePrice || 0);
 
                   return (
-                    <tr key={p.id}>
-                      <td><code>{p.id}</code></td>
+                    <tr key={p.id || p.productId}>
+                      <td><code>{p.id || p.productId}</code></td>
                       <td>
                         <b>{p.name}</b>
                         {inv?.location && (
@@ -356,12 +353,13 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
                           <Tag size={11} style={{ marginRight: 4 }} /> {p.category}
                         </span>
                       </td>
-                      <td className="money">
-                        {metrics.unitPrice > 0 ? (
-                          `₹${metrics.unitPrice.toLocaleString("en-IN")}`
-                        ) : (
-                          <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>₹0</span>
-                        )}
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <b>₹{sellingRate.toLocaleString("en-IN")}</b>
+                          <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                            Cost: ₹{costRate.toLocaleString("en-IN")}
+                          </span>
+                        </div>
                       </td>
                       
                       {/* SPECIFIC STOCK CALCULATION CELL WITH VIEW BUTTON */}
@@ -372,7 +370,7 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
                               fontSize: "0.95rem",
                               color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--text-main)"
                             }}>
-                              {metrics.currentAvailableStock.toLocaleString("en-IN")} units
+                              {metrics.currentAvailableStock.toLocaleString("en-IN")} {uom}
                             </b>
                             <button
                               type="button"
@@ -402,13 +400,13 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
                         </div>
                       </td>
 
-                      <td>{metrics.minStock} units</td>
+                      <td>{metrics.minStock !== null ? `${metrics.minStock} ${uom}` : <span style={{ color: "var(--text-muted)" }}>Not set</span>}</td>
                       <td>
-                        <span className={`badge ${isOut ? "danger" : isLow ? "warning" : "success"}`}>
+                        <span className={`badge ${isNotSet ? "muted" : isOut ? "danger" : isLow ? "warning" : "success"}`}>
                           <span
-                            className={`badge-dot ${!isOut && !isLow ? "pulse" : ""}`}
+                            className={`badge-dot ${!isNotSet && !isOut && !isLow ? "pulse" : ""}`}
                             style={{
-                              background: isOut ? "#ef4444" : isLow ? "#f59e0b" : "#10b981",
+                              background: isNotSet ? "#94a3b8" : isOut ? "#ef4444" : isLow ? "#f59e0b" : "#10b981",
                               width: 6,
                               height: 6,
                               borderRadius: "50%",
@@ -431,9 +429,6 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
                           <button title="Edit Product Details" onClick={() => handleOpenEdit(p)}>
                             <Pencil size={14} />
                           </button>
-                          <button title="Delete Product" onClick={() => setDeletingProduct(p)}>
-                            <Trash2 size={14} style={{ color: "var(--danger)" }} />
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -446,13 +441,13 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
       </div>
 
       <ProductModal
-        key={editingProduct ? editingProduct.id : "new-product"}
+        key={editingProduct ? (editingProduct.id || editingProduct.productId) : "new-product"}
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setEditingProduct(null); }}
         onSave={handleSaveProduct}
         productToEdit={editingProduct}
         nextId={nextId}
-        existingIds={products.map(p => p.id)}
+        existingIds={products.map(p => p.id || p.productId)}
       />
 
       {/* DEDICATED STOCK CALCULATION AUDIT MODAL */}
@@ -461,8 +456,8 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
         onClose={() => setCalculatingProduct(null)}
         product={calculatingProduct}
         inventoryItem={(inventory || []).find(i => 
-          (i.product && i.product.toLowerCase() === calculatingProduct?.name.toLowerCase()) || 
-          (i.sku && i.sku.toLowerCase() === calculatingProduct?.id.toLowerCase())
+          (i.product && i.product.toLowerCase() === (calculatingProduct?.name || "").toLowerCase()) || 
+          (i.sku && i.sku.toLowerCase() === (calculatingProduct?.id || calculatingProduct?.productId || "").toLowerCase())
         )}
         onEditProduct={(p) => {
           setCalculatingProduct(null);
@@ -470,19 +465,6 @@ export default function ProductsPage({ products, onSaveProducts, onDeleteProduct
         }}
       />
 
-      <DeleteConfirmModal
-        isOpen={!!deletingProduct}
-        onClose={() => setDeletingProduct(null)}
-        onConfirm={handleDeleteConfirm}
-        title="Confirm Product Deletion"
-        message={deletingProduct ? `Are you sure you want to remove ${deletingProduct.name} (${deletingProduct.id}) from the catalogue?` : ""}
-        details={deletingProduct ? `Current inventory has ${deletingProduct.stock} units priced at ₹${Number(deletingProduct.price).toLocaleString("en-IN")} each.` : ""}
-      />
-
     </div>
   );
 }
-
-// ==========================================================================
-// INVENTORY MODAL (ADD / EDIT)
-// ==========================================================================

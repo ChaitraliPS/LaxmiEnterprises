@@ -55,27 +55,27 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
   const totalDeductions = outwardStock + reservedStock;
   const currentAvailableStock = Math.max(0, grossInward - totalDeductions);
 
-  // Safety threshold & buffer analysis
-  const minStock = Math.max(0, Number(product.minStock) || 0);
-  const bufferMargin = currentAvailableStock - minStock;
+  // Safety threshold & reorder level analysis
+  const hasReorder = product.reorderLevel !== undefined && product.reorderLevel !== null && product.reorderLevel !== "";
+  const minStock = hasReorder ? Number(product.reorderLevel) : null;
+  const bufferMargin = hasReorder ? currentAvailableStock - minStock : null;
 
-  // Commercial Valuation
-  const rawPrice = Number(product.price);
-  const rawSellingPrice = Number(product.sellingPrice);
-  const rawPurchasePrice = Number(product.purchasePrice);
-  const rawCostPrice = Number(product.costPrice);
-  const unitPrice = !isNaN(rawPrice) && rawPrice > 0 ? rawPrice
-    : !isNaN(rawSellingPrice) && rawSellingPrice > 0 ? rawSellingPrice
-    : !isNaN(rawPurchasePrice) && rawPurchasePrice > 0 ? rawPurchasePrice
-    : !isNaN(rawCostPrice) && rawCostPrice > 0 ? rawCostPrice
-    : 0;
-  const valuation = currentAvailableStock * unitPrice;
+  // Inventory Asset Valuation at COST (NOT selling price!)
+  const rawCostPrice = Number(product.costPrice ?? product.purchasePrice);
+  const costPrice = !isNaN(rawCostPrice) && rawCostPrice > 0 ? rawCostPrice : 0;
+  const rawSellingPrice = Number(product.price ?? product.sellingPrice);
+  const sellingPrice = !isNaN(rawSellingPrice) && rawSellingPrice > 0 ? rawSellingPrice : 0;
+  const valuation = currentAvailableStock * costPrice;
 
-  // Stock Status categorization
-  let status = "In Stock";
-  let statusColor = "var(--success)";
-  let statusBadge = "success";
-  if (currentAvailableStock <= 0) {
+  // Stock Status categorization using canonical evaluateStockHealth logic
+  let status = "Not set";
+  let statusColor = "var(--text-muted)";
+  let statusBadge = "muted";
+  if (!hasReorder) {
+    status = "Not set";
+    statusColor = "var(--text-muted)";
+    statusBadge = "muted";
+  } else if (currentAvailableStock <= 0) {
     status = "Out of Stock";
     statusColor = "var(--danger)";
     statusBadge = "danger";
@@ -83,6 +83,10 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
     status = "Low Stock";
     statusColor = "var(--warning)";
     statusBadge = "warning";
+  } else {
+    status = "In Stock";
+    statusColor = "var(--success)";
+    statusBadge = "success";
   }
 
   // Turnover / Fulfillment Rate
@@ -146,7 +150,9 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
     currentAvailableStock,
     minStock,
     bufferMargin,
-    unitPrice,
+    unitPrice: costPrice,
+    costPrice,
+    sellingPrice,
     valuation,
     status,
     statusColor,

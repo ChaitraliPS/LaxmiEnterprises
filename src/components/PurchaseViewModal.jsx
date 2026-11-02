@@ -1,10 +1,13 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import {
   X, Download, ShoppingCart, Milk, Tractor, Wheat,
-  MapPin, Phone, Mail, Calendar, ShieldCheck, Edit3
+  MapPin, Phone, Mail, Calendar, ShieldCheck, Edit3,
+  CreditCard, Ban, CheckCircle2
 } from "lucide-react";
 import { generatePurchaseInvoicePDF } from "../services/pdfService";
 import { getPurchaseWhatsAppUrl } from "../services/whatsappService";
+import { erpApi } from "../services/api";
+import { getToday } from "../constants/erpConstants";
 
 export default function PurchaseViewModal({
   isOpen,
@@ -12,10 +15,17 @@ export default function PurchaseViewModal({
   purchase,
   company = {},
   onEdit,
-  onDelete,
-  showToast
+  showToast,
+  onRefresh
 }) {
   const printRef = useRef(null);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMode, setPayMode] = useState("RTGS / Bank Transfer");
+  const [payDate, setPayDate] = useState(() => getToday());
+  const [payRef, setPayRef] = useState("");
+  const [payNotes, setPayNotes] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   if (!isOpen || !purchase) return null;
 
   const isFeed = purchase.category === "Animal Feed Shop";
@@ -66,7 +76,57 @@ export default function PurchaseViewModal({
   const purchaseTotal = Number(purchase.totalAmount || purchase.total || purchase.grandTotal || 0);
   const purchasePaid = Number(purchase.paidAmount !== undefined && purchase.paidAmount !== null && purchase.paidAmount !== "" ? purchase.paidAmount : (purchase.paymentStatus === "Paid" ? purchaseTotal : 0));
   const balanceDue = Math.max(0, purchaseTotal - purchasePaid);
+  const isCancelled = Boolean(purchase.isCancelled);
   const day1Amount = Number(purchase.day1Amount) || (isPartial ? purchasePaid : purchaseTotal);
+
+  const handleRecordPayment = async (e) => {
+    e.preventDefault();
+    const parsedAmount = Number(payAmount);
+    if (!parsedAmount || parsedAmount <= 0) {
+      if (showToast) showToast("⚠️ Please enter a valid payment amount");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const targetId = purchase.purchaseId || purchase.id;
+      await erpApi.recordVendorPayment(targetId, {
+        paymentAmount: parsedAmount,
+        paymentMode: payMode,
+        paymentDate: payDate,
+        referenceNo: payRef,
+        notes: payNotes,
+      });
+      if (showToast) showToast(`✓ Vendor payment of ₹${parsedAmount.toLocaleString("en-IN")} recorded for ${targetId}`);
+      setShowPaymentForm(false);
+      if (onRefresh) await onRefresh();
+      onClose();
+    } catch (err) {
+      console.error("Failed to record vendor payment:", err);
+      if (showToast) showToast(`⚠️ Failed to record vendor payment: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancelPurchase = async () => {
+    const targetId = purchase.purchaseId || purchase.id;
+    const confirmed = window.confirm(
+      `Are you sure you want to cancel Purchase Bill ${targetId}? This will reverse inventory stock additions and clear remaining vendor payables.`
+    );
+    if (!confirmed) return;
+    setIsSubmitting(true);
+    try {
+      await erpApi.deletePurchase(targetId);
+      if (showToast) showToast(`✓ Purchase Bill ${targetId} cancelled successfully.`);
+      if (onRefresh) await onRefresh();
+      onClose();
+    } catch (err) {
+      console.error("Failed to cancel purchase bill:", err);
+      if (showToast) showToast(`⚠️ Failed to cancel purchase: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -138,6 +198,118 @@ export default function PurchaseViewModal({
 
         {/* MODAL BODY (PRINTABLE VOUCHER AREA) */}
         <div className="modal-body" ref={printRef} style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+
+          {/* Inline Vendor Payment Form Panel if active */}
+          {showPaymentForm && (
+            <div style={{
+              background: "#ffffff",
+              border: "1px solid #059669",
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 16,
+              boxShadow: "0 4px 12px rgba(5, 150, 105, 0.12)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, color: "#059669", fontSize: 14 }}>
+                  <CreditCard size={18} />
+                  <span>Record Vendor Payment Outflow for {purchase.purchaseId || purchase.id}</span>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setShowPaymentForm(false)}
+                  style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleRecordPayment} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Payment Amount (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={balanceDue > 0 ? balanceDue : purchaseTotal}
+                    required
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(e.target.value)}
+                    placeholder={`Max ₹${balanceDue.toLocaleString("en-IN")}`}
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Payment Mode *
+                  </label>
+                  <select
+                    value={payMode}
+                    onChange={(e) => setPayMode(e.target.value)}
+                    required
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  >
+                    <option value="RTGS / Bank Transfer">RTGS / Bank Transfer</option>
+                    <option value="NEFT">NEFT</option>
+                    <option value="IMPS">IMPS</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="UPI">UPI / Digital</option>
+                    <option value="Cash">Cash</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Payment Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={payDate}
+                    onChange={(e) => setPayDate(e.target.value)}
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    UTR / Reference No
+                  </label>
+                  <input
+                    type="text"
+                    value={payRef}
+                    onChange={(e) => setPayRef(e.target.value)}
+                    placeholder="e.g. UTR9483726"
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  />
+                </div>
+
+                <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() => setShowPaymentForm(false)}
+                    disabled={isSubmitting}
+                    style={{ padding: "6px 14px", fontSize: 12 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary"
+                    disabled={isSubmitting}
+                    style={{ padding: "6px 16px", fontSize: 12, display: "flex", alignItems: "center", gap: 6, background: "#059669", borderColor: "#059669" }}
+                  >
+                    <CheckCircle2 size={14} />
+                    <span>{isSubmitting ? "Submitting..." : "Submit Payment"}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* VOUCHER HEADER WITH ENTERPRISE & SUPPLIER INFO */}
           <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20, background: "var(--table-hover)", padding: 18, borderRadius: 10, border: "1px solid var(--border)" }}>

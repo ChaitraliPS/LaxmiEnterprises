@@ -1130,6 +1130,12 @@ button, input, select {
   border: 1px solid rgba(239, 68, 68, 0.25);
 }
 
+.trend.neutral {
+  background: var(--bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
 .trend span {
   font-weight: 500;
   color: var(--text-muted);

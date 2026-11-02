@@ -2,14 +2,25 @@ import { DataTypes, Model } from "sequelize";
 import { sequelize } from "../config/db.js";
 
 export class ExpoLead extends Model {
+  // Maps database columns to the field names the frontend uses
   toJSON() {
-    const values = { ...this.get() };
-    const extra = values.extraData || {};
-    return {
+    const v = { ...this.get() };
+    const extra = v.extraData || {};
+    const created = v.createdAt ? new Date(v.createdAt).toISOString().slice(0, 10) : "";
+    const out = {
       ...extra,
-      ...values,
-      id: values.leadId || values.id,
+      ...v,
+      id: v.leadId || v.id,
+      name: v.visitorName,
+      mobile: v.contact,
+      remark: v.notes,
+      date: extra.visitDate || created,
+      whatsappConsent: extra.whatsappConsent !== false,
+      whatsappSentAt: extra.whatsappSentAt || null,
+      status: v.status === "New" ? "New Lead" : v.status,
     };
+    delete out.extraData;
+    return out;
   }
 }
 
@@ -35,7 +46,7 @@ ExpoLead.init(
     },
     category: {
       type: DataTypes.STRING(60),
-      defaultValue: "Farmer",
+      defaultValue: "Farmers",
     },
     contact: {
       type: DataTypes.STRING(30),
@@ -75,7 +86,7 @@ ExpoLead.init(
     },
     status: {
       type: DataTypes.STRING(30),
-      defaultValue: "New",
+      defaultValue: "New Lead",
     },
     whatsappBroadcastSent: {
       type: DataTypes.BOOLEAN,

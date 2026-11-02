@@ -1,9 +1,6 @@
 import React, { useState } from "react";
-import {
-  X, Save, MessageCircle, MapPin, Phone, User, FileText,
-  Building2, Calendar, Tag, CheckCircle2, Wheat, Milk, Tractor
-} from "lucide-react";
-import { getWhatsAppUrl, renderWhatsAppMessage } from "../services/whatsappService";
+import { X, Save, MessageCircle, User, Wheat, Milk, Tractor } from "lucide-react";
+import { getWhatsAppUrl } from "../services/whatsappService";
 import { FieldError, RequiredStar, ValidationSummary } from "./ValidationFeedback";
 import {
   validateRequiredText,
@@ -12,19 +9,20 @@ import {
   validateDate
 } from "../utils/validators";
 
+const todayLocal = () =>
+  new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
 export default function ExpoLeadModal({
-  isOpen,
   onClose,
   onSave,
   leadToEdit = null,
   nextId = "EXP-001",
   company = {}
 }) {
-  if (!isOpen) return null;
   const isEditing = !!leadToEdit;
 
   const [form, setForm] = useState(() => {
-    if (leadToEdit) return { ...leadToEdit };
+    if (leadToEdit) return { whatsappConsent: true, ...leadToEdit };
     return {
       id: nextId,
       name: "",
@@ -35,17 +33,19 @@ export default function ExpoLeadModal({
       taluka: "",
       district: "Pune",
       expoName: "Kisan Agri Expo 2026 - Pune",
-      date: new Date().toISOString().slice(0, 10),
+      date: todayLocal(),
       status: "New Lead", // "New Lead" | "Followed Up" | "Interested" | "Converted"
-      email: ""
+      email: "",
+      whatsappConsent: true
     };
   });
 
   const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
 
   const clearError = (field) => {
     if (errors[field]) {
-      setErrors(prev => {
+      setErrors((prev) => {
         const copy = { ...prev };
         delete copy[field];
         return copy;
@@ -80,38 +80,45 @@ export default function ExpoLeadModal({
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    if (saving || !validateForm()) return;
 
-    onSave({
-      ...form,
-      name: form.name.trim(),
-      village: form.village.trim(),
-      mobile: form.mobile.trim(),
-      remark: form.remark.trim(),
-      taluka: form.taluka ? form.taluka.trim() : "",
-      district: form.district ? form.district.trim() : "Pune"
-    });
-    onClose();
+    setSaving(true);
+    try {
+      await onSave({
+        ...form,
+        name: form.name.trim(),
+        village: form.village.trim(),
+        mobile: form.mobile.trim(),
+        remark: form.remark.trim(),
+        taluka: form.taluka ? form.taluka.trim() : "",
+        district: form.district ? form.district.trim() : "Pune"
+      });
+      onClose();
+    } catch (err) {
+      setErrors({ form: err.message || "Could not save visitor. Please try again." });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleTestWhatsApp = () => {
     const mobVal = validateMobile(form.mobile, true);
     if (!mobVal.isValid) {
-      setErrors(prev => ({ ...prev, mobile: mobVal.error }));
+      setErrors((prev) => ({ ...prev, mobile: mobVal.error }));
       return;
     }
-    const sampleMsg = `Namaskar ${form.name || "Customer"} ji! Greetings from Laxmi Enterprises regarding your visit at ${form.expoName}. Note: ${form.remark || "Thank you for connecting!"}.`;
+    const sampleMsg = `Namaskar ${form.name || "Customer"} ji! Greetings from ${company.name || "Laxmi Enterprises"} regarding your visit at ${form.expoName}. Note: ${form.remark || "Thank you for connecting!"}.`;
     const url = getWhatsAppUrl(form.mobile, sampleMsg);
     window.open(url, "_blank");
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div 
-        className="modal" 
-        onClick={e => e.stopPropagation()} 
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 640, width: "95%", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
       >
         {/* MODAL HEADER */}
@@ -141,7 +148,7 @@ export default function ExpoLeadModal({
               </p>
             </div>
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close modal">
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close modal">
             <X size={18} />
           </button>
         </div>
@@ -149,7 +156,7 @@ export default function ExpoLeadModal({
         {/* MODAL BODY */}
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           <div className="modal-body" style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-            
+
             <ValidationSummary errors={errors} title="Please fix the following visitor details:" />
 
             {/* EVENT & CATEGORY */}
@@ -237,6 +244,7 @@ export default function ExpoLeadModal({
                         clearError("mobile");
                       }}
                       placeholder="10-digit mobile number"
+                      inputMode="numeric"
                       required
                     />
                     <button
@@ -322,6 +330,16 @@ export default function ExpoLeadModal({
               </div>
             </div>
 
+            {/* WHATSAPP CONSENT */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, fontSize: "0.86rem", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={form.whatsappConsent !== false}
+                onChange={(e) => setForm({ ...form, whatsappConsent: e.target.checked })}
+              />
+              Visitor agreed to receive WhatsApp updates from us
+            </label>
+
           </div>
 
           {/* MODAL FOOTER */}
@@ -338,8 +356,13 @@ export default function ExpoLeadModal({
               >
                 <MessageCircle size={15} /> WhatsApp
               </button>
-              <button type="submit" className="primary" style={{ display: "flex", alignItems: "center", gap: 6, flex: "1 1 auto", justifyContent: "center" }}>
-                <Save size={15} /> {isEditing ? "Update" : "Save"}
+              <button
+                type="submit"
+                className="primary"
+                disabled={saving}
+                style={{ display: "flex", alignItems: "center", gap: 6, flex: "1 1 auto", justifyContent: "center" }}
+              >
+                <Save size={15} /> {saving ? "Saving..." : isEditing ? "Update" : "Save"}
               </button>
             </div>
           </div>

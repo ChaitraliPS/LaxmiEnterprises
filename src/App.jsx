@@ -39,10 +39,15 @@ export default function App() {
     return [];
   });
 
-  const saveClients = (newClients) => {
+  const saveClients = async (newClients) => {
     setClients(newClients);
     localStorage.setItem("le_clients", JSON.stringify(newClients));
-    erpApi.syncClients(newClients).catch((e) => console.warn("Failed to sync clients to DB:", e.message));
+    try {
+      await erpApi.syncClients(newClients);
+      await fetchMasterDataFromDB();
+    } catch (e) {
+      console.warn("Failed to sync clients to DB:", e.message);
+    }
   };
 
   // Vendor Directory state with persistence & MySQL sync (no hardcoded dummy data)
@@ -57,47 +62,20 @@ export default function App() {
     return [];
   });
 
-  const saveVendors = (newVendors) => {
+  const saveVendors = async (newVendors) => {
     setVendors(newVendors);
     localStorage.setItem("le_vendors", JSON.stringify(newVendors));
-    erpApi.syncVendors(newVendors).catch((e) => console.warn("Failed to sync vendors to DB:", e.message));
-  };
-
-  // Invoices state with persistence & MySQL sync
-  const [invoices, setInvoices] = useState(() => {
-    const saved = localStorage.getItem("le_invoices");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch (e) {}
+    try {
+      await erpApi.syncVendors(newVendors);
+      await fetchMasterDataFromDB();
+    } catch (e) {
+      console.warn("Failed to sync vendors to DB:", e.message);
     }
-    return [];
-  });
-
-  const saveInvoices = (newInvoices) => {
-    setInvoices(newInvoices);
-    localStorage.setItem("le_invoices", JSON.stringify(newInvoices));
-    erpApi.syncInvoices(newInvoices).catch((e) => console.warn("Failed to sync invoices to DB:", e.message));
   };
 
-  // Purchases state with persistence & MySQL sync
-  const [purchases, setPurchases] = useState(() => {
-    const saved = localStorage.getItem("le_purchases");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      } catch (e) {}
-    }
-    return [];
-  });
-
-  const savePurchases = (newPurchases) => {
-    setPurchases(newPurchases);
-    localStorage.setItem("le_purchases", JSON.stringify(newPurchases));
-    erpApi.syncPurchases(newPurchases).catch((e) => console.warn("Failed to sync purchases to DB:", e.message));
-  };
+  // Invoices and Purchases state loaded strictly from GET /sync/all
+  const [invoices, setInvoices] = useState([]);
+  const [purchases, setPurchases] = useState([]);
 
   // Expo Leads state with persistence & MySQL sync
   const [expoLeads, setExpoLeads] = useState(() => {
@@ -146,11 +124,9 @@ export default function App() {
       }
       if (Array.isArray(data.invoices)) {
         setInvoices(data.invoices);
-        localStorage.setItem("le_invoices", JSON.stringify(data.invoices));
       }
       if (Array.isArray(data.purchases)) {
         setPurchases(data.purchases);
-        localStorage.setItem("le_purchases", JSON.stringify(data.purchases));
       }
       if (Array.isArray(data.products)) {
         setProducts(data.products);
@@ -457,112 +433,32 @@ export default function App() {
 
   // Cross-Entity Relational Cascade Handlers:
   // 1. Invoice creation cascades to Products & Client Ledger (Backend syncs MySQL inventory)
-  const handleCreateInvoiceCascade = (newInvoice) => {
-    const updatedInvoices = [newInvoice, ...invoices];
-    saveInvoices(updatedInvoices);
-
-    // Products update karo; Inventory backend (syncProducts) khud sync karta hai
-    if (Array.isArray(newInvoice.items) && newInvoice.items.length > 0) {
-      const updatedProducts = products.map((prod) => {
-        const item = newInvoice.items.find((it) => String(it.productId) === String(prod.id));
-        if (item) {
-          const qty = Number(item.qty) || 0;
-          const currentOut = Number(prod.outwardStock || 0);
-          const currentStock = Number(prod.stock || prod.currentStock || 0);
-          const newStock = Math.max(0, currentStock - qty);
-          return {
-            ...prod,
-            outwardStock: currentOut + (currentStock - newStock),
-            stock: newStock,
-            currentStock: newStock,
-          };
-        }
-        return prod;
-      });
-      saveProducts(updatedProducts);
-    }
-
-    if (newInvoice.clientId || newInvoice.clientName) {
-      const invTotal = Number(newInvoice.total || newInvoice.grandTotal || 0);
-      const balanceDue =
-        newInvoice.balanceDue !== undefined
-          ? Number(newInvoice.balanceDue)
-          : newInvoice.status === "Paid"
-          ? 0
-          : invTotal;
-
-      const updatedClients = clients.map((cl) => {
-        if (cl.id === newInvoice.clientId || cl.name === newInvoice.clientName) {
-          return {
-            ...cl,
-            orders: (Number(cl.orders) || 0) + 1,
-            revenue: (Number(cl.revenue) || 0) + invTotal,
-            outstanding: (Number(cl.outstanding) || 0) + balanceDue,
-            outstandingBalance: (Number(cl.outstandingBalance ?? cl.outstanding) || 0) + balanceDue,
-          };
-        }
-        return cl;
-      });
-      saveClients(updatedClients);
+  const handleCreateInvoiceCascade = async (newInvoice) => {
+    try {
+      const res = await erpApi.createInvoice(newInvoice);
+      const created = res?.data;
+      showGlobalToast(`✓ Invoice ${created?.invoiceNumber || newInvoice.invoiceNumber || newInvoice.id} created & saved to database!`);
+      await fetchMasterDataFromDB();
+      return created;
+    } catch (err) {
+      const errMsg = err?.response?.data?.message || err.message || "Failed to create invoice";
+      showGlobalToast(`⚠️ ${errMsg}`);
+      throw err;
     }
   };
 
   // 2. Inward Purchase creation cascades to Product & Vendor Ledger (Backend syncs MySQL inventory)
-  const handleCreatePurchaseCascade = (newPurchase) => {
-    const updatedPurchases = [newPurchase, ...purchases];
-    savePurchases(updatedPurchases);
-
-    const prodId = newPurchase.productId;
-    const qty = Number(newPurchase.inwardQty || newPurchase.quantity || 1);
-    const purchaseRate = Number(newPurchase.unitRate || newPurchase.rate || 0);
-
-    if (prodId) {
-      const updatedProducts = products.map((prod) => {
-        if (String(prod.id) === String(prodId)) {
-          const rawStock = Number(prod.stock || prod.currentStock || 0);
-          const rawIn = Number(prod.inwardStock || 0);
-          const updatedProd = {
-            ...prod,
-            inwardStock: rawIn + qty,
-            stock: rawStock + qty,
-            currentStock: rawStock + qty,
-          };
-          if (purchaseRate > 0) {
-            updatedProd.purchasePrice = purchaseRate;
-            updatedProd.costPrice = purchaseRate;
-          }
-          return updatedProd;
-        }
-        return prod;
-      });
-      saveProducts(updatedProducts);
-    }
-
-    if (newPurchase.vendorId || newPurchase.vendorName) {
-      const pTotal = Number(newPurchase.total || newPurchase.totalAmount || 0);
-      const pBal = Number(
-        newPurchase.balanceDue !== undefined
-          ? newPurchase.balanceDue
-          : newPurchase.paymentStatus === "Paid"
-          ? 0
-          : pTotal
-      );
-
-      const updatedVendors = vendors.map((v) => {
-        if (
-          (newPurchase.vendorId && String(v.vendorId || v.id) === String(newPurchase.vendorId)) ||
-          (newPurchase.vendorName && v.name.toLowerCase() === newPurchase.vendorName.toLowerCase())
-        ) {
-          return {
-            ...v,
-            totalOrders: (Number(v.totalOrders) || 0) + 1,
-            totalPurchases: (Number(v.totalPurchases) || 0) + pTotal,
-            outstandingPayable: (Number(v.outstandingPayable) || 0) + pBal,
-          };
-        }
-        return v;
-      });
-      saveVendors(updatedVendors);
+  const handleCreatePurchaseCascade = async (newPurchase) => {
+    try {
+      const res = await erpApi.createPurchase(newPurchase);
+      const created = res?.data;
+      showGlobalToast(`✓ Purchase Bill ${created?.purchaseId || newPurchase.purchaseId || newPurchase.id} created & saved to database!`);
+      await fetchMasterDataFromDB();
+      return created;
+    } catch (err) {
+      const errMsg = err?.response?.data?.message || err.message || "Failed to create purchase bill";
+      showGlobalToast(`⚠️ ${errMsg}`);
+      throw err;
     }
   };
 
@@ -693,7 +589,6 @@ export default function App() {
                 clients={clients} 
                 onSaveClients={saveClients} 
                 invoices={invoices} 
-                onSaveInvoices={saveInvoices}
                 onCreateInvoice={handleCreateInvoiceCascade}
                 products={products}
                 company={company} 
@@ -717,7 +612,6 @@ export default function App() {
               <PurchasesPage 
                 onRefresh={fetchMasterDataFromDB}
                 purchases={purchases} 
-                onSavePurchases={savePurchases} 
                 onCreatePurchase={handleCreatePurchaseCascade}
                 vendors={vendors}
                 clients={clients} 
@@ -731,6 +625,7 @@ export default function App() {
             path="/expo" 
             element={
               <ExpoPage 
+                onRefresh={fetchMasterDataFromDB}
                 expoLeads={expoLeads} 
                 onSaveExpoLeads={saveExpoLeads} 
                 onConvertToClient={handleConvertLeadToClient}
@@ -745,7 +640,6 @@ export default function App() {
               <InvoicesPage 
                 onRefresh={fetchMasterDataFromDB}
                 invoices={invoices} 
-                onSaveInvoices={saveInvoices} 
                 onCreateInvoice={handleCreateInvoiceCascade}
                 clients={clients} 
                 products={products}
@@ -760,7 +654,6 @@ export default function App() {
               <RevenuePage 
                 clients={clients} 
                 invoices={invoices}
-                onSaveInvoices={saveInvoices}
                 onCreateInvoice={handleCreateInvoiceCascade}
                 products={products}
                 company={company}
@@ -774,7 +667,6 @@ export default function App() {
                 onRefresh={fetchMasterDataFromDB}
                 products={products} 
                 onSaveProducts={saveProducts}
-                onDeleteProduct={handleDeleteProductCascade}
                 inventory={inventory}
               />
             } 
@@ -804,7 +696,6 @@ export default function App() {
                 company={company}
                 invoices={invoices}
                 purchases={purchases}
-                setPurchases={savePurchases}
                 expoLeads={expoLeads}
                 setExpoLeads={saveExpoLeads}
                 showToast={showGlobalToast}

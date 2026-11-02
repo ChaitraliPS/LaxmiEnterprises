@@ -12,7 +12,6 @@ export default function InventoryViewDrawer({
   onNavigateItem,
   products = [],
   onEdit,
-  onDelete,
   onQuickAdjust,
   showToast
 }) {

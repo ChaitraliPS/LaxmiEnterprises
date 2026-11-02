@@ -9,7 +9,10 @@ import invoiceRoutes from "./invoiceRoutes.js";
 import expoRoutes from "./expoRoutes.js";
 import companyRoutes from "./companyRoutes.js";
 import dashboardRoutes from "./dashboardRoutes.js";
+import revenueRoutes from "./revenueRoutes.js";
+import targetRoutes from "./targetRoutes.js";
 import syncRoutes from "./syncRoutes.js";
+import adminRoutes from "./adminRoutes.js";
 
 const apiRouter = Router();
 
@@ -23,6 +26,9 @@ apiRouter.use("/invoices", invoiceRoutes);
 apiRouter.use("/expo", expoRoutes);
 apiRouter.use("/company", companyRoutes);
 apiRouter.use("/dashboard", dashboardRoutes);
+apiRouter.use("/revenue", revenueRoutes);
+apiRouter.use("/targets", targetRoutes);
 apiRouter.use("/sync", syncRoutes);
+apiRouter.use("/admin", adminRoutes);
 
 export default apiRouter;

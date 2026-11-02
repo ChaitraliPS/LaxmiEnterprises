@@ -1,21 +1,20 @@
 import React, { useState, useMemo } from "react";
 import {
-  Truck, Plus, Search, Filter, Pencil, Trash2, Download,
+  Truck, Plus, Search, Filter, Pencil, Download,
   Phone, Mail, MapPin, Building2, CreditCard, MessageCircle,
   CheckCircle2, AlertTriangle, X, ShieldCheck, Milk, Tractor, Wheat, Store
 } from "lucide-react";
 import VendorModal from "./VendorModal";
-import DeleteConfirmModal from "./DeleteConfirmModal";
 import ExportMenu from "./ExportMenu";
 import { downloadCSV } from "../utils/exportUtils";
 import { erpApi } from "../services/api";
 
 export const normalizeVendorCategory = (cat) => {
   const c = String(cat || "").trim().toLowerCase();
-  if (c.includes("feed") || c.includes("raw feed") || c.includes("animal")) return "Animal Feed Shop";
-  if (c.includes("dairy") || c.includes("milk")) return "Dairy";
-  if (c.includes("farm")) return "Farmers";
-  return "Animal Feed Shop";
+  if (c.includes("raw") || c.includes("material")) return "Raw Materials Supplier";
+  if (c.includes("dairy") || c.includes("milk") || c.includes("process")) return "Dairy Processor";
+  if (c.includes("feed") || c.includes("animal") || c.includes("mfg") || c.includes("manufactur")) return "Feed Manufacturer";
+  return "Feed Manufacturer";
 };
 
 export default function VendorsPage({ vendors = [], onSaveVendors }) {
@@ -23,7 +22,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState(null);
-  const [deletingVendor, setDeletingVendor] = useState(null);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg) => {
@@ -44,8 +42,8 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
     return `VEN-${String(maxNum + 1).padStart(3, "0")}`;
   }, [vendors]);
 
-  // Exactly the 3 agribusiness enterprise categories
-  const categories = ["All", "Animal Feed Shop", "Dairy", "Farmers"];
+  // Canonical agribusiness vendor categories
+  const categories = ["All", "Feed Manufacturer", "Dairy Processor", "Raw Materials Supplier"];
 
   // Filtered vendors
   const filtered = useMemo(() => {
@@ -76,11 +74,11 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
     });
   }, [vendors, categoryFilter, search]);
 
-  // Metric stats for the 3 agribusiness sectors
+  // Metric stats for canonical vendor categories
   const totalVendors = vendors.length;
-  const feedSuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Animal Feed Shop").length;
-  const dairySuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Dairy").length;
-  const farmerSuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Farmers").length;
+  const feedSuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Feed Manufacturer").length;
+  const dairySuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Dairy Processor").length;
+  const rawSuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Raw Materials Supplier").length;
 
   const handleOpenAdd = () => {
     setEditingVendor(null);
@@ -124,20 +122,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
     }
     setModalOpen(false);
     setEditingVendor(null);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deletingVendor) return;
-    const targetId = deletingVendor.vendorId || deletingVendor.id;
-    const updated = vendors.filter(v => (v.vendorId || v.id) !== targetId);
-    onSaveVendors(updated);
-    try {
-      await erpApi.deleteVendor(targetId);
-    } catch (err) {
-      console.warn("Direct vendor delete notice:", err.message);
-    }
-    showToast(`✓ Removed vendor ${deletingVendor.name}.`);
-    setDeletingVendor(null);
   };
 
   const handleExportCSV = () => {
@@ -194,8 +178,8 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
             <Wheat size={20} />
           </div>
           <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Animal Feed Shop</div>
-            <div style={{ fontSize: "21px", fontWeight: 800 }}>{feedSuppliers} Suppliers</div>
+            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Feed Manufacturers</div>
+            <div style={{ fontSize: "21px", fontWeight: 800 }}>{feedSuppliers} Vendors</div>
           </div>
         </div>
 
@@ -204,8 +188,8 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
             <Milk size={20} />
           </div>
           <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Dairy Centers</div>
-            <div style={{ fontSize: "21px", fontWeight: 800, color: "#2563eb" }}>{dairySuppliers} Dairies</div>
+            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Dairy Processors</div>
+            <div style={{ fontSize: "21px", fontWeight: 800, color: "#2563eb" }}>{dairySuppliers} Vendors</div>
           </div>
         </div>
 
@@ -214,8 +198,8 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
             <Tractor size={20} />
           </div>
           <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Direct Farmers</div>
-            <div style={{ fontSize: "21px", fontWeight: 800, color: "var(--success)" }}>{farmerSuppliers} Farmers</div>
+            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Raw Materials Suppliers</div>
+            <div style={{ fontSize: "21px", fontWeight: 800, color: "var(--success)" }}>{rawSuppliers} Vendors</div>
           </div>
         </div>
       </div>
@@ -405,13 +389,7 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
                           >
                             <Pencil size={14} />
                           </button>
-                          <button
-                            title="Delete Vendor"
-                            onClick={() => setDeletingVendor(v)}
-                            style={{ padding: 6 }}
-                          >
-                            <Trash2 size={14} style={{ color: "var(--danger)" }} />
-                          </button>
+
                         </div>
                       </td>
                     </tr>
@@ -434,15 +412,7 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
         existingIds={vendors.map(v => v.vendorId || v.id)}
       />
 
-      {/* DELETE CONFIRM MODAL */}
-      <DeleteConfirmModal
-        isOpen={!!deletingVendor}
-        onClose={() => setDeletingVendor(null)}
-        onConfirm={handleDeleteConfirm}
-        title="Confirm Vendor Removal"
-        message={deletingVendor ? `Are you sure you want to remove ${deletingVendor.name} (${deletingVendor.vendorId || deletingVendor.id}) from the Vendor Directory?` : ""}
-        details="This will delete the supplier record from active listings. Existing purchase vouchers referencing this vendor will remain preserved."
-      />
+
     </div>
   );
 }

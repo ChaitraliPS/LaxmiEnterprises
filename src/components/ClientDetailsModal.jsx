@@ -1,10 +1,10 @@
 import React from "react";
 import {
-  Milk, Tractor, Wheat, X, Trash2, Receipt, Pencil, Mail, Phone,
+  Milk, Tractor, Wheat, X, Receipt, Pencil, Mail, Phone,
   Building2, Calendar, Building, Tag, IndianRupee, Award
 } from "lucide-react";
 
-export default function ClientDetailsModal({ isOpen, onClose, client, onEdit, onCreateInvoice, onDelete }) {
+export default function ClientDetailsModal({ isOpen, onClose, client, onEdit, onCreateInvoice }) {
   if (!isOpen || !client) return null;
 
   const getAge = (dobString) => {
@@ -35,7 +35,7 @@ export default function ClientDetailsModal({ isOpen, onClose, client, onEdit, on
                   {client.clientType === "Dairy" ? <Milk size={13} /> :
                    client.clientType === "Farmers" ? <Tractor size={13} /> :
                    <Wheat size={13} />}
-                  {client.clientType || "Animal Feed Shop"}
+                  {client.clientType || "Feed Shop"}
                 </span>
                 <span className={`badge ${client.status === "Active" ? "success" : "muted"}`} style={{ fontSize: 11 }}>
                   {client.status}
@@ -182,7 +182,7 @@ export default function ClientDetailsModal({ isOpen, onClose, client, onEdit, on
                 <div style={{ background: "rgba(2, 132, 199, 0.08)", border: "1.5px solid rgba(2, 132, 199, 0.25)", borderRadius: 12, padding: 16 }}>
                   <div style={{ fontSize: 11.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase" }}>NUMBER OF SUPPLIERS</div>
                   <div style={{ fontSize: 26, fontWeight: 800, color: "#0284c7", marginTop: 4 }}>
-                    {client.numberOfSuppliers || 0}
+                    {client.numberOfSuppliers || "—"}
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>Registered Dairy Milk Suppliers</div>
                 </div>
@@ -190,7 +190,7 @@ export default function ClientDetailsModal({ isOpen, onClose, client, onEdit, on
                 <div style={{ background: "rgba(2, 132, 199, 0.08)", border: "1.5px solid rgba(2, 132, 199, 0.25)", borderRadius: 12, padding: 16 }}>
                   <div style={{ fontSize: 11.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase" }}>QUANTITY OF MILK</div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: "#0284c7", marginTop: 4 }}>
-                    {client.milkQuantity || "0 Liters"}
+                    {client.milkQuantity || "—"}
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>Daily / Monthly Milk Intake</div>
                 </div>
@@ -203,7 +203,7 @@ export default function ClientDetailsModal({ isOpen, onClose, client, onEdit, on
                   <div>
                     <div style={{ fontSize: 11.5, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase" }}>NUMBER OF ANIMALS (LIVESTOCK COUNT)</div>
                     <div style={{ fontSize: 28, fontWeight: 800, color: "#d97706", marginTop: 2 }}>
-                      {client.numberOfAnimals || 0} Animals
+                      {client.numberOfAnimals ? `${client.numberOfAnimals} Animals` : "—"}
                     </div>
                   </div>
                   <Tractor size={38} style={{ color: "#d97706", opacity: 0.7 }} />
@@ -263,24 +263,7 @@ export default function ClientDetailsModal({ isOpen, onClose, client, onEdit, on
             <button type="button" className="outline" onClick={onClose}>
               Close
             </button>
-            {onDelete && (
-              <button
-                type="button"
-                className="outline danger"
-                onClick={() => onDelete(client)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  color: "var(--danger)",
-                  borderColor: "var(--danger)",
-                  background: "rgba(239, 68, 68, 0.06)"
-                }}
-                title="Delete this client account"
-              >
-                <Trash2 size={15} /> Delete Client
-              </button>
-            )}
+
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             {onCreateInvoice && (

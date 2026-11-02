@@ -1,17 +1,18 @@
-import { toInventoryView, backfillInventory } from "../utils/stockSync.js";
+import { toInventoryView } from "../utils/stockSync.js";
 import { Op } from "sequelize";
-import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company } from "../models/index.js";
+import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company, Target } from "../models/index.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { getStockHealth } from "../services/metrics/stockMetrics.js";
+import { getReceivables } from "../services/metrics/salesMetrics.js";
+import { getVendorPayables } from "../services/metrics/purchaseMetrics.js";
+import { getToday, evaluateStockHealth, canonicalClientType, canonicalVendorType } from "../constants/erpConstants.js";
 
 /**
- * Get all ERP data from MySQL database
+ * Get all ERP data from MySQL database with server-derived metrics
  */
 export const getAllData = asyncHandler(async (req, res) => {
-  // purani products ke liye missing inventory rows bana do
-  await backfillInventory();
-
-  const [clients, vendors, products, inventory, purchases, invoices, expoLeads, company] = await Promise.all([
+  const [clients, vendors, products, inventory, purchases, invoices, expoLeads, company, targets, healthData, receivablesData, payablesData] = await Promise.all([
     Client.findAll({ order: [["createdAt", "DESC"]] }),
     Vendor.findAll({ order: [["createdAt", "DESC"]] }),
     Product.findAll({ include: [{ model: Inventory, as: "inventory" }], order: [["createdAt", "DESC"]] }),
@@ -20,48 +21,145 @@ export const getAllData = asyncHandler(async (req, res) => {
     Invoice.findAll({ order: [["createdAt", "DESC"]] }),
     ExpoLead.findAll({ order: [["createdAt", "DESC"]] }),
     Company.findOne({ where: { id: 1 } }),
+    Target.findAll({ order: [["fiscalYear", "DESC"], ["quarter", "ASC"]] }),
+    getStockHealth(getToday()),
+    getReceivables(getToday()),
+    getVendorPayables(getToday()),
   ]);
 
   const prodMap = new Map(products.map((p) => [p.productId, p]));
+  const healthMap = new Map(healthData.products.map((p) => [p.productId, p]));
+  const recMap = new Map(receivablesData.clientBreakdown.map((c) => [c.clientId, c]));
+  const payMap = new Map(payablesData.vendorBreakdown.map((v) => [v.vendorId, v]));
 
   return ApiResponse.success(
     res,
     {
-      clients: clients.map((c) => c.toJSON()),
-      vendors: vendors.map((v) => v.toJSON()),
+      clients: clients.map((c) => {
+        const json = c.toJSON();
+        const metrics = recMap.get(c.clientId);
+        const revenue = metrics ? metrics.totalInvoiced : Number(c.revenue || 0);
+        const orders = metrics ? metrics.invoiceCount : Number(c.orders || 0);
+        const outstanding = metrics ? metrics.outstanding : Number(c.outstandingBalance || 0);
+        return {
+          ...json,
+          clientType: canonicalClientType(c.clientType),
+          revenue,
+          totalBilled: revenue,
+          orders,
+          outstandingBalance: outstanding,
+          outstanding,
+        };
+      }),
+      vendors: vendors.map((v) => {
+        const json = v.toJSON();
+        const metrics = payMap.get(v.vendorId);
+        const totalBilled = metrics ? metrics.totalBilled : Number(v.totalPurchases || 0);
+        const balanceDue = metrics ? metrics.balanceDue : Number(v.outstandingPayable || 0);
+        const billCount = metrics ? metrics.billCount : Number(v.totalOrders || 0);
+        return {
+          ...json,
+          category: canonicalVendorType(v.category),
+          totalPurchases: totalBilled,
+          totalBilled,
+          outstandingPayable: balanceDue,
+          pendingDues: balanceDue,
+          totalOrders: billCount,
+        };
+      }),
       products: products.map((p) => {
         const json = p.toJSON();
-        const liveStock = p.inventory ? Number(p.inventory.currentStock || 0) : Number(json.stock || 0);
-        return { ...json, stock: liveStock, currentStock: liveStock };
+        const metrics = healthMap.get(p.productId);
+        const balance = metrics ? metrics.currentBalance : (p.inventory ? Number(p.inventory.currentStock || 0) : Number(json.stock || 0));
+        const totalIn = metrics ? metrics.totalIn : balance;
+        const totalOut = metrics ? metrics.totalOut : 0;
+        const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(p.costPrice || 0);
+        return {
+          ...json,
+          stock: balance,
+          currentStock: balance,
+          in: totalIn,
+          inwardStock: totalIn,
+          out: totalOut,
+          outwardStock: totalOut,
+          inventoryValue: valAtCost,
+          valuationAtCost: valAtCost,
+          unitOfMeasure: p.unitOfMeasure || p.unit || "Bags",
+          reorderLevel: p.reorderLevel !== null && p.reorderLevel !== undefined ? Number(p.reorderLevel) : null,
+          stockStatus: evaluateStockHealth(balance, p.reorderLevel),
+        };
       }),
-      inventory: inventory.map((i) => toInventoryView(i, prodMap.get(i.productId))),
+      inventory: [
+        ...inventory.map((i) => {
+          const p = prodMap.get(i.productId);
+          const metrics = healthMap.get(i.productId);
+          const base = toInventoryView(i, p);
+          const balance = metrics ? metrics.currentBalance : Number(i.currentStock || 0);
+          const totalIn = metrics ? metrics.totalIn : balance;
+          const totalOut = metrics ? metrics.totalOut : 0;
+          return {
+            ...base,
+            in: totalIn,
+            out: totalOut,
+            inwardStock: totalIn,
+            outwardStock: totalOut,
+            stock: balance,
+            currentStock: balance,
+            reorderLevel: p?.reorderLevel !== null && p?.reorderLevel !== undefined ? Number(p.reorderLevel) : null,
+            status: evaluateStockHealth(balance, p?.reorderLevel),
+          };
+        }),
+        // Purely in-memory presentation for products without a physical inventory table row (ZERO DB WRITES)
+        ...products
+          .filter((p) => !inventory.some((i) => i.productId === p.productId))
+          .map((p) => {
+            const metrics = healthMap.get(p.productId);
+            const balance = metrics ? metrics.currentBalance : Number(p.currentStock || 0);
+            const totalIn = metrics ? metrics.totalIn : balance;
+            const totalOut = metrics ? metrics.totalOut : 0;
+            return {
+              productId: p.productId,
+              productName: p.name,
+              category: p.category,
+              unit: p.unitOfMeasure || p.unit || "Bags",
+              currentStock: balance,
+              stock: balance,
+              in: totalIn,
+              out: totalOut,
+              inwardStock: totalIn,
+              outwardStock: totalOut,
+              minStockAlert: Number(p.reorderLevel || 10),
+              reorderLevel: p.reorderLevel !== null && p.reorderLevel !== undefined ? Number(p.reorderLevel) : null,
+              warehouseLocation: p.warehouseLocation || "Main Warehouse",
+              status: evaluateStockHealth(balance, p.reorderLevel),
+            };
+          }),
+      ],
       purchases: purchases.map((p) => p.toJSON()),
       invoices: invoices.map((inv) => inv.toJSON()),
       expoLeads: expoLeads.map((e) => e.toJSON()),
       company: company ? company.toJSON() : null,
+      targets: targets.map((t) => t.toJSON()),
     },
     "All ERP data retrieved from MySQL database"
   );
 });
 
 /**
- * Sync / Save Clients to MySQL
+ * Sync / Save Clients to MySQL (Strictly ignores client-side financial/order math)
  */
 export const syncClients = asyncHandler(async (req, res) => {
   const list = Array.isArray(req.body) ? req.body : req.body.clients || [];
-  const incomingIds = [];
 
   for (const item of list) {
     const clientId = String(item.clientId || item.id || "");
     if (!clientId) continue;
-    incomingIds.push(clientId);
-    if (item.clientId) incomingIds.push(String(item.clientId));
-    if (item.id) incomingIds.push(String(item.id));
 
+    // Notice: orders, revenue, outstanding, outstandingBalance are derived on server and ignored here
     const data = {
       clientId,
       name: item.name || "Unnamed Client",
-      clientType: item.clientType || "Farmers",
+      clientType: canonicalClientType(item.clientType || "Farmers"),
       contactPerson: item.contactPerson || "",
       contact: item.contact || item.phone || "",
       email: item.email || "",
@@ -74,9 +172,6 @@ export const syncClients = asyncHandler(async (req, res) => {
       pincode: item.pincode || "",
       gstin: item.gstin || "",
       pan: item.pan || "",
-      orders: Number(item.orders || 0),
-      revenue: Number(item.revenue || 0),
-      outstandingBalance: Number(item.outstanding ?? item.outstandingBalance ?? 0),
       creditLimit: Number(item.creditLimit || 0),
       status: item.status || "Active",
       tier: item.tier || "Gold",
@@ -108,7 +203,12 @@ export const syncClients = asyncHandler(async (req, res) => {
 
     const [record, created] = await Client.findOrCreate({
       where: { clientId },
-      defaults: data,
+      defaults: {
+        ...data,
+        orders: 0,
+        revenue: 0,
+        outstandingBalance: 0,
+      },
     });
 
     if (!created) {
@@ -116,34 +216,43 @@ export const syncClients = asyncHandler(async (req, res) => {
     }
   }
 
-  // Delete clients that were removed from the directory
-  if (incomingIds.length > 0) {
-    await Client.destroy({ where: { clientId: { [Op.notIn]: incomingIds } } });
-  } else if (list.length === 0 && (Array.isArray(req.body) || Array.isArray(req.body?.clients))) {
-    await Client.destroy({ where: {} });
-  }
+  const [all, recData] = await Promise.all([
+    Client.findAll({ order: [["createdAt", "DESC"]] }),
+    getReceivables(getToday()),
+  ]);
+  const recMap = new Map(recData.clientBreakdown.map((c) => [c.clientId, c]));
 
-  const all = await Client.findAll({ order: [["createdAt", "DESC"]] });
-  return ApiResponse.success(res, all.map((c) => c.toJSON()), "Clients saved in MySQL");
+  const payload = all.map((c) => {
+    const json = c.toJSON();
+    const metrics = recMap.get(c.clientId);
+    return {
+      ...json,
+      revenue: metrics ? metrics.totalInvoiced : Number(c.revenue || 0),
+      orders: metrics ? metrics.invoiceCount : Number(c.orders || 0),
+      outstandingBalance: metrics ? metrics.outstanding : Number(c.outstandingBalance || 0),
+      outstanding: metrics ? metrics.outstanding : Number(c.outstandingBalance || 0),
+    };
+  });
+
+  return ApiResponse.success(res, payload, "Clients saved in MySQL");
 });
 
 /**
- * Sync / Save Vendors to MySQL
+ * Sync / Save Vendors to MySQL (Strictly ignores vendor payable/order math)
  */
 export const syncVendors = asyncHandler(async (req, res) => {
   const list = Array.isArray(req.body) ? req.body : req.body.vendors || [];
-  const incomingIds = [];
 
   for (const item of list) {
     const vendorId = String(item.vendorId || item.id || "");
     if (!vendorId) continue;
-    incomingIds.push(vendorId);
 
+    // Notice: totalPurchases, totalOrders, outstandingPayable are derived on server and ignored here
     const data = {
       vendorId,
       name: item.name || "Unnamed Vendor",
       companyName: item.companyName || "",
-      category: item.category || "Animal Feed Shop",
+      category: canonicalVendorType(item.category || "Feed Manufacturer"),
       contactPerson: item.contactPerson || "",
       phone: item.phone || item.contact || "",
       email: item.email || "",
@@ -161,15 +270,17 @@ export const syncVendors = asyncHandler(async (req, res) => {
       ifscCode: item.ifscCode || "",
       paymentTerms: item.paymentTerms || "Net 15 Days",
       status: item.status || "Active",
-      totalPurchases: Number(item.totalPurchases || 0),
-      totalOrders: Number(item.totalOrders || 0),
-      outstandingPayable: Number(item.outstandingPayable || 0),
       notes: item.notes || "",
     };
 
     const [record, created] = await Vendor.findOrCreate({
       where: { vendorId },
-      defaults: data,
+      defaults: {
+        ...data,
+        totalPurchases: 0,
+        totalOrders: 0,
+        outstandingPayable: 0,
+      },
     });
 
     if (!created) {
@@ -177,243 +288,114 @@ export const syncVendors = asyncHandler(async (req, res) => {
     }
   }
 
-  // Delete vendors removed from frontend list
-  if (incomingIds.length > 0) {
-    await Vendor.destroy({ where: { vendorId: { [Op.notIn]: incomingIds } } });
-  } else if (list.length === 0 && (Array.isArray(req.body) || Array.isArray(req.body?.vendors))) {
-    await Vendor.destroy({ where: {} });
-  }
+  const [all, payData] = await Promise.all([
+    Vendor.findAll({ order: [["createdAt", "DESC"]] }),
+    getVendorPayables(getToday()),
+  ]);
+  const payMap = new Map(payData.vendorBreakdown.map((v) => [v.vendorId, v]));
 
-  const all = await Vendor.findAll({ order: [["createdAt", "DESC"]] });
-  return ApiResponse.success(res, all.map((v) => v.toJSON()), "Vendors saved in MySQL");
+  const payload = all.map((v) => {
+    const json = v.toJSON();
+    const metrics = payMap.get(v.vendorId);
+    return {
+      ...json,
+      totalPurchases: metrics ? metrics.totalBilled : Number(v.totalPurchases || 0),
+      totalBilled: metrics ? metrics.totalBilled : Number(v.totalPurchases || 0),
+      outstandingPayable: metrics ? metrics.balanceDue : Number(v.outstandingPayable || 0),
+      pendingDues: metrics ? metrics.balanceDue : Number(v.outstandingPayable || 0),
+      totalOrders: metrics ? metrics.billCount : Number(v.totalOrders || 0),
+    };
+  });
+
+  return ApiResponse.success(res, payload, "Vendors saved in MySQL");
 });
 
 /**
- * Sync / Save Invoices to MySQL
+ * POST /sync/invoices is permanently disabled (HTTP 410 Gone)
+ * Invoices must be created via POST /api/v1/invoices and updated via PUT /api/v1/invoices/:id
  */
 export const syncInvoices = asyncHandler(async (req, res) => {
-  const list = Array.isArray(req.body) ? req.body : req.body.invoices || [];
-  const incomingIds = [];
-
-  for (const item of list) {
-    const invoiceNumber = String(item.invoiceNumber || item.invoiceNo || item.id || "");
-    if (!invoiceNumber) continue;
-    incomingIds.push(invoiceNumber);
-    if (item.invoiceNumber) incomingIds.push(String(item.invoiceNumber));
-    if (item.invoiceNo) incomingIds.push(String(item.invoiceNo));
-    if (item.id) incomingIds.push(String(item.id));
-
-    const [record] = await Invoice.findOrCreate({
-      where: { invoiceNumber },
-      defaults: {
-        invoiceNumber,
-        clientId: item.clientId || "",
-        clientName: item.clientName || "",
-        clientType: item.clientType || "Farmers",
-        clientGstin: item.clientGstin || "",
-        clientContact: item.clientContact || item.phone || "",
-        clientAddress: item.clientAddress || "",
-        date: item.date || "",
-        dueDate: item.dueDate || "",
-        items: item.items || [],
-        subtotal: Number(item.subtotal || 0),
-        cgstTotal: Number(item.cgstTotal || 0),
-        sgstTotal: Number(item.sgstTotal || 0),
-        igstTotal: Number(item.igstTotal || 0),
-        grandTotal: Number(item.grandTotal || item.total || 0),
-        paidAmount: Number(item.paidAmount || 0),
-        balanceDue: Number(item.balanceDue || 0),
-        paymentStatus: item.paymentStatus || item.status || "Unpaid",
-        paymentMode: item.paymentMode || "Cash",
-        notes: item.notes || "",
-      },
-    });
-
-    await record.update({
-      clientId: item.clientId || record.clientId,
-      clientName: item.clientName || record.clientName,
-      items: item.items || record.items,
-      grandTotal: Number(item.grandTotal || item.total || record.grandTotal),
-      paidAmount: Number(item.paidAmount ?? record.paidAmount),
-      balanceDue: Number(item.balanceDue ?? record.balanceDue),
-      paymentStatus: item.paymentStatus || item.status || record.paymentStatus,
-      paymentMode: item.paymentMode || record.paymentMode,
-    });
-  }
-
-  // Delete invoices that were deleted on the frontend
-  if (incomingIds.length > 0) {
-    await Invoice.destroy({ where: { invoiceNumber: { [Op.notIn]: incomingIds } } });
-  } else if (list.length === 0 && (Array.isArray(req.body) || Array.isArray(req.body?.invoices))) {
-    await Invoice.destroy({ where: {} });
-  }
-
-  const all = await Invoice.findAll({ order: [["createdAt", "DESC"]] });
-  return ApiResponse.success(res, all.map((inv) => inv.toJSON()), "Invoices saved in MySQL");
+  return res.status(410).json({
+    success: false,
+    message: "POST /sync/invoices is permanently disabled. Use POST /api/v1/invoices for transactional creation and PUT /api/v1/invoices/:id for metadata updates.",
+  });
 });
 
 /**
- * Sync / Save Purchases to MySQL
+ * POST /sync/purchases is permanently disabled (HTTP 410 Gone)
+ * Purchases must be created via POST /api/v1/purchases and updated via PUT /api/v1/purchases/:id
  */
 export const syncPurchases = asyncHandler(async (req, res) => {
-  const list = Array.isArray(req.body) ? req.body : req.body.purchases || [];
-  const incomingIds = [];
-
-  for (const item of list) {
-    const purchaseId = String(item.purchaseId || item.id || "");
-    if (!purchaseId) continue;
-    incomingIds.push(purchaseId);
-    if (item.purchaseId) incomingIds.push(String(item.purchaseId));
-    if (item.id) incomingIds.push(String(item.id));
-
-    const subtotal = Number(item.subtotal || item.taxableAmount || item.amount || 0);
-    const grandTotal = Number(item.grandTotal || item.totalAmount || item.total || subtotal);
-    const paymentStatus = item.paymentStatus || item.status || "Pending";
-    let paidAmount = Number(item.paidAmount ?? (paymentStatus === "Paid" ? grandTotal : 0));
-    if (paymentStatus === "Partial" && (paidAmount <= 0 || paidAmount >= grandTotal) && grandTotal > 0) {
-      paidAmount = Math.round(grandTotal / 2);
-    }
-
-    const [record] = await Purchase.findOrCreate({
-      where: { purchaseId },
-      defaults: {
-        purchaseId,
-        vendorId: item.vendorId || "",
-        vendorName: item.vendorName || "Vendor",
-        vendorGstin: item.vendorGstin || "",
-        vendorContact: item.vendorContact || item.contact || "",
-        vendorInvoiceNo: item.vendorInvoiceNo || item.billNumber || "",
-        date: item.date || "",
-        category: item.category || "Animal Feed Shop",
-        items: item.items || [],
-        subtotal,
-        grandTotal,
-        paidAmount,
-        paymentStatus,
-        paymentMode: item.paymentMode || item.paymentMethod || "NEFT/RTGS",
-        notes: item.notes || item.remarks || "",
-      },
-    });
-
-    await record.update({
-      vendorId: item.vendorId || record.vendorId,
-      vendorName: item.vendorName || record.vendorName,
-      category: item.category || record.category,
-      items: item.items || record.items,
-      subtotal: subtotal || record.subtotal,
-      grandTotal: grandTotal || record.grandTotal,
-      paidAmount: paidAmount,
-      paymentStatus: paymentStatus,
-      paymentMode: item.paymentMode || item.paymentMethod || record.paymentMode,
-    });
-  }
-
-  // Delete purchases that were deleted on the frontend
-  if (incomingIds.length > 0) {
-    await Purchase.destroy({ where: { purchaseId: { [Op.notIn]: incomingIds } } });
-  } else if (list.length === 0 && (Array.isArray(req.body) || Array.isArray(req.body?.purchases))) {
-    await Purchase.destroy({ where: {} });
-  }
-
-  const all = await Purchase.findAll({ order: [["createdAt", "DESC"]] });
-  return ApiResponse.success(res, all.map((p) => p.toJSON()), "Purchases saved in MySQL");
+  return res.status(410).json({
+    success: false,
+    message: "POST /sync/purchases is permanently disabled. Use POST /api/v1/purchases for transactional creation and PUT /api/v1/purchases/:id for metadata updates.",
+  });
 });
 
 /**
- * Sync / Save Products to MySQL
+ * Sync / Save Products to MySQL (Strictly ignores stock columns - stock is ledger-driven)
  */
 export const syncProducts = asyncHandler(async (req, res) => {
   const list = Array.isArray(req.body) ? req.body : req.body.products || [];
-  const incomingIds = [];
-
-  const buildExtra = (old = {}, item, stock) => ({
-    ...old,
-    stock,
-    openingStock: Number(item.openingStock ?? old.openingStock ?? 0),
-    inwardStock: Number(item.inwardStock ?? old.inwardStock ?? 0),
-    outwardStock: Number(item.outwardStock ?? old.outwardStock ?? 0),
-    reservedStock: Number(item.reservedStock ?? old.reservedStock ?? 0),
-    minStock: Number(item.minStock ?? old.minStock ?? 20),
-  });
 
   for (const item of list) {
     const productId = String(item.productId || item.id || "");
     if (!productId) continue;
-    incomingIds.push(productId);
 
-    const itemStock = Number(item.stock ?? item.currentStock ?? 0);
+    const productData = {
+      productId,
+      name: item.name || "Product",
+      category: item.category || "Animal Feed",
+      sku: item.sku || productId,
+      hsnCode: item.hsnCode || "",
+      unit: item.unit || item.unitOfMeasure || "Bags",
+      unitOfMeasure: item.unitOfMeasure || item.unit || "Bags",
+      purchasePrice: Number(item.purchasePrice || item.costPrice || 0),
+      costPrice: Number(item.costPrice || item.purchasePrice || 0),
+      sellingPrice: Number(item.sellingPrice || item.price || 0),
+      gstRate: Number(item.gstRate || 18),
+      reorderLevel: item.reorderLevel !== null && item.reorderLevel !== undefined ? Number(item.reorderLevel) : null,
+      description: item.description || "",
+    };
 
-    const [record] = await Product.findOrCreate({
+    const [record, created] = await Product.findOrCreate({
       where: { productId },
-      defaults: {
-        productId,
-        name: item.name || "Product",
-        category: item.category || "General",
-        sku: item.sku || "",
-        hsnCode: item.hsnCode || "",
-        unit: item.unit || "Bags",
-        purchasePrice: Number(item.purchasePrice || 0),
-        sellingPrice: Number(item.sellingPrice || item.price || 0),
-        gstRate: Number(item.gstRate || 18),
-        description: item.description || "",
-        extraData: buildExtra({}, item, itemStock),
-      },
+      defaults: productData,
     });
 
-    await record.update({
-      name: item.name || record.name,
-      category: item.category || record.category,
-      unit: item.unit || record.unit,
-      sku: item.sku ?? record.sku,
-      hsnCode: item.hsnCode ?? record.hsnCode,
-      purchasePrice: Number(item.purchasePrice ?? record.purchasePrice),
-      sellingPrice: Number(item.sellingPrice || item.price || record.sellingPrice),
-      gstRate: Number(item.gstRate ?? record.gstRate),
-      description: item.description || record.description,
-      extraData: buildExtra(record.extraData || {}, item, itemStock),
-    });
+    if (!created) {
+      await record.update(productData);
+    }
 
-    // Inventory row: nahi hai to CREATE, hai to UPDATE
-    const [inv, invCreated] = await Inventory.findOrCreate({
-      where: { productId },
-      defaults: {
+    // Keep Inventory catalog metadata in sync WITHOUT modifying currentStock
+    const inv = await Inventory.findOne({ where: { productId } });
+    if (!inv) {
+      await Inventory.create({
         productId,
         productName: record.name,
         category: record.category,
         unit: record.unit,
-        currentStock: itemStock,
-        minStockAlert: Number(item.minStock ?? 10),
+        currentStock: 0,
+        minStockAlert: Number(item.reorderLevel ?? item.minStockAlert ?? 10),
         warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
-      },
-    });
-
-    if (!invCreated) {
+      });
+    } else {
       await inv.update({
         productName: record.name,
         category: record.category,
         unit: record.unit,
-        currentStock: itemStock,
-        minStockAlert: Number(item.minStock ?? inv.minStockAlert),
-        lastUpdated: new Date(),
+        minStockAlert: Number(item.reorderLevel ?? inv.minStockAlert),
+        warehouseLocation: item.warehouseLocation || inv.warehouseLocation,
       });
     }
   }
 
-  // Catalogue se hataye gaye products (+ unki inventory) delete
-  if (incomingIds.length > 0) {
-    await Product.destroy({ where: { productId: { [Op.notIn]: incomingIds } } });
-    await Inventory.destroy({ where: { productId: { [Op.notIn]: incomingIds } } });
-  } else if (Array.isArray(req.body) && req.body.length === 0) {
-    await Product.destroy({ where: {} });
-    await Inventory.destroy({ where: {} });
-  }
-
   const all = await Product.findAll({ order: [["createdAt", "DESC"]] });
-  return ApiResponse.success(res, all.map((p) => p.toJSON()), "Products saved in MySQL");
+  return ApiResponse.success(res, all.map((p) => p.toJSON()), "Products saved in MySQL (stock integrity protected)");
 });
 
 /**
- * Sync / Save Inventory to MySQL
+ * Sync / Save Inventory to MySQL (Strictly ignores currentStock - stock is ledger-driven)
  */
 export const syncInventory = asyncHandler(async (req, res) => {
   const list = Array.isArray(req.body) ? req.body : req.body.inventory || [];
@@ -422,53 +404,39 @@ export const syncInventory = asyncHandler(async (req, res) => {
     const productId = String(item.productId || item.id || "");
     if (!productId) continue;
 
-    // Product catalogue me hona zaroori hai, warna phantom rows ban jaati hain
     const prod = await Product.findOne({ where: { productId } });
     if (!prod) continue;
 
-    const invStock = Number(item.stock ?? item.currentStock ?? 0);
-
-    const [record] = await Inventory.findOrCreate({
-      where: { productId },
-      defaults: {
+    const record = await Inventory.findOne({ where: { productId } });
+    if (!record) {
+      await Inventory.create({
         productId,
         productName: prod.name,
         category: prod.category,
         unit: prod.unit,
-        currentStock: invStock,
+        currentStock: 0,
         minStockAlert: Number(item.minStockAlert || 10),
         warehouseLocation: item.warehouseLocation || "Main Warehouse",
-      },
-    });
-
-    await record.update({
-      currentStock: invStock,
-      minStockAlert: Number(item.minStockAlert ?? record.minStockAlert),
-      warehouseLocation: item.warehouseLocation || record.warehouseLocation,
-      lastUpdated: new Date(),
-    });
-
-    prod.extraData = { ...(prod.extraData || {}), stock: invStock };
-    prod.changed("extraData", true);
-    await prod.save();
+      });
+    } else {
+      // Update only warehouse location and minStockAlert; do NOT overwrite currentStock!
+      await record.update({
+        minStockAlert: Number(item.minStockAlert ?? record.minStockAlert),
+        warehouseLocation: item.warehouseLocation || record.warehouseLocation,
+      });
+    }
   }
 
-  // NOTE: yahan jaan-boojhkar delete nahi hai. Inventory row product ke saath hi hatti hai.
   const all = await Inventory.findAll({ order: [["productName", "ASC"]] });
-  return ApiResponse.success(res, all.map((i) => i.toJSON()), "Inventory saved in MySQL");
+  return ApiResponse.success(res, all.map((i) => i.toJSON()), "Inventory metadata saved in MySQL");
 });
-
 
 export const syncExpoLeads = asyncHandler(async (req, res) => {
   const list = Array.isArray(req.body) ? req.body : req.body.expoLeads || [];
-  const incomingIds = [];
 
   for (const item of list) {
     const leadId = String(item.leadId || item.id || "");
     if (!leadId) continue;
-    incomingIds.push(leadId);
-    if (item.leadId) incomingIds.push(String(item.leadId));
-    if (item.id) incomingIds.push(String(item.id));
 
     const [record] = await ExpoLead.findOrCreate({
       where: { leadId },
@@ -493,13 +461,6 @@ export const syncExpoLeads = asyncHandler(async (req, res) => {
       status: item.status || record.status,
       contact: item.contact || item.phone || record.contact,
     });
-  }
-
-  // Delete expo leads that were removed from the database
-  if (incomingIds.length > 0) {
-    await ExpoLead.destroy({ where: { leadId: { [Op.notIn]: incomingIds } } });
-  } else if (list.length === 0 && (Array.isArray(req.body) || Array.isArray(req.body?.expoLeads))) {
-    await ExpoLead.destroy({ where: {} });
   }
 
   const all = await ExpoLead.findAll({ order: [["createdAt", "DESC"]] });

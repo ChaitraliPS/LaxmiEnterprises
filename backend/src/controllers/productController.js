@@ -1,84 +1,110 @@
 import { Product } from "../models/Product.js";
 import { Inventory } from "../models/Inventory.js";
+import { StockMovement } from "../models/StockMovement.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { getStockHealth, getStockBalance } from "../services/metrics/stockMetrics.js";
+import { applyStockChange } from "../utils/stockSync.js";
+import { getToday, evaluateStockHealth, canonicalProductCategory } from "../constants/erpConstants.js";
 
 /**
- * Get all products (joined with Inventory for live stock)
+ * Get all products (calling shared metrics service for exact ledger in/out and valuation)
  */
 export const getProducts = asyncHandler(async (req, res) => {
+  const healthData = await getStockHealth(getToday());
+  const healthMap = new Map(healthData.products.map((p) => [p.productId, p]));
+
   const products = await Product.findAll({
-    include: [{ model: Inventory, as: "inventory" }],
-    order: [["createdAt", "DESC"]],
+    order: [["name", "ASC"]],
   });
 
   const payload = products.map((prod) => {
     const json = prod.toJSON();
-    const liveStock = prod.inventory ? Number(prod.inventory.currentStock || 0) : Number(json.stock || 0);
-    return { ...json, stock: liveStock, currentStock: liveStock };
+    const metrics = healthMap.get(prod.productId);
+
+    const balance = metrics ? metrics.currentBalance : 0;
+    const totalIn = metrics ? metrics.totalIn : 0;
+    const totalOut = metrics ? metrics.totalOut : 0;
+    const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(prod.costPrice || 0);
+
+    return {
+      ...json,
+      stock: balance,
+      currentStock: balance,
+      in: totalIn,
+      inwardStock: totalIn,
+      out: totalOut,
+      outwardStock: totalOut,
+      inventoryValue: valAtCost,
+      valuationAtCost: valAtCost,
+      unitOfMeasure: prod.unitOfMeasure || prod.unit || "Bags",
+      reorderLevel: prod.reorderLevel !== null ? Number(prod.reorderLevel) : null,
+      stockStatus: evaluateStockHealth(balance, prod.reorderLevel),
+    };
   });
 
   return ApiResponse.success(res, payload, "Products retrieved successfully");
 });
 
 /**
- * Create a new product (+ linked inventory row)
+ * Create a new product (+ linked inventory & opening stock movement if applicable)
  */
 export const createProduct = asyncHandler(async (req, res) => {
-  const productData = { ...req.body };
+  const inputData = { ...req.body };
 
-  // frontend "id" bhejta hai, backend "productId" use karta hai
-  if (!productData.productId && productData.id) {
-    productData.productId = String(productData.id);
+  if (!inputData.productId && inputData.id) {
+    inputData.productId = String(inputData.id);
   }
-  if (!productData.productId) {
+  if (!inputData.productId) {
     const count = await Product.count();
-    productData.productId = `PRD-${String(count + 1).padStart(3, "0")}`;
+    inputData.productId = `PR-${String(count + 1).padStart(3, "0")}`;
   }
-  delete productData.id; // auto-increment PK ko mat chhedo
+  delete inputData.id;
 
-  const existing = await Product.findOne({ where: { productId: productData.productId } });
+  const existing = await Product.findOne({ where: { productId: inputData.productId } });
   if (existing) {
-    throw ApiError.badRequest(`Product ID ${productData.productId} already exists`);
+    throw ApiError.badRequest(`Product ID ${inputData.productId} already exists`);
   }
 
-  const opening = Number(productData.openingStock ?? 0);
-  const inward = Number(productData.inwardStock ?? 0);
-  const outward = Number(productData.outwardStock ?? 0);
-  const reserved = Number(productData.reservedStock ?? 0);
-  const hasBreakdown =
-    productData.openingStock !== undefined || productData.inwardStock !== undefined;
+  // Canonical category
+  const canonicalCat = canonicalProductCategory(inputData.category);
+  const unit = inputData.unitOfMeasure || inputData.unit || (canonicalCat === "Dairy" ? "Liters" : "Bags");
+  const costPrice = Number(inputData.costPrice ?? inputData.purchasePrice ?? 0);
+  const sellingPrice = Number(inputData.sellingPrice ?? inputData.price ?? 0);
+  const reorderLevel = inputData.reorderLevel !== undefined && inputData.reorderLevel !== null && inputData.reorderLevel !== ""
+    ? Number(inputData.reorderLevel)
+    : null;
+  const warehouseLocation = inputData.warehouseLocation || (canonicalCat === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1");
 
-  const initialStock = hasBreakdown
-    ? Math.max(0, opening + inward - outward - reserved)
-    : Number(productData.stock ?? 0);
-
-  productData.extraData = {
-    ...(productData.extraData || {}),
-    stock: initialStock,
-    // agar sirf "stock" aaya ho to usko opening maan lo, taaki formula balance rahe
-    openingStock: hasBreakdown ? opening : initialStock,
-    inwardStock: hasBreakdown ? inward : 0,
-    outwardStock: outward,
-    reservedStock: reserved,
-    minStock: Number(productData.minStock ?? 20),
-  };
-
-  const product = await Product.create(productData);
-
-  await Inventory.findOrCreate({
-    where: { productId: product.productId },
-    defaults: {
-      productId: product.productId,
-      productName: product.name,
-      category: product.category,
-      unit: product.unit,
-      currentStock: initialStock,
-      minStockAlert: Number(productData.minStock ?? 10),
-      warehouseLocation: productData.warehouseLocation || "Main Warehouse - Bay 01",
-    },
+  const product = await Product.create({
+    productId: inputData.productId,
+    name: inputData.name,
+    category: canonicalCat,
+    sku: inputData.sku || "",
+    hsnCode: inputData.hsnCode || "",
+    unit,
+    unitOfMeasure: unit,
+    costPrice,
+    purchasePrice: costPrice,
+    sellingPrice,
+    gstRate: Number(inputData.gstRate ?? (canonicalCat === "Dairy" ? 0 : 5)),
+    reorderLevel,
+    warehouseLocation,
+    description: inputData.description || "",
+    isActive: true,
   });
+
+  const openingQty = Number(inputData.openingStock ?? inputData.stock ?? 0);
+  if (openingQty > 0) {
+    await applyStockChange(product.productId, openingQty, {
+      movementType: "OPENING",
+      referenceType: "OPENING",
+      reference: "INITIAL-STOCK",
+      warehouseLocation,
+      date: new Date(),
+    });
+  }
 
   return ApiResponse.created(res, product, "Product created successfully");
 });
@@ -88,7 +114,9 @@ export const createProduct = asyncHandler(async (req, res) => {
  */
 export const updateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const product = await Product.findOne({ where: { productId: id } });
+  const product = await Product.findOne({
+    where: { productId: id },
+  });
 
   if (!product) {
     throw ApiError.notFound(`Product not found with id: ${id}`);
@@ -97,42 +125,47 @@ export const updateProduct = asyncHandler(async (req, res) => {
   const body = { ...req.body };
   delete body.id;
   delete body.productId;
-  // extraData overwrite mat karo, merge karo
-  if (body.extraData) {
-    body.extraData = { ...(product.extraData || {}), ...body.extraData };
+
+  if (body.category) {
+    body.category = canonicalProductCategory(body.category);
   }
-  if (body.minStock !== undefined) {
-    body.extraData = { ...(body.extraData || product.extraData || {}), minStock: Number(body.minStock) };
+  if (body.costPrice !== undefined) {
+    body.costPrice = Number(body.costPrice);
+    body.purchasePrice = Number(body.costPrice);
+  }
+  if (body.sellingPrice !== undefined) {
+    body.sellingPrice = Number(body.sellingPrice);
+  }
+  if (body.unitOfMeasure) {
+    body.unit = body.unitOfMeasure;
+  }
+  if (body.reorderLevel !== undefined) {
+    body.reorderLevel = body.reorderLevel !== null && body.reorderLevel !== "" ? Number(body.reorderLevel) : null;
   }
 
   await product.update(body);
 
-  await Inventory.update(
-    {
-      productName: product.name,
-      category: product.category,
-      unit: product.unit,
-      ...(body.minStock !== undefined ? { minStockAlert: Number(body.minStock) } : {}),
-    },
-    { where: { productId: id } }
-  );
-
-  return ApiResponse.success(res, product, "Product updated successfully");
+  const updated = await Product.findOne({ where: { productId: id } });
+  return ApiResponse.success(res, updated, "Product updated successfully");
 });
 
 /**
- * Delete a product
+ * Soft delete / deactivate a product
  */
 export const deleteProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const product = await Product.findOne({ where: { productId: id } });
+  const product = await Product.findOne({
+    where: {
+      [Op.or]: [{ productId: id }, ...(isNaN(id) ? [] : [{ id: Number(id) }])],
+    },
+  });
 
   if (!product) {
     throw ApiError.notFound(`Product not found with id: ${id}`);
   }
 
-  await product.destroy();
-  await Inventory.destroy({ where: { productId: id } });
+  product.isActive = false;
+  await product.save();
 
-  return ApiResponse.success(res, null, "Product deleted successfully");
+  return ApiResponse.success(res, { productId: product.productId, isActive: false }, "Product deactivated successfully");
 });

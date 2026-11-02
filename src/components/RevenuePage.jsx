@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import {
   IndianRupee, Plus, Search, Filter, Receipt, FileText, Download, Eye, X,
-  CheckCircle2, AlertTriangle, Pencil, Trash2, Calendar, RotateCcw,
+  CheckCircle2, AlertTriangle, Pencil, Calendar, RotateCcw,
   TrendingUp, ShoppingCart, Coins
 } from "lucide-react";
 import {
@@ -10,24 +10,29 @@ import {
 } from "recharts";
 import InvoiceModal from "./InvoiceModal";
 import InvoiceViewModal from "./InvoiceViewModal";
-import ExportMenu from "./ExportMenu";
 import { StatCard } from "./Dashboard";
-import { generateInvoicePDF } from "../services/pdfService";
-import { downloadCSV } from "../utils/exportUtils";
+import { formatIndianCurrency, formatPercent } from "../utils/formatters";
 import { erpApi } from "../services/api";
+
+const CATEGORY_COLORS = {
+  "Animal Feed": "var(--primary)",
+  "Dairy": "#10b981",
+};
 
 export default function Revenue({
   clients = [],
   invoices = [],
-  onSaveInvoices,
   onCreateInvoice,
   products = [],
   company = {}
 }) {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [selectedFY, setSelectedFY] = useState("2026-27");
+  const [loading, setLoading] = useState(true);
+  const [summaryData, setSummaryData] = useState(null);
+  const [quarterlyData, setQuarterlyData] = useState([]);
+  const [cashFlowData, setCashFlowData] = useState([]);
+  const [categoryData, setCategoryData] = useState([]);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
-  const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg) => {
@@ -35,226 +40,49 @@ export default function Revenue({
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleAddInvoice = (newInv) => {
-    if (onCreateInvoice) {
-      onCreateInvoice(newInv);
-    } else if (onSaveInvoices) {
-      onSaveInvoices([newInv, ...(invoices || [])]);
-    }
-    setIsInvoiceModalOpen(false);
-    showToast(`✓ Created invoice ${newInv.id} for ${newInv.clientName}`);
-  };
-
-  const handleDownloadPDF = (inv) => {
+  const fetchRevenueData = async (fy) => {
+    setLoading(true);
     try {
-      const client = clients.find(c => c.id === inv.clientId || c.name === inv.clientName);
-      const { fileName } = generateInvoicePDF(inv, company, client || {});
-      showToast(`✓ Downloaded ${fileName} to your PC`);
+      const [sumRes, qRes, cfRes, catRes] = await Promise.all([
+        erpApi.getRevenueSummary({ fiscalYear: fy }),
+        erpApi.getQuarterlyBreakdown({ fiscalYear: fy }),
+        erpApi.get12MonthCashFlow({ fiscalYear: fy }),
+        erpApi.getCategoryTurnover({ fiscalYear: fy }),
+      ]);
+
+      if (sumRes?.data) setSummaryData(sumRes.data);
+      if (qRes?.data?.quarters) setQuarterlyData(qRes.data.quarters);
+      if (cfRes?.data) setCashFlowData(cfRes.data);
+      if (catRes?.data?.categories) {
+        const pieData = catRes.data.categories
+          .filter(c => c.turnover > 0)
+          .map(c => ({
+            name: c.category,
+            value: c.turnover,
+            sharePct: c.sharePct,
+            color: CATEGORY_COLORS[c.category] || "#6366f1",
+          }));
+        setCategoryData(pieData);
+      }
     } catch (err) {
-      alert("Failed to download PDF: " + err.message);
+      console.warn("Failed to load revenue metrics from backend:", err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchRevenueData(selectedFY);
+  }, [selectedFY, invoices.length]);
 
-  const currentInvoices = invoices || [];
-
-  const nextInvoiceId = useMemo(() => {
-    const ids = currentInvoices
-      .map(inv => {
-        const match = inv.id.match(/\d+$/);
-        return match ? parseInt(match[0], 10) : 0;
-      })
-      .filter(n => !isNaN(n));
-    const maxNum = ids.length ? Math.max(...ids) : 0;
-    return `LE-INV-2026-${String(maxNum + 1).padStart(3, "0")}`;
-  }, [currentInvoices]);
-
-  const filteredInvoices = useMemo(() => {
-    return currentInvoices.filter(inv => {
-      const matchesStatus = statusFilter === "All" || inv.status === statusFilter;
-      const q = search.toLowerCase().trim();
-      const matchesSearch = !q || (
-        inv.id.toLowerCase().includes(q) ||
-        inv.clientName.toLowerCase().includes(q) ||
-        (inv.category && inv.category.toLowerCase().includes(q)) ||
-        (inv.paymentMethod && inv.paymentMethod.toLowerCase().includes(q))
-      );
-      return matchesStatus && matchesSearch;
-    });
-  }, [currentInvoices, search, statusFilter]);
-
-  // High-Level Commercial KPIs
-  const grossInvoiced = useMemo(() => {
-    return currentInvoices.reduce((sum, inv) => sum + (Number(inv.total ?? inv.grandTotal ?? 0) || 0), 0);
-  }, [currentInvoices]);
-
-  const realizedCollections = useMemo(() => {
-    return currentInvoices.reduce((sum, inv) => {
-      const invTotal = Number(inv.total ?? inv.grandTotal ?? 0);
-      if (inv.paidAmount !== undefined && inv.paidAmount !== null && inv.paidAmount !== "") {
-        return sum + (Number(inv.paidAmount) || 0);
-      }
-      return sum + (inv.status === "Paid" ? invTotal : 0);
-    }, 0);
-  }, [currentInvoices]);
-
-  const outstandingReceivables = useMemo(() => {
-    return currentInvoices.reduce((sum, inv) => {
-      const invTotal = Number(inv.total ?? inv.grandTotal ?? 0);
-      if (inv.balanceDue !== undefined && inv.balanceDue !== null && inv.balanceDue !== "") {
-        return sum + (Number(inv.balanceDue) || 0);
-      }
-      return sum + (inv.status !== "Paid" ? invTotal : 0);
-    }, 0);
-  }, [currentInvoices]);
-
-  const avgTicket = useMemo(() => {
-    return currentInvoices.length ? Math.round(grossInvoiced / currentInvoices.length) : 0;
-  }, [grossInvoiced, currentInvoices]);
-
-  // Gross Commercial Profit (Invoiced Revenue - Cost of Goods Sold)
-  const grossProfit = useMemo(() => {
-    return currentInvoices.reduce((sum, inv) => {
-      if (Array.isArray(inv.items) && inv.items.length > 0) {
-        const invProfit = inv.items.reduce((iSum, it) => {
-          const qty = Number(it.qty) || 1;
-          const rate = Number(it.rate || it.price) || 0;
-          const matchedP = (products || []).find(p => String(p.id) === String(it.productId) || p.name === it.description);
-          const purchaseRate = Number(it.costPrice || matchedP?.purchasePrice || matchedP?.costPrice || (rate * 0.72));
-          const lineProfit = Math.max(0, rate - purchaseRate) * qty;
-          return iSum + lineProfit;
-        }, 0);
-        return sum + invProfit;
-      }
-      const taxable = Number(inv.amount ?? inv.total ?? inv.grandTotal ?? 0);
-      return sum + Math.round(taxable * 0.28);
-    }, 0);
-  }, [currentInvoices, products]);
-
-  const profitMarginPercent = grossInvoiced > 0 
-    ? ((grossProfit / grossInvoiced) * 100).toFixed(1)
-    : "28.0";
-
-  // Quarterly Milestones computed from currentInvoices
-  const quarterlyRevenue = useMemo(() => {
-    const quarters = [
-      { quarter: "Q1 FY26 (Apr - Jun)", minMonth: 3, maxMonth: 5, target: 500000, margin: "24.5%" },
-      { quarter: "Q2 FY26 (Jul - Sep)", minMonth: 6, maxMonth: 8, target: 650000, margin: "26.2%" },
-      { quarter: "Q3 FY26 (Oct - Dec)", minMonth: 9, maxMonth: 11, target: 800000, margin: "28.0%" },
-      { quarter: "Q4 FY26 (Jan - Mar)", minMonth: 0, maxMonth: 2, target: 1000000, margin: "29.4%" },
-    ];
-    return quarters.map(q => {
-      const qInvoices = currentInvoices.filter(inv => {
-        if (!inv.date) return false;
-        const d = new Date(inv.date);
-        if (isNaN(d.getTime())) return false;
-        const m = d.getMonth();
-        return m >= q.minMonth && m <= q.maxMonth;
-      });
-      const rev = qInvoices.reduce((sum, inv) => sum + (Number(inv.total ?? inv.grandTotal ?? 0) || 0), 0);
-      return {
-        quarter: q.quarter,
-        revenue: rev,
-        target: q.target,
-        margin: q.margin,
-        growth: rev > 0 ? "+12.4% YoY" : "Tracking"
-      };
-    });
-  }, [currentInvoices]);
-
-  // 12-Month Inflow Trajectory
-  const monthlyFinancials = useMemo(() => {
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const now = new Date();
-    const result = [];
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const mIdx = d.getMonth();
-      const yr = d.getFullYear();
-      const mKey = `${yr}-${String(mIdx + 1).padStart(2, '0')}`;
-      const mInvoices = currentInvoices.filter(inv => inv.date && inv.date.startsWith(mKey));
-      const invoiced = mInvoices.reduce((sum, inv) => sum + (Number(inv.total ?? inv.grandTotal ?? 0) || 0), 0);
-      const collected = mInvoices.reduce((sum, inv) => {
-        const invTotal = Number(inv.total ?? inv.grandTotal ?? 0);
-        if (inv.paidAmount !== undefined && inv.paidAmount !== null && inv.paidAmount !== "") {
-          return sum + (Number(inv.paidAmount) || 0);
-        }
-        return sum + (inv.status === "Paid" ? invTotal : 0);
-      }, 0);
-      result.push({
-        month: monthNames[mIdx],
-        invoiced,
-        collected
-      });
-    }
-    return result;
-  }, [currentInvoices]);
-
-  // Category Revenue Distribution
-  const categoryRevenue = useMemo(() => {
-    const map = {};
-    let totalRev = 0;
-    currentInvoices.forEach(inv => {
-      const cat = inv.category || "General Supplies";
-      const val = Number(inv.total ?? inv.grandTotal ?? 0);
-      map[cat] = (map[cat] || 0) + val;
-      totalRev += val;
-    });
-    const colors = ["#0056b3", "#10b981", "#d97706", "#8b5cf6", "#ec4899", "#06b6d4"];
-    const keys = Object.keys(map);
-    if (keys.length === 0) {
-      return [
-        { name: "General Supplies", value: 0, percent: 0, color: "#0056b3" }
-      ];
-    }
-    return keys.map((cat, i) => ({
-      name: cat,
-      value: map[cat],
-      percent: totalRev > 0 ? Math.round((map[cat] / totalRev) * 100) : 0,
-      color: colors[i % colors.length]
-    }));
-  }, [currentInvoices]);
-
-
-
-  const handleToggleStatus = (invoice) => {
-    const order = ["Paid", "Pending", "Overdue"];
-    const currentIdx = order.indexOf(invoice.status);
-    const nextStatus = order[(currentIdx + 1) % order.length];
-    const updated = currentInvoices.map(inv => inv.id === invoice.id ? { ...inv, status: nextStatus } : inv);
-    if (onSaveInvoices) onSaveInvoices(updated);
-    showToast(`✓ Updated ${invoice.id} status to ${nextStatus}`);
+  const getQuarterBadgeStyle = (status) => {
+    if (status === "Achieved") return { color: "var(--success)", background: "rgba(16, 185, 129, 0.12)" };
+    if (status === "Tracking") return { color: "var(--primary)", background: "rgba(0, 91, 181, 0.12)" };
+    if (status === "Behind" || status === "Missed") return { color: "var(--danger)", background: "rgba(239, 68, 68, 0.12)" };
+    return { color: "var(--text-muted)", background: "var(--bg)" };
   };
 
-  const handleDeleteInvoice = (id) => {
-    if (window.confirm(`Delete commercial invoice record ${id}?`)) {
-      const updated = currentInvoices.filter(inv => inv.id !== id && inv.invoiceNumber !== id && inv.invoiceNo !== id);
-      if (onSaveInvoices) onSaveInvoices(updated);
-      erpApi.deleteInvoice(id).catch(() => {});
-      showToast(`✓ Invoice ${id} deleted.`);
-    }
-  };
-
-
-
-  const handleExportCSV = () => {
-    const headers = ["Invoice ID", "Client Name", "Client ID", "Date", "Due Date", "Taxable Value (INR)", "GST Tax (INR)", "Total Amount (INR)", "Status", "Payment Method", "Category"];
-    const rows = filteredInvoices.map(inv => [
-      `"${inv.id}"`,
-      `"${inv.clientName}"`,
-      `"${inv.clientId || ''}"`,
-      `"${inv.date}"`,
-      `"${inv.dueDate}"`,
-      inv.amount,
-      inv.tax,
-      inv.total,
-      `"${inv.status}"`,
-      `"${inv.paymentMethod || ''}"`,
-      `"${inv.category || ''}"`
-    ]);
-    downloadCSV(`laxmi_enterprises_invoices_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
-    showToast("✓ Exported invoices ledger CSV.");
-  };
+  const isCashFlowEmpty = cashFlowData.length === 0 || cashFlowData.every(m => (m.turnover || 0) === 0);
 
   return (
     <div className="page">
@@ -272,27 +100,29 @@ export default function Revenue({
             Revenue & Commercial Intelligence
           </h2>
           <p style={{ fontSize: "12.5px", color: "var(--text-muted)", margin: "3px 0 0 0" }}>
-            FY 2025-26 fiscal cash flows, tax invoice ledger & realization analytics
+            FY {selectedFY} fiscal cash flows, tax invoice ledger & realization analytics
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginLeft: "auto" }}>
+          <select
+            value={selectedFY}
+            onChange={(e) => setSelectedFY(e.target.value)}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", fontWeight: 600, fontSize: "13px" }}
+          >
+            <option value="2026-27">FY 2026-27 (Current)</option>
+            <option value="2025-26">FY 2025-26</option>
+          </select>
+
           <button 
             type="button"
             className="outline" 
-            onClick={() => showToast("✓ Live MySQL Invoices synced.")}
+            onClick={() => { fetchRevenueData(selectedFY); showToast("✓ Live MySQL financial ledger synchronized."); }}
             title="Sync and refresh live invoices"
             style={{ display: "flex", alignItems: "center", gap: 6 }}
           >
-            <RotateCcw size={14} /> Sync Live Ledger
+            <RotateCcw size={14} className={loading ? "spin" : ""} /> Sync Live Ledger
           </button>
-
-          <ExportMenu
-            label="Export Financials"
-            category="Revenue & Financials"
-            onExportCSV={handleExportCSV}
-            showToast={showToast}
-          />
 
           <button className="primary" onClick={() => setIsInvoiceModalOpen(true)}>
             <Plus size={16} /> Log Invoice
@@ -302,55 +132,90 @@ export default function Revenue({
 
       {/* 5 Primary Metric Cards */}
       <div className="stats-grid" style={{ marginBottom: 22, gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+        {/* 1. Gross Turnover (Taxable revenue, excluding GST) */}
         <StatCard 
-          title="Gross Turnover YTD" 
-          value={`₹${grossInvoiced.toLocaleString("en-IN")}`} 
-          change="+14.8% YoY" 
+          title={`Taxable Revenue (${summaryData?.periodLabel || selectedFY})`} 
+          value={formatIndianCurrency(summaryData?.taxableRevenue ?? 0)} 
+          change={summaryData?.yoyComparison?.changePct ?? null} 
+          comparisonLabel={summaryData?.yoyComparison?.label || "YoY"}
+          subtitle={`GST Collected: ${formatIndianCurrency(summaryData?.gstCollected ?? 0)}`}
           icon={IndianRupee} 
+          loading={loading}
         />
+
+        {/* 2. Gross Commercial Profit & Margin */}
         <StatCard 
-          title="Gross Commercial Profit" 
-          value={`₹${grossProfit.toLocaleString("en-IN")}`} 
-          change={`${profitMarginPercent}% Net Margin`} 
+          title="Gross Profit" 
+          value={formatIndianCurrency(summaryData?.grossProfit ?? 0)} 
+          change={summaryData?.grossMarginPct !== null && summaryData?.grossMarginPct !== undefined ? `${summaryData.grossMarginPct}% Gross Margin` : null} 
+          comparisonLabel=""
+          trendType={summaryData?.grossMarginPct !== null ? "positive" : "neutral"}
+          fallbackBadge="No prior margin"
           icon={Coins} 
+          loading={loading}
         />
+
+        {/* 3. Realized Collections */}
         <StatCard 
           title="Realized Collections" 
-          value={`₹${realizedCollections.toLocaleString("en-IN")}`} 
-          change={`${grossInvoiced > 0 ? Math.round((realizedCollections / grossInvoiced) * 100) : 100}% Realized`} 
+          value={formatIndianCurrency(summaryData?.collectedAmount ?? 0)} 
+          change={summaryData?.realizedPct !== null && summaryData?.realizedPct !== undefined ? `${summaryData.realizedPct}% Realized` : null} 
+          comparisonLabel=""
+          trendType={summaryData?.realizedPct !== null ? "positive" : "neutral"}
+          fallbackBadge="No collections"
           icon={TrendingUp} 
+          loading={loading}
         />
+
+        {/* 4. Outstanding Receivables */}
         <StatCard 
           title="Outstanding Receivables" 
-          value={`₹${outstandingReceivables.toLocaleString("en-IN")}`} 
-          change={`${currentInvoices.filter(i => (Number(i.balanceDue) || 0) > 0 || i.status !== 'Paid').length} Pending`} 
+          value={formatIndianCurrency(summaryData?.pendingDues ?? 0)} 
+          change={summaryData?.counts?.pending > 0 ? `${summaryData.counts.pending} Pending` : null} 
+          comparisonLabel=""
+          trendType={summaryData?.counts?.pending > 0 ? "negative" : "positive"}
           icon={AlertTriangle} 
+          fallbackBadge="0 Pending"
+          loading={loading}
         />
+
+        {/* 5. Average Ticket Size */}
         <StatCard 
           title="Average Ticket Size" 
-          value={`₹${avgTicket.toLocaleString("en-IN")}`} 
-          change="+6.2% vs Q3" 
+          value={formatIndianCurrency(summaryData?.averageTicket ?? 0)} 
+          change={summaryData?.avgTicketComparison?.changePct ?? null} 
+          comparisonLabel={summaryData?.avgTicketComparison?.label || "vs prev quarter"}
+          fallbackBadge="No prior data"
           icon={ShoppingCart} 
+          loading={loading}
         />
       </div>
 
       {/* Quarterly Targets & Milestone Grid */}
       <div className="quarter-grid">
-        {quarterlyRevenue.map((q, idx) => {
-          const pct = Math.min(100, Math.round((q.revenue / q.target) * 100));
+        {quarterlyData.map((q, idx) => {
+          const badgeStyle = getQuarterBadgeStyle(q.status);
           return (
             <div key={idx} className="quarter-card">
               <div className="quarter-card-header">
-                <span>{q.quarter}</span>
-                <span style={{ color: "var(--success)", fontWeight: 700 }}>{q.growth}</span>
+                <span>{q.label}</span>
+                <span style={{ ...badgeStyle, padding: "2px 8px", borderRadius: 999, fontWeight: 700, fontSize: "11px" }}>
+                  {q.status}
+                </span>
               </div>
-              <div className="quarter-val">₹{q.revenue.toLocaleString("en-IN")}</div>
+              <div className="quarter-val">{formatIndianCurrency(q.turnover)}</div>
               <div className="quarter-target">
-                <span>Target: ₹{q.target.toLocaleString("en-IN")}</span>
-                <span>Margin: {q.margin}</span>
+                <span>Target: {formatIndianCurrency(q.targetAmount)}</span>
+                <span>Achieved: {q.achievedPct !== null ? `${q.achievedPct}%` : "—"}</span>
               </div>
               <div className="quarter-progress-track">
-                <div className="quarter-progress-bar" style={{ width: `${pct}%` }} />
+                <div
+                  className="quarter-progress-bar"
+                  style={{
+                    width: `${Math.min(100, q.achievedPct || 0)}%`,
+                    background: q.status === "Achieved" ? "var(--success)" : "var(--primary)"
+                  }}
+                />
               </div>
             </div>
           );
@@ -359,7 +224,7 @@ export default function Revenue({
 
       {/* Dual Interactive Charts */}
       <div className="revenue-split-grid">
-        {/* Left: Monthly Inflow vs Realization Area Chart */}
+        {/* Left: Monthly Invoiced vs Realized Cash Flow */}
         <div className="card chart-card">
           <div className="card-head" style={{ padding: "18px 20px" }}>
             <div>
@@ -367,9 +232,27 @@ export default function Revenue({
               <p>Comparative monthly billing inflow and bank collection trajectory</p>
             </div>
           </div>
-          <div className="chart" style={{ padding: "10px 16px 20px 8px" }}>
+          <div className="chart" style={{ padding: "10px 16px 20px 8px", position: "relative" }}>
+            {isCashFlowEmpty && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "45%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  textAlign: "center",
+                  pointerEvents: "none",
+                  zIndex: 2,
+                }}
+              >
+                No cash flow records for FY {selectedFY}
+              </div>
+            )}
             <ResponsiveContainer width="100%" height={320}>
-              <AreaChart data={monthlyFinancials}>
+              <AreaChart data={cashFlowData}>
                 <defs>
                   <linearGradient id="invoicedGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4} />
@@ -381,10 +264,16 @@ export default function Revenue({
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                <XAxis dataKey="month" stroke="var(--text-muted)" fontSize={11} />
-                <YAxis stroke="var(--text-muted)" tickFormatter={(v) => `₹${v / 1000}k`} fontSize={11} />
+                <XAxis dataKey="monthName" stroke="var(--text-muted)" fontSize={11} />
+                <YAxis
+                  stroke="var(--text-muted)"
+                  tickFormatter={(v) => formatIndianCurrency(v, { compact: true })}
+                  fontSize={11}
+                  allowDecimals={false}
+                  domain={[0, "auto"]}
+                />
                 <Tooltip 
-                  formatter={(v, name) => [`₹${Number(v).toLocaleString("en-IN")}`, name === "invoiced" ? "Gross Invoiced" : "Cash Realized"]}
+                  formatter={(v, name) => [formatIndianCurrency(v), name === "turnover" ? "Taxable Turnover" : "Gross Invoiced"]}
                   contentStyle={{
                     background: "var(--card-bg)",
                     borderColor: "var(--border)",
@@ -392,8 +281,8 @@ export default function Revenue({
                     boxShadow: "var(--shadow-md)"
                   }}
                 />
-                <Area type="monotone" dataKey="invoiced" stroke="var(--primary)" strokeWidth={2.5} fillOpacity={1} fill="url(#invoicedGrad)" />
-                <Area type="monotone" dataKey="collected" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#collectedGrad)" />
+                <Area type="monotone" dataKey="grossInvoiced" stroke="var(--primary)" strokeWidth={2.5} fillOpacity={1} fill="url(#invoicedGrad)" />
+                <Area type="monotone" dataKey="turnover" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#collectedGrad)" />
               </AreaChart>
             </ResponsiveContainer>
             <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: "12px", color: "var(--text-muted)", marginTop: 6 }}>
@@ -401,72 +290,100 @@ export default function Revenue({
                 <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--primary)" }} /> Gross Invoiced
               </span>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: "#10b981" }} /> Cash Realized
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: "#10b981" }} /> Taxable Turnover
               </span>
             </div>
           </div>
         </div>
 
-        {/* Right: Industrial Category Contribution Donut */}
+        {/* Right: Category Distribution Donut */}
         <div className="card chart-card">
           <div className="card-head" style={{ padding: "18px 20px" }}>
             <div>
               <h3>Turnover by Category</h3>
-              <p>Industrial product lines distribution</p>
+              <p>Canonical product lines (Animal Feed vs Dairy)</p>
             </div>
           </div>
-          <div style={{ padding: "10px 20px 20px 20px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <ResponsiveContainer width="100%" height={190}>
-              <PieChart>
-                <Pie
-                  data={categoryRevenue}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={80}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {categoryRevenue.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+          <div style={{ padding: "10px 20px 20px 20px", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 280, justifyContent: "center" }}>
+            {categoryData.length === 0 ? (
+              <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13, padding: "40px 0" }}>
+                No categorized sales recorded for FY {selectedFY}.
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={190}>
+                  <PieChart>
+                    <Pie
+                      data={categoryData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {categoryData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(v, name, item) => [
+                        `${formatIndianCurrency(v)} (${item.payload.sharePct}%)`,
+                        "Taxable Turnover"
+                      ]}
+                      contentStyle={{
+                        background: "var(--card-bg)",
+                        borderColor: "var(--border)",
+                        borderRadius: "8px",
+                        boxShadow: "var(--shadow-md)"
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", marginTop: 12 }}>
+                  {categoryData.map((entry, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12.5px" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: "50%", background: entry.color }} />
+                        <span style={{ fontWeight: 600 }}>{entry.name}</span>
+                      </span>
+                      <span style={{ color: "var(--text-muted)" }}>
+                        {formatIndianCurrency(entry.value)} ({entry.sharePct}%)
+                      </span>
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip 
-                  formatter={(v) => [`₹${Number(v).toLocaleString("en-IN")}`, "Turnover"]}
-                  contentStyle={{
-                    background: "var(--card-bg)",
-                    borderColor: "var(--border)",
-                    borderRadius: "8px"
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-
-            <div className="category-legend-list" style={{ width: "100%" }}>
-              {categoryRevenue.map((cat, idx) => (
-                <div key={idx} className="category-legend-item">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <span className="category-legend-dot" style={{ background: cat.color }} />
-                    <span style={{ fontWeight: 600 }}>{cat.name}</span>
-                  </div>
-                  <div>
-                    <span style={{ fontWeight: 800, marginRight: 8 }}>{cat.percent}%</span>
-                    <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>₹{Number(cat.value).toLocaleString("en-IN")}</span>
-                  </div>
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Commercial Invoicing & Billing Ledger */}
-      
+      {/* CREATE INVOICE MODAL */}
+      <InvoiceModal
+        isOpen={isInvoiceModalOpen}
+        onClose={() => setIsInvoiceModalOpen(false)}
+        onSave={async (newInv) => {
+          try {
+            if (onCreateInvoice) {
+              await onCreateInvoice(newInv);
+            } else {
+              await erpApi.createInvoice(newInv);
+            }
+            setIsInvoiceModalOpen(false);
+            await fetchRevenueData(selectedFY);
+            if (onRefresh) await onRefresh();
+          } catch (err) {
+            const msg = err?.response?.data?.message || err.message;
+            console.error("Failed to save invoice:", msg);
+            throw err;
+          }
+        }}
+        clients={clients}
+        products={products}
+        company={company}
+        showToast={showToast}
+      />
     </div>
   );
 }
-
-
-// ==========================================================================
-// ADMIN WORKSPACE COMPONENT
-// ==========================================================================

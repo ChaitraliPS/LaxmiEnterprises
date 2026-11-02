@@ -1,0 +1,221 @@
+/**
+ * Canonical Master Data Constants & Enums for Laxmi Enterprises ERP
+ * Single Source of Truth used across both Backend and Frontend.
+ */
+
+// Real IST Date string (YYYY-MM-DD)
+export function getRealISTDateString() {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(new Date());
+}
+
+/**
+ * Returns current IST date string (YYYY-MM-DD) dynamically on every call.
+ * Honors environment override (ANCHOR_DATE / TEST_ANCHOR_DATE / VITE_ANCHOR_DATE / window.__APP_DATE__) when set.
+ */
+export function getToday() {
+  const envDateOverride =
+    (typeof process !== "undefined" && (process.env?.ANCHOR_DATE || process.env?.TEST_ANCHOR_DATE)) ||
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_ANCHOR_DATE) ||
+    (typeof window !== "undefined" && window.__APP_DATE__);
+  return envDateOverride || getRealISTDateString();
+}
+
+/**
+ * @deprecated Use getToday() instead. Preserved strictly as legacy alias for backwards compatibility.
+ */
+export const ANCHOR_DATE = getToday();
+export const ANCHOR_DATE_OBJECT = new Date(`${getToday()}T00:00:00+05:30`);
+
+// Product Categories (The ONLY source for category everywhere)
+export const PRODUCT_CATEGORIES = {
+  ANIMAL_FEED: "Animal Feed",
+  DAIRY: "Dairy",
+};
+
+export const PRODUCT_CATEGORY_LIST = Object.values(PRODUCT_CATEGORIES);
+
+// Client Types
+export const CLIENT_TYPES = {
+  FEED_SHOP: "Feed Shop",
+  DAIRY: "Dairy",
+  FARMER: "Farmer",
+};
+
+export const CLIENT_TYPE_LIST = Object.values(CLIENT_TYPES);
+
+// Vendor Types (Supplier Category)
+export const VENDOR_TYPES = {
+  FEED_MANUFACTURER: "Feed Manufacturer",
+  DAIRY_PROCESSOR: "Dairy Processor",
+  RAW_MATERIALS: "Raw Materials Supplier",
+};
+
+export const VENDOR_TYPE_LIST = Object.values(VENDOR_TYPES);
+
+// Units of Measure
+export const UNITS_OF_MEASURE = {
+  BAGS: "Bags",
+  LITERS: "Liters",
+  KG: "Kg",
+};
+
+export const UNITS_OF_MEASURE_LIST = Object.values(UNITS_OF_MEASURE);
+
+// Stock Movement Directions
+export const STOCK_DIRECTIONS = {
+  IN: "IN",
+  OUT: "OUT",
+};
+
+// Stock Movement Types
+export const STOCK_MOVEMENT_TYPES = {
+  OPENING: "OPENING",
+  PURCHASE_IN: "PURCHASE_IN",
+  SALE_OUT: "SALE_OUT",
+  ADJUSTMENT_IN: "ADJUSTMENT_IN",
+  ADJUSTMENT_OUT: "ADJUSTMENT_OUT",
+  RETURN: "RETURN",
+};
+
+export const STOCK_MOVEMENT_TYPE_LIST = Object.values(STOCK_MOVEMENT_TYPES);
+
+// Status Enums for Invoices & Purchases
+export const TRANSACTION_STATUSES = {
+  UNPAID: "Unpaid",
+  PARTIAL: "Partial",
+  PAID: "Paid",
+  OVERDUE: "Overdue",
+  CANCELLED: "Cancelled",
+};
+
+// Target Statuses for Quarterly Performance
+export const TARGET_STATUSES = {
+  NOT_STARTED: "Not started",
+  TRACKING: "Tracking",
+  BEHIND: "Behind",
+  ACHIEVED: "Achieved",
+  MISSED: "Missed",
+};
+
+// Payment Modes (No silent defaults)
+export const PAYMENT_MODES = {
+  CASH: "Cash",
+  NEFT: "NEFT",
+  RTGS: "RTGS",
+  CHEQUE: "Cheque",
+  UPI: "UPI",
+};
+
+export const PAYMENT_MODE_LIST = Object.values(PAYMENT_MODES);
+
+/**
+ * Low-stock evaluation rule (defined ONCE for both backend and frontend):
+ * - If reorderLevel is null or undefined: "Not set" (does not count as low or in-stock by default)
+ * - If currentStock <= reorderLevel: "Low Stock"
+ * - Else: "In Stock"
+ *
+ * @param {number|null|undefined} currentStock
+ * @param {number|null|undefined} reorderLevel
+ * @returns {"Not set" | "Low Stock" | "In Stock"}
+ */
+export function evaluateStockHealth(currentStock, reorderLevel) {
+  if (reorderLevel === null || reorderLevel === undefined || reorderLevel === "" || isNaN(Number(reorderLevel))) {
+    return "Not set";
+  }
+  const stock = Number(currentStock || 0);
+  const reorder = Number(reorderLevel);
+  if (stock <= reorder) {
+    return "Low Stock";
+  }
+  return "In Stock";
+}
+
+/**
+ * Standard Status Derivation for Sales and Purchases (defined ONCE):
+ * Status is NEVER typed in.
+ *
+ * @param {Object} params
+ * @param {number} params.grandTotal
+ * @param {number} params.paidAmount
+ * @param {string|Date} params.dueDate - YYYY-MM-DD or Date
+ * @param {boolean} [params.isCancelled=false]
+ * @param {string|Date} [params.asOfDate=getToday()] - Calculation date
+ * @returns {"Unpaid" | "Partial" | "Paid" | "Overdue" | "Cancelled"}
+ */
+export function deriveTransactionStatus({
+  grandTotal = 0,
+  paidAmount = 0,
+  dueDate = null,
+  isCancelled = false,
+  asOfDate = getToday(),
+}) {
+  if (isCancelled) {
+    return TRANSACTION_STATUSES.CANCELLED;
+  }
+
+  const total = Number(grandTotal || 0);
+  const paid = Number(paidAmount || 0);
+
+  // Fully paid
+  if (total > 0 && paid >= total) {
+    return TRANSACTION_STATUSES.PAID;
+  }
+
+  // Check if overdue: not fully paid and dueDate < asOfDate
+  if (dueDate) {
+    const dueStr = typeof dueDate === "string" ? dueDate.slice(0, 10) : new Date(dueDate).toISOString().slice(0, 10);
+    const asOfStr = typeof asOfDate === "string" ? asOfDate.slice(0, 10) : new Date(asOfDate).toISOString().slice(0, 10);
+    if (dueStr < asOfStr && paid < total) {
+      return TRANSACTION_STATUSES.OVERDUE;
+    }
+  }
+
+  // Partially paid
+  if (paid > 0 && paid < total) {
+    return TRANSACTION_STATUSES.PARTIAL;
+  }
+
+  // Unpaid
+  return TRANSACTION_STATUSES.UNPAID;
+}
+
+/**
+ * Normalizes legacy client type strings to canonical enum
+ */
+export function canonicalClientType(rawType) {
+  if (!rawType) return CLIENT_TYPES.FARMER;
+  const s = String(rawType).trim().toLowerCase();
+  if (s.includes("feed")) return CLIENT_TYPES.FEED_SHOP;
+  if (s.includes("dairy")) return CLIENT_TYPES.DAIRY;
+  if (s.includes("farmer")) return CLIENT_TYPES.FARMER;
+  return CLIENT_TYPES.FEED_SHOP;
+}
+
+/**
+ * Normalizes legacy vendor category strings to canonical enum
+ */
+export function canonicalVendorType(rawCategory) {
+  if (!rawCategory) return VENDOR_TYPES.FEED_MANUFACTURER;
+  const s = String(rawCategory).trim().toLowerCase();
+  if (s.includes("feed")) return VENDOR_TYPES.FEED_MANUFACTURER;
+  if (s.includes("dairy")) return VENDOR_TYPES.DAIRY_PROCESSOR;
+  if (s.includes("raw") || s.includes("suppl")) return VENDOR_TYPES.RAW_MATERIALS;
+  return VENDOR_TYPES.FEED_MANUFACTURER;
+}
+
+/**
+ * Normalizes product category strings to canonical enum
+ */
+export function canonicalProductCategory(rawCategory) {
+  if (!rawCategory) return PRODUCT_CATEGORIES.ANIMAL_FEED;
+  const s = String(rawCategory).trim().toLowerCase();
+  if (s.includes("dairy") || s.includes("milk")) return PRODUCT_CATEGORIES.DAIRY;
+  return PRODUCT_CATEGORIES.ANIMAL_FEED;
+}
+

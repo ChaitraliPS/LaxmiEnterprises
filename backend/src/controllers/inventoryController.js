@@ -1,89 +1,119 @@
 import { Inventory } from "../models/Inventory.js";
 import { Product } from "../models/Product.js";
+import { StockMovement } from "../models/StockMovement.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { applyStockChange, toInventoryView, backfillInventory } from "../utils/stockSync.js";
+import { getStockHealth } from "../services/metrics/stockMetrics.js";
+import { applyStockChange } from "../utils/stockSync.js";
+import { getToday } from "../constants/erpConstants.js";
 
 /**
- * Get all inventory records (with in/out computed from product breakdown)
+ * Get inventory overview with per-unit totals and product health
+ * Shared service ensures identical numbers with Products page.
  */
 export const getInventory = asyncHandler(async (req, res) => {
-  await backfillInventory();
-  const [inventory, products] = await Promise.all([
-    Inventory.findAll({ order: [["productName", "ASC"]] }),
-    Product.findAll(),
-  ]);
-  const prodMap = new Map(products.map((p) => [p.productId, p]));
-  const payload = inventory.map((i) => toInventoryView(i, prodMap.get(i.productId)));
-  return ApiResponse.success(res, payload, "Inventory records retrieved successfully");
+  const healthData = await getStockHealth(getToday());
+  return ApiResponse.success(res, healthData, "Inventory records retrieved successfully");
 });
 
 /**
- * Set absolute stock / min alert / location for one product
+ * Returns movement ledger history
+ * Entry ID is the real movement ID (not product ID)
  */
-export const updateStock = asyncHandler(async (req, res) => {
-  const { productId } = req.params;
-  const { currentStock, minStockAlert, warehouseLocation } = req.body;
-
-  const item = await Inventory.findOne({ where: { productId } });
-  if (!item) {
-    throw ApiError.notFound(`Inventory record not found for product: ${productId}`);
+export const getStockMovements = asyncHandler(async (req, res) => {
+  const { productId } = req.query;
+  const whereClause = {};
+  if (productId) {
+    whereClause.productId = productId;
   }
 
-  // stock change ledger ke through jaaye (inward/outward bhi update ho)
-  if (currentStock !== undefined) {
-    const target = Math.max(0, Number(currentStock));
-    const delta = target - Number(item.currentStock || 0);
-    if (delta !== 0) {
-      await applyStockChange(productId, delta, { location: warehouseLocation });
-    }
-  }
+  const movements = await StockMovement.findAll({
+    where: whereClause,
+    include: [{ model: Product, as: "product", attributes: ["name", "category", "unitOfMeasure"] }],
+    order: [["movementDate", "DESC"], ["id", "DESC"]],
+  });
 
-  const fresh = await Inventory.findOne({ where: { productId } });
-  if (minStockAlert !== undefined) fresh.minStockAlert = Number(minStockAlert);
-  if (warehouseLocation !== undefined) fresh.warehouseLocation = warehouseLocation;
-  fresh.lastUpdated = new Date();
-  await fresh.save();
+  const formatted = movements.map((m) => {
+    const json = m.toJSON();
+    return {
+      id: m.id,
+      entryId: `MOV-${String(m.id).padStart(5, "0")}`,
+      movementId: m.id,
+      productId: m.productId,
+      productName: m.product?.name || m.productId,
+      movementType: m.movementType || m.type,
+      direction: m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT"),
+      quantity: Number(m.quantity || Math.abs(Number(m.quantityChange || 0))),
+      unit: m.product?.unitOfMeasure || "Bags",
+      warehouseLocation: m.warehouseLocation || "Godown Bay A-1",
+      referenceType: m.referenceType,
+      referenceId: m.referenceId || m.reference || "",
+      movementDate: m.movementDate || m.date,
+      createdBy: m.createdBy || "System",
+      notes: m.notes || "",
+    };
+  });
 
-  if (minStockAlert !== undefined) {
-    const prod = await Product.findOne({ where: { productId } });
-    if (prod) {
-      prod.extraData = { ...(prod.extraData || {}), minStock: Number(minStockAlert) };
-      prod.changed("extraData", true);
-      await prod.save();
-    }
-  }
-
-  return ApiResponse.success(res, fresh, "Inventory updated successfully");
+  return ApiResponse.success(res, formatted, "Stock movements retrieved successfully");
 });
 
 /**
  * Adjust stock: +inward / -outward
- * Body: { adjustment, warehouseLocation?, reason? }
  */
 export const adjustStock = asyncHandler(async (req, res) => {
   const { productId } = req.params;
-  const { adjustment, warehouseLocation, reason } = req.body;
+  const { adjustment, warehouseLocation, reason, movementType } = req.body;
 
   const qty = Number(adjustment);
   if (isNaN(qty) || qty === 0) {
     throw ApiError.badRequest("adjustment must be a non-zero number (+inward / -outward)");
   }
 
-  const { previousStock, newStock } = await applyStockChange(productId, qty, {
-    location: warehouseLocation,
+  const mType = movementType || (qty > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT");
+  const result = await applyStockChange(productId, qty, {
+    warehouseLocation,
+    movementType: mType,
+    referenceType: "ADJUSTMENT",
+    reference: reason || "Manual stock adjustment",
   });
 
   return ApiResponse.success(
     res,
-    {
-      productId,
-      previousStock,
-      adjustment: qty,
-      newStock,
-      reason: reason || (qty > 0 ? "Inward / Purchase" : "Outward / Sale"),
-    },
+    result,
     `Stock ${qty > 0 ? "increased" : "decreased"} successfully`
   );
+});
+
+/**
+ * Update stock metadata or quantity directly
+ */
+export const updateStock = asyncHandler(async (req, res) => {
+  const { productId } = req.params;
+  const { currentStock, quantity, minStockAlert, warehouseLocation, notes } = req.body;
+
+  const inv = await Inventory.findOne({ where: { productId } });
+  if (!inv) {
+    throw ApiError.notFound(`Inventory record not found for product "${productId}"`);
+  }
+
+  if (minStockAlert !== undefined) inv.minStockAlert = Number(minStockAlert);
+  if (warehouseLocation !== undefined) inv.warehouseLocation = warehouseLocation;
+
+  if (currentStock !== undefined || quantity !== undefined) {
+    const target = Number(currentStock ?? quantity);
+    const diff = target - Number(inv.currentStock || 0);
+    if (diff !== 0) {
+      await applyStockChange(productId, diff, {
+        movementType: diff > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT",
+        referenceType: "ADJUSTMENT",
+        reference: notes || "Direct inventory adjustment",
+      });
+    }
+  } else {
+    await inv.save();
+  }
+
+  const updated = await Inventory.findOne({ where: { productId } });
+  return ApiResponse.success(res, updated, "Inventory updated successfully");
 });

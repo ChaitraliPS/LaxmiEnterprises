@@ -8,8 +8,16 @@ import { Purchase } from "./Purchase.js";
 import { Invoice } from "./Invoice.js";
 import { ExpoLead } from "./ExpoLead.js";
 import { Company } from "./Company.js";
+import { Target } from "./Target.js";
+import { StockMovement } from "./StockMovement.js";
+import { Payment } from "./Payment.js";
+import { InvoiceLine } from "./InvoiceLine.js";
+import { PurchaseLine } from "./PurchaseLine.js";
+import { VendorPayment } from "./VendorPayment.js";
+import { Sequence } from "./Sequence.js";
+import { SchemaMigration } from "./SchemaMigration.js";
 
-// Establish relational graph between entities
+// Client <-> Invoice
 Client.hasMany(Invoice, {
   foreignKey: "clientId",
   sourceKey: "clientId",
@@ -23,6 +31,36 @@ Invoice.belongsTo(Client, {
   constraints: false,
 });
 
+// Invoice <-> InvoiceLine
+Invoice.hasMany(InvoiceLine, {
+  foreignKey: "invoiceId",
+  sourceKey: "invoiceNumber",
+  as: "lines",
+  constraints: false,
+  onDelete: "CASCADE",
+});
+InvoiceLine.belongsTo(Invoice, {
+  foreignKey: "invoiceId",
+  targetKey: "invoiceNumber",
+  as: "invoice",
+  constraints: false,
+});
+
+// Product <-> InvoiceLine
+Product.hasMany(InvoiceLine, {
+  foreignKey: "productId",
+  sourceKey: "productId",
+  as: "invoiceLines",
+  constraints: false,
+});
+InvoiceLine.belongsTo(Product, {
+  foreignKey: "productId",
+  targetKey: "productId",
+  as: "product",
+  constraints: false,
+});
+
+// Vendor <-> Purchase
 Vendor.hasMany(Purchase, {
   foreignKey: "vendorId",
   sourceKey: "vendorId",
@@ -36,6 +74,51 @@ Purchase.belongsTo(Vendor, {
   constraints: false,
 });
 
+// Purchase <-> PurchaseLine
+Purchase.hasMany(PurchaseLine, {
+  foreignKey: "purchaseId",
+  sourceKey: "purchaseId",
+  as: "lines",
+  constraints: false,
+  onDelete: "CASCADE",
+});
+PurchaseLine.belongsTo(Purchase, {
+  foreignKey: "purchaseId",
+  targetKey: "purchaseId",
+  as: "purchase",
+  constraints: false,
+});
+
+// Product <-> PurchaseLine
+Product.hasMany(PurchaseLine, {
+  foreignKey: "productId",
+  sourceKey: "productId",
+  as: "purchaseLines",
+  constraints: false,
+});
+PurchaseLine.belongsTo(Product, {
+  foreignKey: "productId",
+  targetKey: "productId",
+  as: "product",
+  constraints: false,
+});
+
+// Purchase <-> VendorPayment
+Purchase.hasMany(VendorPayment, {
+  foreignKey: "billId",
+  sourceKey: "purchaseId",
+  as: "vendorPayments",
+  constraints: false,
+  onDelete: "CASCADE",
+});
+VendorPayment.belongsTo(Purchase, {
+  foreignKey: "billId",
+  targetKey: "purchaseId",
+  as: "purchase",
+  constraints: false,
+});
+
+// Product <-> Inventory
 Product.hasOne(Inventory, {
   foreignKey: "productId",
   sourceKey: "productId",
@@ -52,24 +135,46 @@ Inventory.belongsTo(Product, {
   onUpdate: "CASCADE",
 });
 
-// Automatic Cascade: When a product is deleted, automatically delete corresponding inventory
-Product.afterDestroy(async (product, options) => {
-  const pId = product.productId || product.id;
-  if (pId) {
-    await Inventory.destroy({
-      where: { productId: pId },
-      transaction: options?.transaction,
-    });
-  }
+// Product <-> StockMovement
+Product.hasMany(StockMovement, {
+  foreignKey: "productId",
+  sourceKey: "productId",
+  as: "stockMovements",
+  constraints: false,
+});
+StockMovement.belongsTo(Product, {
+  foreignKey: "productId",
+  targetKey: "productId",
+  as: "product",
+  constraints: false,
 });
 
-Product.afterBulkDestroy(async (options) => {
-  if (options?.where?.productId) {
-    await Inventory.destroy({
-      where: { productId: options.where.productId },
-      transaction: options?.transaction,
-    });
-  }
+// Invoice <-> Payment
+Invoice.hasMany(Payment, {
+  foreignKey: "invoiceId",
+  sourceKey: "invoiceNumber",
+  as: "payments",
+  constraints: false,
+});
+Payment.belongsTo(Invoice, {
+  foreignKey: "invoiceId",
+  targetKey: "invoiceNumber",
+  as: "invoice",
+  constraints: false,
+});
+
+// Client <-> Payment
+Client.hasMany(Payment, {
+  foreignKey: "clientId",
+  sourceKey: "clientId",
+  as: "payments",
+  constraints: false,
+});
+Payment.belongsTo(Client, {
+  foreignKey: "clientId",
+  targetKey: "clientId",
+  as: "client",
+  constraints: false,
 });
 
 export {
@@ -83,4 +188,12 @@ export {
   Invoice,
   ExpoLead,
   Company,
+  Target,
+  StockMovement,
+  Payment,
+  InvoiceLine,
+  PurchaseLine,
+  VendorPayment,
+  Sequence,
+  SchemaMigration,
 };

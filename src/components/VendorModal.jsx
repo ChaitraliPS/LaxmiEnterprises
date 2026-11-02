@@ -14,17 +14,17 @@ import {
 import { FieldError, RequiredStar, ValidationSummary } from "./ValidationFeedback";
 
 const VENDOR_CATEGORIES = [
-  "Animal Feed Shop",
-  "Dairy",
-  "Farmers",
+  "Feed Manufacturer",
+  "Dairy Processor",
+  "Raw Materials Supplier",
 ];
 
 const normalizeVendorCategory = (cat) => {
   const c = String(cat || "").trim().toLowerCase();
-  if (c.includes("feed") || c.includes("raw feed") || c.includes("animal")) return "Animal Feed Shop";
-  if (c.includes("dairy") || c.includes("milk")) return "Dairy";
-  if (c.includes("farm")) return "Farmers";
-  return "Animal Feed Shop";
+  if (c.includes("raw") || c.includes("material")) return "Raw Materials Supplier";
+  if (c.includes("dairy") || c.includes("milk") || c.includes("process")) return "Dairy Processor";
+  if (c.includes("feed") || c.includes("animal") || c.includes("mfg") || c.includes("manufactur")) return "Feed Manufacturer";
+  return "Feed Manufacturer";
 };
 
 const PAYMENT_TERMS_OPTIONS = [

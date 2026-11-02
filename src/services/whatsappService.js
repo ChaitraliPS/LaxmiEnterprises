@@ -10,35 +10,35 @@ export const WHATSAPP_TEMPLATES = [
     name: "1. Expo Stall Visit - Thank You & Welcome",
     category: "General",
     description: "Personalized thank you message for visiting the stall with village & discussion remarks.",
-    text: "Namaskar {{name}} ji! 🙏\n\nThank you for visiting the *Laxmi Enterprises* stall at *{{expoName}}*. It was wonderful connecting with you regarding your agribusiness requirements from *{{village}}*.\n\n📝 *Discussion Note:* {{remark}}\n\nWe have attached our latest product catalog and wholesale rate sheet. Please let us know if you need any assistance!\n\nWarm regards,\n*Laxmi Enterprises - Agribusiness & Cattle Feed Supplies*\n📞 Contact: +91 98765 43210\n📍 Pune, Maharashtra"
+    text: "Namaskar {{name}} ji! 🙏\n\nThank you for visiting the *Laxmi Enterprises* stall at *{{expoName}}*. It was wonderful connecting with you regarding your agribusiness requirements from *{{village}}*.\n\n📝 *Discussion Note:* {{remark}}\n\nPlease let us know if you need our latest product catalog and wholesale rate sheet. We are happy to assist!\n\nWarm regards,\n*Laxmi Enterprises - Agribusiness & Cattle Feed Supplies*\n📞 Contact: {{companyPhone}}\n📍 Pune, Maharashtra"
   },
   {
     id: "feed_shop_offer",
     name: "2. Animal Feed Shop - Special Expo Wholesale Offer",
     category: "Animal Feed Shop",
     description: "Promotional message for Feed Shop owners with brands, company rates, and freight discount.",
-    text: "Namaskar {{name}} ji (*{{village}}*)! 🌾\n\nFollowing our meeting at *{{expoName}}*, Laxmi Enterprises is pleased to offer exclusive exhibition pricing on all major cattle feed brands:\n\n⭐ *Brands Available:* Godrej MilkMore, Samruddhi Supreme, Kapila Gold, Amul Dan\n📦 *Stock:* Cattle Feed, Calf Starter, Mineral Mixture, Calcium Supplement, Maize Silage\n\n📝 *Your Inquiry Remark:* {{remark}}\n\nBook your consignment this week to avail *Special Freight Subsidy* for {{village}} deliveries!\n\nReply *YES* to get the current wholesale price list.\n\n*Laxmi Enterprises* | 📞 +91 98765 43210"
+    text: "Namaskar {{name}} ji (*{{village}}*)! 🌾\n\nFollowing our meeting at *{{expoName}}*, Laxmi Enterprises is pleased to offer exclusive exhibition pricing on all major cattle feed brands:\n\n⭐ *Brands Available:* Godrej MilkMore, Samruddhi Supreme, Kapila Gold, Amul Dan\n📦 *Stock:* Cattle Feed, Calf Starter, Mineral Mixture, Calcium Supplement, Maize Silage\n\n📝 *Your Inquiry Remark:* {{remark}}\n\nBook your consignment this week to avail *Special Freight Subsidy* for {{village}} deliveries!\n\nReply *YES* to get the current wholesale price list.\n\n*Laxmi Enterprises* | 📞 {{companyPhone}}"
   },
   {
     id: "dairy_procurement",
     name: "3. Dairy & Milk Center - Procurement Follow-up",
     category: "Dairy",
     description: "Follow-up for Dairy cooperatives & chilling centers on bulk milk collection & testing supplies.",
-    text: "Namaskar {{name}} ji (*{{village}}*)! 🥛\n\nThank you for visiting us at *{{expoName}}*. We had a fruitful discussion regarding milk procurement and dairy supplies.\n\n📝 *Meeting Note:* {{remark}}\n\nLaxmi Enterprises provides dedicated support for dairy cooperatives, BMC centers, and bulk milk testing equipment with flexible payment terms.\n\nPlease let us know when our field representative can visit your center in {{village}}.\n\n*Laxmi Enterprises Dairy Division* | 📞 +91 98765 43210"
+    text: "Namaskar {{name}} ji (*{{village}}*)! 🥛\n\nThank you for visiting us at *{{expoName}}*. We had a fruitful discussion regarding milk procurement and dairy supplies.\n\n📝 *Meeting Note:* {{remark}}\n\nLaxmi Enterprises provides dedicated support for dairy cooperatives, BMC centers, and bulk milk testing equipment with flexible payment terms.\n\nPlease let us know when our field representative can visit your center in {{village}}.\n\n*Laxmi Enterprises Dairy Division* | 📞 {{companyPhone}}"
   },
   {
     id: "farmer_direct",
     name: "4. Farmer Direct - Silage & High-Yield Fodder Offer",
     category: "Farmers",
     description: "Direct message for farmers offering green silage bales, mineral feed, and livestock nutrition.",
-    text: "Namaskar {{name}} shetkari bandhu (Farmer Friend)! 🚜\n\nIt was great meeting you at *{{expoName}}*! As discussed regarding your farm in *{{village}}*:\n\n📝 *Note / Remark:* {{remark}}\n\nWe have fresh stocks of *Sweet Corn Silage Bales, Lucerne Hay, and Premium Mineral Mixtures* ready for direct dispatch to {{village}} at direct manufacturer rates.\n\nIncrease your daily milk yield with balanced animal nutrition! Reply or call us directly to book your batch.\n\n*Laxmi Enterprises* | 📞 +91 98765 43210"
+    text: "Namaskar {{name}} shetkari bandhu (Farmer Friend)! 🚜\n\nIt was great meeting you at *{{expoName}}*! As discussed regarding your farm in *{{village}}*:\n\n📝 *Note / Remark:* {{remark}}\n\nWe have fresh stocks of *Sweet Corn Silage Bales, Lucerne Hay, and Premium Mineral Mixtures* ready for direct dispatch to {{village}} at direct manufacturer rates.\n\nIncrease your daily milk yield with balanced animal nutrition! Reply or call us directly to book your batch.\n\n*Laxmi Enterprises* | 📞 {{companyPhone}}"
   },
   {
     id: "custom_message",
     name: "5. Custom Message Composer",
     category: "Custom",
     description: "Write your own custom broadcast message using live personalization variables.",
-    text: "Namaskar {{name}} ji from {{village}}! Regarding {{expoName}}: {{remark}}. Best regards, Laxmi Enterprises (+91 98765 43210)."
+    text: "Namaskar {{name}} ji from {{village}}! Regarding {{expoName}}: {{remark}}. Best regards, Laxmi Enterprises ({{companyPhone}})."
   }
 ];
 
@@ -50,7 +50,7 @@ export const WHATSAPP_TEMPLATES = [
 export function normalizeWhatsAppNumber(mobile) {
   if (!mobile) return "";
   let cleaned = String(mobile).replace(/[^0-9]/g, "");
-  
+
   // If 10 digits (standard Indian mobile), prepend 91
   if (cleaned.length === 10) {
     cleaned = "91" + cleaned;
@@ -63,9 +63,14 @@ export function normalizeWhatsAppNumber(mobile) {
   return cleaned;
 }
 
+/** True when the number is a valid Indian mobile (91 + 10 digits starting 6-9) */
+export function isValidWhatsAppNumber(mobile) {
+  return /^91[6-9]\d{9}$/.test(normalizeWhatsAppNumber(mobile));
+}
+
 /**
  * Interpolates variables inside a template string
- * Variables supported: {{name}}, {{village}}, {{mobile}}, {{remark}}, {{expoName}}, {{companyName}}, {{date}}
+ * Variables supported: {{name}}, {{village}}, {{mobile}}, {{remark}}, {{expoName}}, {{companyName}}, {{companyPhone}}, {{date}}
  */
 export function renderWhatsAppMessage(templateText, lead = {}, company = {}) {
   if (!templateText) return "";
@@ -76,6 +81,7 @@ export function renderWhatsAppMessage(templateText, lead = {}, company = {}) {
   const remark = lead.remark || lead.note || "General Inquiry";
   const expoName = lead.expoName || "Agri Expo 2026";
   const companyName = company.name || "Laxmi Enterprises";
+  const companyPhone = company.phone || "+91 98765 43210";
   const date = lead.date || new Date().toISOString().slice(0, 10);
 
   return templateText
@@ -86,7 +92,17 @@ export function renderWhatsAppMessage(templateText, lead = {}, company = {}) {
     .replace(/\{\{note\}\}/gi, remark)
     .replace(/\{\{expoName\}\}/gi, expoName)
     .replace(/\{\{companyName\}\}/gi, companyName)
+    .replace(/\{\{companyPhone\}\}/gi, companyPhone)
     .replace(/\{\{date\}\}/gi, date);
+}
+
+/**
+ * Adds an image link at the end of a message. WhatsApp usually shows
+ * a preview of a direct image link inside the chat.
+ */
+export function appendImageLink(message, imageUrl) {
+  if (!imageUrl) return message;
+  return `${message}\n\n🖼️ ${imageUrl}`;
 }
 
 /**
@@ -108,7 +124,7 @@ export function getWhatsAppUrl(mobile, messageText) {
  */
 export function generateVCardString(leads = []) {
   let vcf = "";
-  leads.forEach((lead, i) => {
+  leads.forEach((lead) => {
     const cleanNum = normalizeWhatsAppNumber(lead.mobile || lead.contact);
     if (!cleanNum) return;
     const displayName = `${lead.name || "Expo Lead"} (${lead.village || "Agri"})`;
@@ -225,4 +241,3 @@ export function getPurchaseWhatsAppUrl(purchase = {}, company = {}, customMessag
   const msg = customMessage || renderPurchaseWhatsAppMessage(purchase, company);
   return getWhatsAppUrl(phone, msg);
 }
-

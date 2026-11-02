@@ -11,14 +11,10 @@ import {
   validateInvoiceItems,
   validatePaymentSettlement
 } from "../utils/validators";
+import { getToday } from "../constants/erpConstants";
 
-export const getTodayLocalDate = () => {
-  const d = new Date();
-  const yr = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  return `${yr}-${mo}-${da}`;
-};
+export const getTodayLocalDate = () => getToday();
+
 
 export const getLocalDateInDays = (days = 30) => {
   const d = new Date();
@@ -412,12 +408,20 @@ export default function InvoiceModal({
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
     const inv = getInvoicePayload();
-    if (onSave) onSave(inv);
-    onClose();
+    if (onSave) {
+      try {
+        await onSave(inv);
+        onClose();
+      } catch (err) {
+        // Keep modal open on error
+      }
+    } else {
+      onClose();
+    }
   };
 
   return (

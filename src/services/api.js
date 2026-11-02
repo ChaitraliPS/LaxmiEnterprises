@@ -65,8 +65,6 @@ export const erpApi = {
   getAllData: () => apiClient.get("/sync/all"),
   syncClients: (clients) => apiClient.post("/sync/clients", clients),
   syncVendors: (vendors) => apiClient.post("/sync/vendors", vendors),
-  syncInvoices: (invoices) => apiClient.post("/sync/invoices", invoices),
-  syncPurchases: (purchases) => apiClient.post("/sync/purchases", purchases),
   syncProducts: (products) => apiClient.post("/sync/products", products),
   syncInventory: (inventory) => apiClient.post("/sync/inventory", inventory),
   syncExpoLeads: (expoLeads) => apiClient.post("/sync/expo", expoLeads),
@@ -101,17 +99,20 @@ export const erpApi = {
   deleteProduct: (id) => apiClient.delete(`/products/${id}`),
 
   getInventory: () => apiClient.get("/inventory"),
+  getStockMovements: (params) => apiClient.get("/inventory/movements", { params }),
   updateStock: (productId, data) => apiClient.put(`/inventory/${productId}`, data),
   adjustStock: (productId, adjustment, warehouseLocation, reason) =>
     apiClient.post(`/inventory/${productId}/adjust`, { adjustment, warehouseLocation, reason }),
 
   getPurchases: () => apiClient.get("/purchases"),
   createPurchase: (data) => apiClient.post("/purchases", data),
+  recordVendorPayment: (id, data) => apiClient.post(`/purchases/${id}/payment`, data),
   updatePurchase: (id, data) => apiClient.put(`/purchases/${id}`, data),
   deletePurchase: (id) => apiClient.delete(`/purchases/${id}`),
 
   getInvoices: () => apiClient.get("/invoices"),
   createInvoice: (data) => apiClient.post("/invoices", data),
+  updateInvoice: (id, data) => apiClient.put(`/invoices/${id}`, data),
   recordPayment: (id, data) => apiClient.post(`/invoices/${id}/payment`, data),
   deleteInvoice: (id) => apiClient.delete(`/invoices/${id}`),
 
@@ -123,7 +124,19 @@ export const erpApi = {
   getCompany: () => apiClient.get("/company"),
   updateCompany: (data) => apiClient.put("/company", data),
 
-  getDashboardStats: () => apiClient.get("/dashboard/stats"),
+  getDashboardStats: (params) => apiClient.get("/dashboard/stats", { params }),
+  getRevenueSummary: (params) => apiClient.get("/revenue/summary", { params }),
+  getQuarterlyBreakdown: (params) => apiClient.get("/revenue/quarterly", { params }),
+  get12MonthCashFlow: (params) => apiClient.get("/revenue/cash-flow", { params }),
+  getCategoryTurnover: (params) => apiClient.get("/revenue/categories", { params }),
+
+  // Consistency Check (Admin Workspace)
+  getConsistencyReport: (params) => apiClient.get("/admin/consistency-check", { params }),
+
+  // Fiscal Targets (MySQL backed)
+  getTargets: (params) => apiClient.get("/targets", { params }),
+  updateTarget: (data) => apiClient.put("/targets", data),
+  saveBulkTargets: (targets) => apiClient.post("/targets/bulk", { targets }),
 };
 
 export default erpApi;

@@ -6,18 +6,24 @@ import {
 } from "lucide-react";
 import ClientModal from "./ClientModal";
 import ClientDetailsModal from "./ClientDetailsModal";
-import DeleteConfirmModal from "./DeleteConfirmModal";
 import InvoiceModal from "./InvoiceModal";
 import ExportMenu from "./ExportMenu";
 import { erpApi } from "../services/api";
 import { downloadCSV } from "../utils/exportUtils";
 import "./ClientsPage.css";
 
+const normalizeClientType = (type) => {
+  const t = String(type || "").trim();
+  if (t === "Dairy") return "Dairy";
+  if (t === "Farmer" || t === "Farmers") return "Farmer";
+  return "Feed Shop";
+};
+
 const CATEGORY_TABS = [
   { value: "All", label: "All clients", icon: Users },
-  { value: "Animal Feed Shop", label: "Feed shops", icon: Wheat },
+  { value: "Feed Shop", label: "Feed shops", icon: Wheat },
   { value: "Dairy", label: "Dairies", icon: Milk },
-  { value: "Farmers", label: "Farmers", icon: Tractor },
+  { value: "Farmer", label: "Farmers", icon: Tractor },
 ];
 
 const STATUS_OPTIONS = ["All", "Active", "Inactive"];
@@ -26,18 +32,17 @@ const TIER_OPTIONS = ["All", "Platinum", "Gold", "Silver", "Bronze"];
 const getLocation = (c) =>
   [...new Set([c.village || c.city, c.taluka, c.district || c.city].filter(Boolean))].join(", ") || "-";
 
-const typeTheme = (type) =>
-  type === "Dairy"
-    ? { cls: "dairy", label: "Dairy", bg: "rgba(2, 132, 199, 0.12)", fg: "#0284c7" }
-    : type === "Farmers"
-    ? { cls: "farmers", label: "Farmer", bg: "rgba(217, 119, 6, 0.12)", fg: "#d97706" }
-    : { cls: "feed-shop", label: "Feed Shop", bg: "rgba(16, 185, 129, 0.12)", fg: "#059669" };
+const typeTheme = (type) => {
+  const norm = normalizeClientType(type);
+  if (norm === "Dairy") return { cls: "dairy", label: "Dairy", bg: "rgba(2, 132, 199, 0.12)", fg: "#0284c7" };
+  if (norm === "Farmer") return { cls: "farmers", label: "Farmer", bg: "rgba(217, 119, 6, 0.12)", fg: "#d97706" };
+  return { cls: "feed-shop", label: "Feed Shop", bg: "rgba(16, 185, 129, 0.12)", fg: "#059669" };
+};
 
 export default function ClientsPage({ 
   clients, 
   onSaveClients, 
   invoices = [], 
-  onSaveInvoices, 
   onCreateInvoice,
   products = [],
   company = {} 
@@ -49,7 +54,6 @@ export default function ClientsPage({
   const [modalOpen, setModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [viewingClient, setViewingClient] = useState(null);
-  const [deletingClient, setDeletingClient] = useState(null);
   const [invoiceForClient, setInvoiceForClient] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -69,15 +73,15 @@ export default function ClientsPage({
     return `CL-${String(maxNum + 1).padStart(3, "0")}`;
   }, [clients]);
 
-  const feedShopCount = useMemo(() => clients.filter(c => c.clientType === "Animal Feed Shop").length, [clients]);
-  const dairyCount = useMemo(() => clients.filter(c => c.clientType === "Dairy").length, [clients]);
-  const farmersCount = useMemo(() => clients.filter(c => c.clientType === "Farmers").length, [clients]);
+  const feedShopCount = useMemo(() => clients.filter(c => normalizeClientType(c.clientType) === "Feed Shop").length, [clients]);
+  const dairyCount = useMemo(() => clients.filter(c => normalizeClientType(c.clientType) === "Dairy").length, [clients]);
+  const farmersCount = useMemo(() => clients.filter(c => normalizeClientType(c.clientType) === "Farmer").length, [clients]);
 
   const categoryCounts = {
     All: clients.length,
-    "Animal Feed Shop": feedShopCount,
+    "Feed Shop": feedShopCount,
     Dairy: dairyCount,
-    Farmers: farmersCount,
+    Farmer: farmersCount,
   };
 
   const hasActiveFilters =
@@ -144,14 +148,6 @@ export default function ClientsPage({
     }
     setModalOpen(false);
     setEditingClient(null);
-  };
-
-  const handleDeleteConfirm = () => {
-    if (!deletingClient) return;
-    const updated = clients.filter(c => c.id !== deletingClient.id);
-    onSaveClients(updated);
-    showToast(`✓ Client ${deletingClient.name} deleted.`);
-    setDeletingClient(null);
   };
 
   const handleRefreshDb = () => {
@@ -400,7 +396,7 @@ export default function ClientsPage({
 
                       {/* 3. Business details (depends on client type) */}
                       <td>
-                        {c.clientType === "Animal Feed Shop" && (
+                        {normalizeClientType(c.clientType) === "Feed Shop" && (
                           <div className="cl-stack small">
                             {c.productTypes && (
                               <div><span className="cl-label">Products</span> {c.productTypes.length > 36 ? `${c.productTypes.slice(0, 36)}...` : c.productTypes}</div>
@@ -413,15 +409,15 @@ export default function ClientsPage({
                             )}
                           </div>
                         )}
-                        {c.clientType === "Dairy" && (
+                        {normalizeClientType(c.clientType) === "Dairy" && (
                           <div className="cl-stack small">
-                            <div style={{ color: "#0284c7", fontWeight: 700 }}>🥛 {c.numberOfSuppliers || 0} suppliers</div>
-                            <div><span className="cl-label">Milk qty</span> <b>{c.milkQuantity || "-"}</b></div>
+                            <div style={{ color: "#0284c7", fontWeight: 700 }}>🥛 {c.numberOfSuppliers ? `${c.numberOfSuppliers} suppliers` : "—"}</div>
+                            <div><span className="cl-label">Milk qty</span> <b>{c.milkQuantity || "—"}</b></div>
                           </div>
                         )}
-                        {c.clientType === "Farmers" && (
+                        {normalizeClientType(c.clientType) === "Farmer" && (
                           <div className="cl-stack small">
-                            <div style={{ color: "#d97706", fontWeight: 700 }}>🚜 {c.numberOfAnimals || 0} animals</div>
+                            <div style={{ color: "#d97706", fontWeight: 700 }}>🚜 {c.numberOfAnimals ? `${c.numberOfAnimals} animals` : "—"}</div>
                             {c.animalDetails && (
                               <div className="cl-sub">{c.animalDetails.length > 32 ? `${c.animalDetails.slice(0, 32)}...` : c.animalDetails}</div>
                             )}
@@ -485,33 +481,30 @@ export default function ClientsPage({
         client={viewingClient}
         onEdit={(c) => { setViewingClient(null); handleOpenEdit(c); }}
         onCreateInvoice={(c) => { setViewingClient(null); setInvoiceForClient(c); }}
-        onDelete={(c) => {
-          setViewingClient(null);
-          setDeletingClient(c);
-        }}
+
       />
 
-      <DeleteConfirmModal
-        isOpen={!!deletingClient}
-        onClose={() => setDeletingClient(null)}
-        onConfirm={handleDeleteConfirm}
-        title="Confirm Account Deletion"
-        message={deletingClient ? `Are you sure you want to remove ${deletingClient.name} (${deletingClient.id}) from the client directory?` : ""}
-        details={deletingClient ? `This account has ${deletingClient.orders} orders and ₹${Number(deletingClient.revenue).toLocaleString("en-IN")} in recorded revenue.` : ""}
-      />
+
 
       {invoiceForClient && (
         <InvoiceModal
           isOpen={!!invoiceForClient}
           onClose={() => setInvoiceForClient(null)}
-          onSave={(newInv) => {
-            if (onCreateInvoice) {
-              onCreateInvoice(newInv);
-            } else if (onSaveInvoices) {
-              onSaveInvoices([newInv, ...(invoices || [])]);
+          onSave={async (newInv) => {
+            try {
+              if (onCreateInvoice) {
+                await onCreateInvoice(newInv);
+              } else {
+                await erpApi.createInvoice(newInv);
+              }
+              showToast(`✓ Created and issued Invoice for ${invoiceForClient.name}`);
+              setInvoiceForClient(null);
+              if (onRefresh) onRefresh();
+            } catch (err) {
+              const msg = err?.response?.data?.message || err.message;
+              showToast(`⚠️ ${msg}`);
+              throw err;
             }
-            showToast(`✓ Created and issued Invoice ${newInv.id} for ${invoiceForClient.name}`);
-            setInvoiceForClient(null);
           }}
           clients={clients}
           products={products}

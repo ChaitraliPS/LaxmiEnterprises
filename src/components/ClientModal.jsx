@@ -25,7 +25,7 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
     if (clientToEdit) {
       return { 
         ...clientToEdit,
-        clientType: clientToEdit.clientType || "Animal Feed Shop",
+        clientType: clientToEdit.clientType === "Animal Feed Shop" ? "Feed Shop" : clientToEdit.clientType === "Farmers" ? "Farmer" : (clientToEdit.clientType || "Feed Shop"),
         village: clientToEdit.village || "",
         taluka: clientToEdit.taluka || "",
         district: clientToEdit.district || clientToEdit.city || "",
@@ -52,7 +52,7 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
     }
     return {
       id: nextId,
-      clientType: "Animal Feed Shop",
+      clientType: "Feed Shop",
       name: "",
       village: "",
       taluka: "",
@@ -199,9 +199,9 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
               </label>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
                 {[
-                  { type: "Animal Feed Shop", label: "Feed Shop", sub: "पशूखाद्य दुकान", icon: Wheat, color: "#059669", bg: "rgba(16, 185, 129, 0.12)" },
+                  { type: "Feed Shop", label: "Feed Shop", sub: "पशूखाद्य दुकान", icon: Wheat, color: "#059669", bg: "rgba(16, 185, 129, 0.12)" },
                   { type: "Dairy", label: "Dairy", sub: "दूध डेअरी", icon: Milk, color: "#0284c7", bg: "rgba(2, 132, 199, 0.12)" },
-                  { type: "Farmers", label: "Farmers", sub: "शेतकरी", icon: Tractor, color: "#d97706", bg: "rgba(217, 119, 6, 0.12)" },
+                  { type: "Farmer", label: "Farmer", sub: "शेतकरी", icon: Tractor, color: "#d97706", bg: "rgba(217, 119, 6, 0.12)" },
                 ].map((item) => {
                   const Icon = item.icon;
                   const isSelected = form.clientType === item.type;
@@ -400,7 +400,7 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
               </div>
 
               {/* Specific fields for Animal Feed Shop */}
-              {form.clientType === "Animal Feed Shop" && (
+              {(form.clientType === "Feed Shop" || form.clientType === "Animal Feed Shop") && (
                 <div className="form-grid">
                   <div className="form-group full">
                     <label>Types of Products Sold</label>
@@ -483,7 +483,7 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
               )}
 
               {/* Specific fields for Farmers */}
-              {form.clientType === "Farmers" && (
+              {(form.clientType === "Farmer" || form.clientType === "Farmers") && (
                 <div className="form-grid">
                   <div className="form-group">
                     <label>No. Of Animals (जनावरांची संख्या) <RequiredStar /></label>
@@ -548,41 +548,43 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
                 </div>
 
                 <div className="form-group">
-                  <label>Outstanding Balance (₹ INR)</label>
+                  <label>Opening / Ledger Balance (₹ INR)</label>
                   <input
                     type="number"
                     min="0"
                     className={`form-input ${errors.outstanding ? "is-invalid" : ""}`}
-                    placeholder="e.g. 32000"
+                    placeholder="0"
                     value={form.outstanding}
                     onChange={(e) => handleFieldChange("outstanding", Number(e.target.value) || 0)}
                   />
                   <FieldError error={errors.outstanding} />
+                  <span className="form-help">Opening balance or ledger dues</span>
                 </div>
 
                 <div className="form-group">
                   <label>Total Completed Orders</label>
                   <input
                     type="number"
-                    min="0"
-                    className={`form-input ${errors.orders ? "is-invalid" : ""}`}
+                    className="form-input"
                     value={form.orders}
-                    onChange={(e) => handleFieldChange("orders", Number(e.target.value) || 0)}
+                    readOnly
+                    disabled
+                    style={{ background: "var(--hover-bg, #f1f5f9)", cursor: "not-allowed" }}
                   />
-                  <FieldError error={errors.orders} />
+                  <span className="form-help">Automatically computed from sales ledger</span>
                 </div>
 
                 <div className="form-group full">
                   <label>Cumulative Invoiced Revenue (₹ INR)</label>
                   <input
                     type="number"
-                    min="0"
-                    className={`form-input ${errors.revenue ? "is-invalid" : ""}`}
-                    placeholder="Amount in Rupees"
+                    className="form-input"
                     value={form.revenue}
-                    onChange={(e) => handleFieldChange("revenue", Number(e.target.value) || 0)}
+                    readOnly
+                    disabled
+                    style={{ background: "var(--hover-bg, #f1f5f9)", cursor: "not-allowed" }}
                   />
-                  <FieldError error={errors.revenue} />
+                  <span className="form-help">Automatically computed from sales ledger</span>
                 </div>
               </div>
             </div>

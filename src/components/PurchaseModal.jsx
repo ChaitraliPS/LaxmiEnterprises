@@ -11,6 +11,7 @@ import {
   validatePositiveNumber,
   validatePaymentSettlement
 } from "../utils/validators";
+import { getToday } from "../constants/erpConstants";
 
 export default function PurchaseModal({
   isOpen,
@@ -66,7 +67,7 @@ export default function PurchaseModal({
         paidAmount: pPaid,
         paymentStatus: status,
         paymentMethod: purchaseToEdit.paymentMethod || "RTGS / Bank Transfer",
-        date: purchaseToEdit.date || new Date().toISOString().slice(0, 10),
+        date: purchaseToEdit.date || getToday(),
         dueDate: purchaseToEdit.dueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         fatPercent: purchaseToEdit.fatPercent || "4.2",
         snfPercent: purchaseToEdit.snfPercent || "8.6",
@@ -74,7 +75,7 @@ export default function PurchaseModal({
       };
     }
 
-    const defaultDate = new Date().toISOString().slice(0, 10);
+    const defaultDate = getToday();
     const initialProduct = products && products.length > 0 ? products[0] : null;
     const defaultQty = 50;
     const defaultRate = initialProduct ? Number(initialProduct.purchasePrice || initialProduct.costPrice || 750) : 750;
@@ -129,7 +130,7 @@ export default function PurchaseModal({
       } else if (prev.paymentStatus === "Pending") {
         paid = 0;
       } else if (prev.paymentStatus === "Partial") {
-        paid = Math.min(total, Math.max(0, Number(prev.paidAmount) || Math.round(total / 2)));
+        paid = Math.min(total, Math.max(0, Number(prev.paidAmount) || 0));
       }
       return {
         ...prev,
@@ -195,7 +196,7 @@ export default function PurchaseModal({
     const p = products.find(prod => String(prod.id) === String(prodId));
     if (!p) return;
 
-    const rate = Number(p.purchasePrice || p.costPrice || (Number(p.price || p.sellingPrice || 1000) * 0.75));
+    const rate = Number(p.costPrice || p.purchasePrice || 0);
     const gst = Number(p.gstRate !== undefined ? p.gstRate : 5);
     const unit = p.unit || "Nos";
 
@@ -241,7 +242,7 @@ export default function PurchaseModal({
         paid = 0;
       } else if (newStatus === "Partial") {
         const existing = Number(prev.paidAmount);
-        paid = (existing > 0 && existing < prev.totalAmount) ? existing : Math.round(prev.totalAmount / 2);
+        paid = (existing > 0 && existing < prev.totalAmount) ? existing : 0;
       }
       return {
         ...prev,
@@ -310,7 +311,7 @@ export default function PurchaseModal({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
 
@@ -328,10 +329,10 @@ export default function PurchaseModal({
       paidAmount = 0;
     } else {
       const raw = Number(form.paidAmount) || 0;
-      paidAmount = (raw > 0 && raw < totalAmount) ? raw : Math.round(totalAmount / 2);
+      paidAmount = (raw > 0 && raw < totalAmount) ? raw : (raw >= totalAmount ? totalAmount : 0);
     }
     const currentBalance = Math.max(0, totalAmount - paidAmount);
-    const billNumber = form.billNumber || ("BILL-" + Math.floor(1000 + Math.random() * 9000));
+    const billNumber = form.billNumber?.trim() || form.id;
 
     const payload = {
       ...form,
@@ -369,8 +370,16 @@ export default function PurchaseModal({
       ]
     };
 
-    onSave(payload);
-    onClose();
+    if (onSave) {
+      try {
+        await onSave(payload);
+        onClose();
+      } catch (err) {
+        // Keep modal open on error
+      }
+    } else {
+      onClose();
+    }
   };
 
   return (

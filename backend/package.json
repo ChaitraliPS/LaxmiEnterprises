@@ -8,7 +8,8 @@
     "start": "node index.js",
     "server": "nodemon src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/scripts/seed.js",
+    "test": "node --test --test-concurrency=1 tests/**/*.test.js",
+    "migrate": "node src/migrations/runMigrations.js",
     "db:sync": "node src/scripts/syncDb.js"
   },
   "keywords": [
@@ -31,6 +32,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "multer": "^2.5.0",
     "mysql2": "^3.24.6",
     "sequelize": "^6.37.8"
   },

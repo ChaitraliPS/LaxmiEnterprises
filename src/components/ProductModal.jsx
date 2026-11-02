@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
-  X, Save, AlertTriangle, Package, Barcode, Warehouse, Tag, Calculator, Coins
+  X, Save, AlertTriangle, Package, Barcode, Warehouse, Tag, Calculator, Coins, Percent
 } from "lucide-react";
 import {
   validateRequiredText,
@@ -9,6 +9,7 @@ import {
   validateUniqueId
 } from "../utils/validators";
 import { FieldError, RequiredStar, ValidationSummary } from "./ValidationFeedback";
+import { PRODUCT_CATEGORIES } from "../constants/erpConstants";
 
 export default function ProductModal(props) {
   if (!props.isOpen) return null;
@@ -23,46 +24,77 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
       const open = Number(productToEdit.openingStock) || 0;
       const inW = Number(productToEdit.inwardStock) !== undefined && !isNaN(Number(productToEdit.inwardStock))
         ? Number(productToEdit.inwardStock)
-        : Number(productToEdit.stock) || 50;
+        : Number(productToEdit.stock) || 0;
       const outW = Number(productToEdit.outwardStock) || 0;
       const res = Number(productToEdit.reservedStock) || 0;
       const calcStock = Math.max(0, (open + inW) - outW - res);
-      const sp = Number(productToEdit.sellingPrice || productToEdit.price || 1000);
-      const cp = Number(productToEdit.purchasePrice || productToEdit.costPrice || Math.round(sp * 0.75));
+      const sp = Number(productToEdit.sellingPrice || productToEdit.price || 0);
+      const cp = Number(productToEdit.costPrice || productToEdit.purchasePrice || 0);
+      const reorder = productToEdit.reorderLevel !== null && productToEdit.reorderLevel !== undefined && productToEdit.reorderLevel !== ""
+        ? Number(productToEdit.reorderLevel)
+        : (productToEdit.minStock !== null && productToEdit.minStock !== undefined ? Number(productToEdit.minStock) : "");
+
       return {
         ...productToEdit,
-        purchasePrice: cp,
+        id: productToEdit.id || productToEdit.productId,
+        name: productToEdit.name || "",
+        category: productToEdit.category === PRODUCT_CATEGORIES.DAIRY ? PRODUCT_CATEGORIES.DAIRY : PRODUCT_CATEGORIES.ANIMAL_FEED,
+        unitOfMeasure: productToEdit.unitOfMeasure || productToEdit.unit || (productToEdit.category === PRODUCT_CATEGORIES.DAIRY ? "Liters" : "Bags"),
+        unit: productToEdit.unitOfMeasure || productToEdit.unit || (productToEdit.category === PRODUCT_CATEGORIES.DAIRY ? "Liters" : "Bags"),
         costPrice: cp,
+        purchasePrice: cp,
         sellingPrice: sp,
         price: sp,
+        gstRate: productToEdit.gstRate !== undefined ? Number(productToEdit.gstRate) : (productToEdit.category === PRODUCT_CATEGORIES.DAIRY ? 0 : 5),
+        reorderLevel: reorder,
         openingStock: open,
         inwardStock: inW,
         outwardStock: outW,
         reservedStock: res,
-        stock: calcStock
+        stock: calcStock,
       };
     }
     return {
       id: nextId,
       name: "",
-      category: "Animal Feed",
-      purchasePrice: 750,
-      costPrice: 750,
-      sellingPrice: 1000,
-      price: 1000,
+      category: PRODUCT_CATEGORIES.ANIMAL_FEED,
+      unitOfMeasure: "Bags",
+      unit: "Bags",
+      costPrice: "",
+      purchasePrice: "",
+      sellingPrice: "",
+      price: "",
+      gstRate: 5,
+      reorderLevel: "",
       openingStock: 0,
-      inwardStock: 50,
+      inwardStock: 0,
       outwardStock: 0,
       reservedStock: 0,
-      stock: 50,
-      minStock: 20
+      stock: 0,
     };
   });
 
   const [errors, setErrors] = useState({});
 
   const handleFieldChange = (field, val) => {
-    setForm(prev => ({ ...prev, [field]: val }));
+    setForm(prev => {
+      const next = { ...prev, [field]: val };
+      if (field === "unitOfMeasure") {
+        next.unit = val;
+      }
+      if (field === "category") {
+        if (val === PRODUCT_CATEGORIES.DAIRY && prev.unitOfMeasure === "Bags") {
+          next.unitOfMeasure = "Liters";
+          next.unit = "Liters";
+          next.gstRate = 0;
+        } else if (val === PRODUCT_CATEGORIES.ANIMAL_FEED && prev.unitOfMeasure === "Liters") {
+          next.unitOfMeasure = "Bags";
+          next.unit = "Bags";
+          next.gstRate = 5;
+        }
+      }
+      return next;
+    });
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: null }));
     }
@@ -87,11 +119,14 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
   const validateForm = () => {
     const errs = {};
 
-    const idVal = validateUniqueId(form.id, existingIds, isEditing ? productToEdit.id : null, "Product Reference ID");
+    const idVal = validateUniqueId(form.id, existingIds, isEditing ? (productToEdit.id || productToEdit.productId) : null, "Product ID");
     if (!idVal.isValid) errs.id = idVal.error;
 
-    const nameVal = validateRequiredText(form.name, "Product Item Name", 2);
+    const nameVal = validateRequiredText(form.name, "Product Name", 2);
     if (!nameVal.isValid) errs.name = nameVal.error;
+
+    const costVal = validateNonNegativeNumber(form.costPrice, "Unit Cost Price (Purchase Rate)");
+    if (!costVal.isValid) errs.costPrice = costVal.error;
 
     const priceVal = validatePositiveNumber(form.price, "Unit Selling Price");
     if (!priceVal.isValid) errs.price = priceVal.error;
@@ -99,8 +134,10 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
     const stockVal = validateNonNegativeNumber(form.stock, "Available Stock");
     if (!stockVal.isValid) errs.stock = stockVal.error;
 
-    const minStockVal = validatePositiveNumber(form.minStock, "Safety Threshold Limit");
-    if (!minStockVal.isValid) errs.minStock = minStockVal.error;
+    if (form.reorderLevel !== "" && form.reorderLevel !== null && form.reorderLevel !== undefined) {
+      const reorderVal = validateNonNegativeNumber(form.reorderLevel, "Reorder Level");
+      if (!reorderVal.isValid) errs.reorderLevel = reorderVal.error;
+    }
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -118,27 +155,41 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
     const calculatedStock = Math.max(0, (open + inW) - outW - res);
 
     const sp = Number(form.price || form.sellingPrice || 0);
-    const cp = Number(form.purchasePrice || form.costPrice || 0);
+    const cp = Number(form.costPrice || form.purchasePrice || 0);
+    const reorder = form.reorderLevel !== "" && form.reorderLevel !== null && form.reorderLevel !== undefined
+      ? Number(form.reorderLevel)
+      : null;
 
     onSave({
       ...form,
+      id: form.id,
+      productId: form.id,
+      name: form.name.trim(),
+      category: form.category === PRODUCT_CATEGORIES.DAIRY ? PRODUCT_CATEGORIES.DAIRY : PRODUCT_CATEGORIES.ANIMAL_FEED,
+      unit: form.unitOfMeasure,
+      unitOfMeasure: form.unitOfMeasure,
       price: sp,
       sellingPrice: sp,
-      purchasePrice: cp,
       costPrice: cp,
+      purchasePrice: cp,
+      gstRate: Number(form.gstRate || 0),
+      reorderLevel: reorder,
+      minStock: reorder,
       openingStock: open,
       inwardStock: inW,
       outwardStock: outW,
       reservedStock: res,
-      stock: calculatedStock
+      stock: calculatedStock,
     });
   };
 
-  const stockStatus = form.stock <= 0 ? "Out of Stock" : form.stock <= form.minStock ? "Low Stock" : "In Stock";
-  const stockBadgeClass = form.stock <= 0 ? "danger" : form.stock <= form.minStock ? "warning" : "success";
+  const hasReorder = form.reorderLevel !== "" && form.reorderLevel !== null && form.reorderLevel !== undefined;
+  const reorderNum = hasReorder ? Number(form.reorderLevel) : null;
+  const stockStatus = !hasReorder ? "Not set" : form.stock <= 0 ? "Out of Stock" : form.stock <= reorderNum ? "Low Stock" : "In Stock";
+  const stockBadgeClass = !hasReorder ? "muted" : form.stock <= 0 ? "danger" : form.stock <= reorderNum ? "warning" : "success";
 
   const sellingRate = Number(form.price || form.sellingPrice || 0);
-  const costRate = Number(form.purchasePrice || form.costPrice || 0);
+  const costRate = Number(form.costPrice || form.purchasePrice || 0);
   const unitProfit = sellingRate - costRate;
   const unitMarginPct = sellingRate > 0 ? ((unitProfit / sellingRate) * 100).toFixed(1) : 0;
 
@@ -184,30 +235,30 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                   className={`form-input ${errors.id ? "is-invalid" : ""}`}
                   value={form.id}
                   onChange={(e) => handleFieldChange("id", e.target.value)}
+                  disabled={isEditing}
                 />
                 <FieldError error={errors.id} />
                 <span className="form-help">Unique catalog SKU code</span>
               </div>
 
               <div className="form-group">
-                <label>Category Sector</label>
+                <label>Product Category <RequiredStar /></label>
                 <select
                   className="form-select"
                   value={form.category}
                   onChange={(e) => handleFieldChange("category", e.target.value)}
                 >
-                  <option value="Animal Feed">Animal Feed</option>
-                  <option value="Dairy Milk">Dairy Milk</option>
-                  <option value="Farmer Direct">Farmer Direct</option>
+                  <option value={PRODUCT_CATEGORIES.ANIMAL_FEED}>Animal Feed</option>
+                  <option value={PRODUCT_CATEGORIES.DAIRY}>Dairy</option>
                 </select>
-                <span className="form-help">Classification group</span>
+                <span className="form-help">Single source of category everywhere</span>
               </div>
 
               <div className="form-group full">
                 <label>Product Item Name <RequiredStar /></label>
                 <input
                   className={`form-input ${errors.name ? "is-invalid" : ""}`}
-                  placeholder="e.g. Industrial Pipe Set, Steel Conduit B"
+                  placeholder="e.g. Cattle Feed Supreme 50kg, Pasteurized Buffalo Milk 1L"
                   value={form.name}
                   onChange={(e) => handleFieldChange("name", e.target.value)}
                   autoFocus
@@ -215,23 +266,55 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                 <FieldError error={errors.name} />
               </div>
 
-              {/* Cost Price (Purchase Rate) */}
+              {/* Unit of Measure */}
               <div className="form-group">
-                <label>Unit Cost / Purchase Price (₹ INR)</label>
+                <label>Unit of Measure <RequiredStar /></label>
+                <select
+                  className="form-select"
+                  value={form.unitOfMeasure}
+                  onChange={(e) => handleFieldChange("unitOfMeasure", e.target.value)}
+                >
+                  <option value="Bags">Bags</option>
+                  <option value="Liters">Liters</option>
+                  <option value="Kg">Kg</option>
+                </select>
+                <span className="form-help">Measurement unit (Bags, Liters, Kg)</span>
+              </div>
+
+              {/* GST Rate */}
+              <div className="form-group">
+                <label>GST Rate (%) <RequiredStar /></label>
+                <select
+                  className="form-select"
+                  value={form.gstRate}
+                  onChange={(e) => handleFieldChange("gstRate", Number(e.target.value))}
+                >
+                  <option value={0}>0% (Exempt)</option>
+                  <option value={5}>5% (Standard Animal Feed)</option>
+                  <option value={12}>12%</option>
+                  <option value={18}>18%</option>
+                </select>
+                <span className="form-help">Applicable GST percentage</span>
+              </div>
+
+              {/* Cost Price (Purchase Rate) - REQUIRED */}
+              <div className="form-group">
+                <label>Unit Cost Price (₹ INR) <RequiredStar /></label>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  className="form-input"
-                  value={form.purchasePrice}
+                  className={`form-input ${errors.costPrice ? "is-invalid" : ""}`}
+                  value={form.costPrice}
                   onChange={(e) => {
-                    const val = Number(e.target.value) || 0;
-                    handleFieldChange("purchasePrice", val);
+                    const val = e.target.value === "" ? "" : Number(e.target.value);
                     handleFieldChange("costPrice", val);
+                    handleFieldChange("purchasePrice", val);
                   }}
-                  placeholder="Cost price from supplier"
+                  placeholder="Inward acquisition cost"
                 />
-                <span className="form-help">Inward acquisition cost from vendor</span>
+                <FieldError error={errors.costPrice} />
+                <span className="form-help">Required: Valuation uses cost price, not selling price</span>
               </div>
 
               {/* Selling Price */}
@@ -244,16 +327,17 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                   className={`form-input ${errors.price ? "is-invalid" : ""}`}
                   value={form.price}
                   onChange={(e) => {
-                    const val = Number(e.target.value) || 0;
+                    const val = e.target.value === "" ? "" : Number(e.target.value);
                     handleFieldChange("price", val);
                     handleFieldChange("sellingPrice", val);
                   }}
+                  placeholder="Selling rate to clients"
                 />
                 <FieldError error={errors.price} />
                 <span className="form-help">Commercial billing rate to clients</span>
               </div>
 
-              {/* Live Commercial Profit Margin Pill */}
+              {/* Live Gross Profit Margin Pill */}
               <div className="form-group full" style={{ marginTop: -4, marginBottom: 6 }}>
                 <div style={{
                   padding: "8px 14px",
@@ -270,31 +354,34 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                   fontWeight: 600
                 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <Coins size={15} /> Unit Profit: <b>₹{unitProfit.toFixed(2)}</b> per unit
+                    <Coins size={15} /> Unit Gross Profit: <b>₹{unitProfit.toFixed(2)}</b> per {form.unitOfMeasure}
                   </span>
-                  <span>Commercial Margin: <b>{unitMarginPct}%</b></span>
+                  <span>Gross Margin: <b>{unitMarginPct}%</b></span>
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Safety Threshold Limit (Min. Stock) <RequiredStar /></label>
+              {/* Reorder Level (Nullable) */}
+              <div className="form-group full">
+                <label>Reorder Level (Optional / Nullable)</label>
                 <input
                   type="number"
-                  min="1"
-                  className={`form-input ${errors.minStock ? "is-invalid" : ""}`}
-                  value={form.minStock}
-                  onChange={(e) => handleFieldChange("minStock", Number(e.target.value) || 1)}
+                  min="0"
+                  className={`form-input ${errors.reorderLevel ? "is-invalid" : ""}`}
+                  value={form.reorderLevel}
+                  onChange={(e) => handleFieldChange("reorderLevel", e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="Leave blank for 'Not set'"
                 />
-                <FieldError error={errors.minStock} />
+                <FieldError error={errors.reorderLevel} />
+                <span className="form-help">Minimum safe threshold. If not configured, status shows "Not set"</span>
               </div>
 
-              {/* SPECIFIC STOCK CALCULATION PARAMETERS */}
+              {/* STOCK LEDGER BASELINE PARAMETERS */}
               <div className="form-group full" style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 4 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <Calculator size={15} style={{ color: "var(--primary)" }} />
                     <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main)" }}>
-                      Stock Baseline & Automatic Inventory Link
+                      Stock Balance Ledger Audit
                     </span>
                   </div>
                   <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
@@ -325,7 +412,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                       style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
                       value={form.inwardStock}
                       onChange={(e) => handleStockParamChange("inwardStock", e.target.value)}
-                      title="Total inward procured / supplier receipts (synced with Purchases)"
+                      title="Total inward procured / supplier receipts"
                     />
                   </div>
 
@@ -338,7 +425,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                       style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
                       value={form.outwardStock}
                       onChange={(e) => handleStockParamChange("outwardStock", e.target.value)}
-                      title="Total outward dispatched / billed sales (synced with Invoices)"
+                      title="Total outward dispatched / billed sales"
                     />
                   </div>
 
@@ -371,7 +458,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                 }}>
                   <div>
                     <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--primary)", textTransform: "uppercase" }}>
-                      Specific Mathematical Calculation:
+                      Ledger Movement Balance:
                     </div>
                     <div style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-main)", marginTop: 2 }}>
                       ({form.openingStock || 0} Open + {form.inwardStock || 0} Inward) − {form.outwardStock || 0} Outward − {form.reservedStock || 0} Reserved
@@ -384,7 +471,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                     </div>
                     <div style={{ fontSize: "1.35rem", fontWeight: 900, color: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
                       <span>{form.stock}</span>
-                      <small style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)" }}>units</small>
+                      <small style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)" }}>{form.unitOfMeasure}</small>
                       <span className={`badge ${stockBadgeClass}`} style={{ fontSize: "0.7rem", padding: "1px 6px" }}>
                         {stockStatus}
                       </span>

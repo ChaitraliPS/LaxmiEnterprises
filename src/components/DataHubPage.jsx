@@ -40,7 +40,6 @@ export default function DataHubPage({
   company = {},
   invoices = [],
   purchases = [],
-  setPurchases,
   expoLeads = [],
   setExpoLeads,
   showToast,
@@ -62,21 +61,14 @@ export default function DataHubPage({
     }
   };
 
-  const handleSyncToDatabase = async () => {
+  const handleRefreshFromDatabase = async () => {
     setSyncing(true);
     try {
-      await Promise.all([
-        erpApi.syncClients(clients),
-        erpApi.syncInvoices(invoices),
-        erpApi.syncPurchases(purchases),
-        erpApi.syncProducts(products),
-        erpApi.syncInventory(inventory),
-        erpApi.syncExpoLeads(expoLeads),
-        erpApi.syncCompany(company),
-      ]);
-      if (showToast) showToast("✓ All records synchronized with MySQL database");
+      await erpApi.getAllData();
+      if (showToast) showToast("✓ Data refreshed live from MySQL database");
+      if (onRefresh) await onRefresh();
     } catch (err) {
-      if (showToast) showToast("Sync error: " + err.message);
+      if (showToast) showToast("Refresh error: " + err.message);
     } finally {
       setSyncing(false);
     }
@@ -109,12 +101,12 @@ export default function DataHubPage({
           <button
             type="button"
             className="primary"
-            onClick={handleSyncToDatabase}
+            onClick={handleRefreshFromDatabase}
             disabled={syncing}
             style={{ display: "flex", alignItems: "center", gap: 6 }}
           >
             <RefreshCw size={15} className={syncing ? "spin" : ""} />
-            <span>{syncing ? "Syncing..." : "Sync to MySQL"}</span>
+            <span>{syncing ? "Refreshing..." : "Refresh from MySQL"}</span>
           </button>
         </div>
       </div>

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import {
   Building2, Sliders, UserCheck, ShieldCheck, Save, Mail, Phone, MapPin,
-  Plus, Trash2, CheckCircle2, Lock, Key, RefreshCw, AlertTriangle, Eye, EyeOff
+  Plus, CheckCircle2, Lock, Key, RefreshCw, AlertTriangle, Eye, EyeOff,
+  Target, IndianRupee, CheckCheck, XCircle
 } from "lucide-react";
+import { formatIndianCurrency, formatPercent } from "../utils/formatters";
 import {
   validateRequiredText,
   validateEmail,
@@ -55,10 +57,44 @@ export default function AdminWorkspace({
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
   // Form error states
+  // Live DB Health State
+  const [dbStatus, setDbStatus] = useState("Checking...");
+
+  // Fiscal Targets State
+  const [targetFy, setTargetFy] = useState("FY 2026-27");
+  const [targetsList, setTargetsList] = useState([]);
+  const [quarterlyProgress, setQuarterlyProgress] = useState([]);
+  const [isLoadingTargets, setIsLoadingTargets] = useState(false);
+  const [isSavingTargets, setIsSavingTargets] = useState(false);
+
   const [compErrors, setCompErrors] = useState({});
   const [profErrors, setProfErrors] = useState({});
   const [memberErrors, setMemberErrors] = useState({});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Consistency Check State
+  const [consistencyReport, setConsistencyReport] = useState(null);
+  const [isLoadingConsistency, setIsLoadingConsistency] = useState(false);
+
+  const loadConsistencyReport = async () => {
+    setIsLoadingConsistency(true);
+    try {
+      const res = await erpApi.getConsistencyReport();
+      if (res?.data) {
+        setConsistencyReport(res.data);
+      }
+    } catch (e) {
+      console.warn("Could not run consistency check:", e.message);
+    } finally {
+      setIsLoadingConsistency(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "consistency") {
+      loadConsistencyReport();
+    }
+  }, [activeTab]);
 
   // Sync if parent state changes
   useEffect(() => {
@@ -91,6 +127,63 @@ export default function AdminWorkspace({
   useEffect(() => {
     loadUsers();
   }, []);
+
+  // Live Database Health Check
+  useEffect(() => {
+    let mounted = true;
+    erpApi.checkHealth()
+      .then(() => { if (mounted) setDbStatus("MySQL Connected"); })
+      .catch(() => { if (mounted) setDbStatus("Offline / Reconnecting"); });
+    return () => { mounted = false; };
+  }, []);
+
+  // Load live targets from MySQL
+  const loadTargets = async (fy) => {
+    setIsLoadingTargets(true);
+    try {
+      const [tgtRes, qRes] = await Promise.allSettled([
+        erpApi.getTargets({ fiscalYear: fy }),
+        erpApi.getQuarterlyBreakdown({ fiscalYear: fy })
+      ]);
+      if (tgtRes.status === "fulfilled" && tgtRes.value?.data) {
+        const raw = Array.isArray(tgtRes.value.data) ? tgtRes.value.data : [];
+        if (raw.length > 0) {
+          setTargetsList(raw);
+        }
+      }
+      if (qRes.status === "fulfilled" && qRes.value?.data) {
+        setQuarterlyProgress(Array.isArray(qRes.value.data) ? qRes.value.data : []);
+      }
+    } catch (e) {
+      console.warn("Could not load targets:", e.message);
+    } finally {
+      setIsLoadingTargets(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTargets(targetFy);
+  }, [targetFy]);
+
+  const handleSaveTargets = async (e) => {
+    e.preventDefault();
+    setIsSavingTargets(true);
+    try {
+      const payload = targetsList.map(t => ({
+        fiscalYear: targetFy,
+        quarter: t.quarter,
+        targetAmount: Number(t.targetAmount) || 0,
+        notes: t.notes || ""
+      }));
+      await erpApi.saveBulkTargets(payload);
+      showNotification(`✓ Sales targets for ${targetFy} saved directly in MySQL!`);
+      await loadTargets(targetFy);
+    } catch (err) {
+      showNotification(`⚠️ Could not save targets: ${err.message}`);
+    } finally {
+      setIsSavingTargets(false);
+    }
+  };
 
   const showNotification = (msg) => {
     setToast(msg);
@@ -280,20 +373,7 @@ export default function AdminWorkspace({
     }
   };
 
-  // 6. DELETE TEAM MEMBER DIRECTLY FROM MYSQL
-  const handleDeleteMember = async (memberId, memberName) => {
-    if (window.confirm(`Revoke credentials and permanently delete ${memberName} from MySQL database?`)) {
-      try {
-        await erpApi.deleteUser(memberId);
-        await loadUsers();
-        showNotification(`✓ Access revoked and account deleted from database for ${memberName}`);
-      } catch (err) {
-        showNotification(`⚠️ Could not remove user: ${err.message}`);
-      }
-    }
-  };
-
-  return (
+    return (
     <div className="page">
       {/* Toast Notification */}
       {toast && (
@@ -317,8 +397,8 @@ export default function AdminWorkspace({
         <div className="admin-banner-meta">
           <span className="badge brand">Status: Operational (v2026.1)</span>
           <span className="badge success">Role: {adminProfile.role || "Admin"}</span>
-          <span className="badge" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.3)", fontWeight: 600 }}>
-            Database: MySQL Connected
+          <span className="badge" style={{ background: dbStatus === "MySQL Connected" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)", color: dbStatus === "MySQL Connected" ? "#10b981" : "var(--danger)", border: dbStatus === "MySQL Connected" ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)", fontWeight: 600 }}>
+            Database: {dbStatus}
           </span>
         </div>
       </div>
@@ -348,6 +428,18 @@ export default function AdminWorkspace({
           onClick={() => setActiveTab("preferences")}
         >
           <Sliders size={16} /> System & Warehouse Policies
+        </button>
+        <button 
+          className={`admin-tab-btn ${activeTab === "targets" ? "active" : ""}`}
+          onClick={() => setActiveTab("targets")}
+        >
+          <Target size={16} /> Fiscal Sales Targets
+        </button>
+        <button 
+          className={`admin-tab-btn ${activeTab === "consistency" ? "active" : ""}`}
+          onClick={() => setActiveTab("consistency")}
+        >
+          <CheckCheck size={16} /> Data Consistency Engine
         </button>
       </div>
 
@@ -686,12 +778,7 @@ export default function AdminWorkspace({
                       </td>
                       <td>
                         <div className="row-actions">
-                          <button 
-                            title="Delete User" 
-                            onClick={() => handleDeleteMember(tm.id, tm.name)}
-                          >
-                            <Trash2 size={14} style={{ color: "var(--danger)" }} />
-                          </button>
+<span style={{ fontSize: 11, color: "var(--text-muted)" }}>Protected</span>
                         </div>
                       </td>
                     </tr>
@@ -766,6 +853,288 @@ export default function AdminWorkspace({
             </button>
           </div>
         </form>
+      )}
+
+      {/* TAB 5: FISCAL SALES TARGETS (MYSQL-BACKED) */}
+      {activeTab === "targets" && (
+        <div className="workspace-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <div className="workspace-card-title">
+                <Target size={18} style={{ color: "var(--primary)" }} />
+                Fiscal Sales Targets & Quotas
+              </div>
+              <p className="workspace-card-subtitle">
+                Configure quarterly revenue milestones stored in MySQL. Pacing, margin, and achievements are computed dynamically.
+              </p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)" }}>Fiscal Year:</label>
+              <select
+                className="form-input"
+                style={{ width: "auto", fontWeight: 700 }}
+                value={targetFy}
+                onChange={(e) => setTargetFy(e.target.value)}
+              >
+                <option value="FY 2026-27">FY 2026-27 (Current)</option>
+                <option value="FY 2025-26">FY 2025-26 (Previous)</option>
+                <option value="FY 2027-28">FY 2027-28 (Future)</option>
+              </select>
+              <button
+                type="button"
+                className="outline"
+                onClick={() => loadTargets(targetFy)}
+                disabled={isLoadingTargets}
+                title="Reload targets from database"
+                style={{ padding: "6px 10px" }}
+              >
+                <RefreshCw size={14} style={{ animation: isLoadingTargets ? "spin 1s linear infinite" : "none" }} />
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveTargets} style={{ marginTop: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+              {["Q1", "Q2", "Q3", "Q4"].map((qKey) => {
+                const tgt = targetsList.find(t => t.quarter === qKey) || { quarter: qKey, targetAmount: 0, notes: "" };
+                const prog = quarterlyProgress.find(p => p.quarter === qKey) || {};
+                const qLabels = {
+                  Q1: "Q1 (Apr - Jun)",
+                  Q2: "Q2 (Jul - Sep)",
+                  Q3: "Q3 (Oct - Dec)",
+                  Q4: "Q4 (Jan - Mar)"
+                };
+
+                return (
+                  <div
+                    key={qKey}
+                    style={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: 16,
+                      background: "var(--bg-main, #f8fafc)"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <strong style={{ fontSize: 14, color: "var(--text-main)" }}>{qLabels[qKey]}</strong>
+                      <span
+                        className="badge"
+                        style={{
+                          background:
+                            prog.status === "Achieved" ? "rgba(16, 185, 129, 0.12)" :
+                            prog.status === "Tracking" ? "rgba(0, 91, 181, 0.12)" :
+                            prog.status === "Behind" ? "rgba(245, 158, 11, 0.12)" :
+                            "rgba(148, 163, 184, 0.12)",
+                          color:
+                            prog.status === "Achieved" ? "#10b981" :
+                            prog.status === "Tracking" ? "var(--primary)" :
+                            prog.status === "Behind" ? "#d97706" :
+                            "var(--text-muted)",
+                          fontWeight: 700,
+                          fontSize: 11
+                        }}
+                      >
+                        {prog.status || "Not started"}
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 12 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600 }}>Target Amount (₹ INR)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        className="form-input"
+                        value={tgt.targetAmount}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          setTargetsList(prev => {
+                            const exists = prev.some(t => t.quarter === qKey);
+                            if (exists) {
+                              return prev.map(t => t.quarter === qKey ? { ...t, targetAmount: val } : t);
+                            }
+                            return [...prev, { quarter: qKey, targetAmount: val, notes: "" }];
+                          });
+                        }}
+                      />
+                      <small style={{ color: "var(--text-muted)", fontSize: 11 }}>
+                        Formatted: {formatIndianCurrency(tgt.targetAmount, { includeDecimals: false })}
+                      </small>
+                    </div>
+
+                    <div style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 4, marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Actual Invoiced:</span>
+                        <strong style={{ color: "var(--text-main)" }}>{formatIndianCurrency(prog.actualRevenue || 0)}</strong>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Gross Margin:</span>
+                        <span style={{ color: (prog.grossMarginPct ?? prog.netMargin) !== null ? "#10b981" : "var(--text-muted)", fontWeight: 600 }}>
+                          {(prog.grossMarginPct ?? prog.netMargin) !== null && (prog.grossMarginPct ?? prog.netMargin) !== undefined ? formatPercent(prog.grossMarginPct ?? prog.netMargin) : "—"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Progress:</span>
+                        <strong style={{ color: "var(--text-main)" }}>
+                          {prog.progressPercent !== null && prog.progressPercent !== undefined ? `${prog.progressPercent}%` : "0%"}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div style={{ width: "100%", height: 6, background: "rgba(0,0,0,0.06)", borderRadius: 3, marginTop: 10, overflow: "hidden" }}>
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(100, Math.max(0, prog.progressPercent || 0))}%`,
+                          background: prog.status === "Achieved" ? "#10b981" : "var(--primary)",
+                          borderRadius: 3,
+                          transition: "width 0.3s ease"
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 12 }}>
+              <button
+                type="submit"
+                className="primary"
+                disabled={isSavingTargets}
+              >
+                <Save size={16} />
+                {isSavingTargets ? "Saving to Database..." : `Save ${targetFy} Targets`}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB 6: DATA CONSISTENCY CHECK */}
+      {activeTab === "consistency" && (
+        <div className="workspace-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+            <div>
+              <div className="workspace-card-title">
+                <CheckCheck size={20} style={{ color: "var(--primary)" }} />
+                Enterprise Data Consistency Verification Engine
+              </div>
+              <p className="workspace-card-subtitle">
+                Automated 11-point mathematical reconciliation verifying ledger equilibrium across Sales, Revenue, Dashboard, Purchases, and Inventory.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="primary"
+              onClick={loadConsistencyReport}
+              disabled={isLoadingConsistency}
+              style={{ display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <RefreshCw size={15} className={isLoadingConsistency ? "spin-animation" : ""} />
+              {isLoadingConsistency ? "Re-running Audit..." : "Re-run Consistency Check"}
+            </button>
+          </div>
+
+          {/* Status summary banner */}
+          {consistencyReport && (
+            <div style={{
+              marginTop: 18,
+              padding: "16px 20px",
+              borderRadius: "var(--radius-md)",
+              background: consistencyReport.allPassed ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.08)",
+              border: consistencyReport.allPassed ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 12
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {consistencyReport.allPassed ? (
+                  <CheckCircle2 size={28} style={{ color: "#10b981" }} />
+                ) : (
+                  <XCircle size={28} style={{ color: "#ef4444" }} />
+                )}
+                <div>
+                  <h4 style={{ margin: 0, color: consistencyReport.allPassed ? "#10b981" : "#ef4444", fontWeight: 700 }}>
+                    {consistencyReport.allPassed ? "ALL ${consistencyReport.totalChecks} CHECKS PASSED — 100% LEDGER CONSISTENCY" : `${consistencyReport.failedCount} CHECKS FAILED RECONCILIATION`}
+                  </h4>
+                  <small style={{ color: "var(--text-muted)" }}>
+                    As of Anchor Date: ${consistencyReport.asOfDate || "01/11/2026"} (IST) | Fiscal Year: ${consistencyReport.fiscalYear || "FY"} | Source of Truth: MySQL Database
+                  </small>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <span className="badge success" style={{ fontSize: 13, padding: "6px 12px" }}>
+                  {consistencyReport.passedCount} Passed
+                </span>
+                {consistencyReport.failedCount > 0 && (
+                  <span className="badge danger" style={{ fontSize: 13, padding: "6px 12px" }}>
+                    {consistencyReport.failedCount} Failed
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Consistency Checks Table */}
+          <div style={{ marginTop: 20, overflowX: "auto" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 60 }}>#</th>
+                  <th style={{ width: 220 }}>Check Name</th>
+                  <th>Mathematical Rule / Definition</th>
+                  <th style={{ width: 110, textAlign: "center" }}>Status</th>
+                  <th style={{ width: 110, textAlign: "right" }}>Difference</th>
+                  <th>Audit Verification Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoadingConsistency && !consistencyReport && (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
+                      <RefreshCw size={20} className="spin-animation" style={{ display: "inline-block", marginRight: 8 }} />
+                      Executing mathematical consistency checks on live MySQL database...
+                    </td>
+                  </tr>
+                )}
+
+                {consistencyReport?.checks?.map((chk) => (
+                  <tr key={chk.id}>
+                    <td><strong>{chk.id}</strong></td>
+                    <td style={{ fontWeight: 600, color: "var(--text-main)" }}>{chk.name}</td>
+                    <td style={{ fontSize: 13, color: "var(--text-muted)" }}>{chk.description}</td>
+                    <td style={{ textAlign: "center" }}>
+                      {chk.passed ? (
+                        <span className="badge success" style={{ fontWeight: 700, padding: "4px 10px" }}>
+                          ✓ PASS
+                        </span>
+                      ) : (
+                        <span className="badge danger" style={{ fontWeight: 700, padding: "4px 10px" }}>
+                          ✕ FAIL
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: "right", fontFamily: "monospace", fontWeight: 700, color: chk.difference === 0 ? "#10b981" : "#ef4444" }}>
+                      {chk.difference === 0 ? "0" : chk.difference.toFixed(2)}
+                    </td>
+                    <td style={{ fontSize: 12, color: "var(--text-main)" }}>
+                      <code>{chk.details}</code>
+                      {chk.expected !== undefined && chk.actual !== undefined && (
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+                          Expected: <strong>{String(chk.expected)}</strong> | Actual: <strong>{String(chk.actual)}</strong>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {/* ADD TEAM MEMBER MODAL */}

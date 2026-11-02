@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Users, Truck, ShoppingCart, MessageCircle, Receipt,
@@ -6,9 +6,29 @@ import {
   Search, Bell, LogOut, RefreshCw
 } from "lucide-react";
 import ThemeSelector from "./ThemeSelector";
+import { erpApi } from "../services/api";
 
 export default function Layout({ children, currentTheme, onSelectTheme, adminProfile, currentUser, onLogout, onRefreshAll }) {
   const [isRefreshingGlobal, setIsRefreshingGlobal] = useState(false);
+  const [isDbOnline, setIsDbOnline] = useState(true);
+  const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+    erpApi.checkHealth()
+      .then(() => { if (mounted) setIsDbOnline(true); })
+      .catch(() => { if (mounted) setIsDbOnline(false); });
+
+    erpApi.getDashboardStats()
+      .then((res) => {
+        if (mounted && res?.data) {
+          const alerts = (res.data.lowStockCount || 0) + (res.data.overdueCount || 0);
+          setAlertCount(alerts);
+        }
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   const handleGlobalRefresh = async () => {
     if (onRefreshAll) {
@@ -123,10 +143,10 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
 
           {/* SYSTEM STATUS PILL */}
           <div className="sidebar-status-card">
-            <span className="sidebar-status-dot" />
+            <span className="sidebar-status-dot" style={{ background: isDbOnline ? "#10b981" : "#ef4444" }} />
             <div className="sidebar-status-text">
               <strong>Enterprise ERP Online</strong>
-              <small>MySQL Synced & Protected</small>
+              <small>{isDbOnline ? "MySQL Synced & Protected" : "Reconnecting to MySQL..."}</small>
             </div>
           </div>
         </nav>
@@ -201,9 +221,9 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
               <input placeholder="Search records, SKUs..." />
             </div>
 
-            <button className="icon-btn" title="Notifications">
+            <button className="icon-btn" title={alertCount > 0 ? `${alertCount} active alerts` : "No new notifications"}>
               <Bell size={18} />
-              <i></i>
+              {alertCount > 0 && <span style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: "var(--danger)" }} />}
             </button>
 
             {/* Topbar User Avatar Links to Workspace */}

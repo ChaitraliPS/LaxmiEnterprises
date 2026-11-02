@@ -1,12 +1,12 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Users, Plus, Search, MessageCircle, MapPin, CheckCircle2, Send,
-  Building2, Wheat, Milk, Tractor, Smartphone, Eye, X, Trash2, Phone
+  Building2, Wheat, Milk, Tractor, Eye, X, Phone
 } from "lucide-react";
 import ExpoLeadModal from "./ExpoLeadModal";
 import ExpoLeadViewModal from "./ExpoLeadViewModal";
 import WhatsAppBulkModal from "./WhatsAppBulkModal";
-import { downloadVCardFile } from "../services/whatsappService";
+import { createExpoLead, updateExpoLead } from "../services/expoApi";
 
 // Field-name fallbacks (DB / API may use different keys)
 const getMobile = (l) => l.mobile || l.mobileNumber || l.phone || l.contact || "";
@@ -28,118 +28,110 @@ const theme = (cat) =>
 const statusClass = (s) =>
   s === "Converted" ? "success" : s === "Followed Up" || s === "Interested" ? "warning" : "muted";
 
-function DeleteConfirmModal({ isOpen, onClose, onConfirm, title, message }) {
-  if (!isOpen) return null;
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420, padding: 22 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(239, 68, 68, 0.12)", color: "var(--danger)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Trash2 size={20} />
-          </div>
-          <h3 style={{ margin: 0, fontSize: "1.05rem" }}>{title}</h3>
-        </div>
-        <p style={{ margin: "0 0 16px 0", fontSize: "0.88rem", color: "var(--text-main)" }}>{message}</p>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-          <button type="button" className="outline" onClick={onClose}>Cancel</button>
-          <button type="button" className="primary" style={{ background: "var(--danger)" }} onClick={onConfirm}>Delete</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function ExpoPage({
   expoLeads = [],
-  onSaveExpoLeads,
   onConvertToClient,
   company = {},
-  showToast
+  showToast,
+  onRefresh
 }) {
+  const [leads, setLeads] = useState(expoLeads || []);
+
+  // Keep local list in sync with what the parent loads from the server
+  useEffect(() => {
+    setLeads(expoLeads || []);
+  }, [expoLeads]);
+
+  // Load fresh data once when the page opens
+  useEffect(() => {
+    if (onRefresh) onRefresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [search, setSearch] = useState("");
   const [sectorFilter, setSectorFilter] = useState("All");
   const [eventFilter, setEventFilter] = useState("All");
 
   const [leadModalOpen, setLeadModalOpen] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
-  const [deletingLead, setDeletingLead] = useState(null);
   const [viewingLead, setViewingLead] = useState(null);
   const [whatsAppModalOpen, setWhatsAppModalOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
 
   const nextLeadId = useMemo(() => {
     let maxNum = 0;
-    (expoLeads || []).forEach((l) => {
-      const match = l.id && l.id.match(/\d+$/);
+    leads.forEach((l) => {
+      const match = l.id && String(l.id).match(/\d+$/);
       if (match) maxNum = Math.max(maxNum, parseInt(match[0], 10));
     });
     return `EXP-${String(maxNum + 1).padStart(3, "0")}`;
-  }, [expoLeads]);
+  }, [leads]);
 
   const availableEvents = useMemo(() => {
-    const set = new Set((expoLeads || []).map((l) => l.expoName).filter(Boolean));
+    const set = new Set(leads.map((l) => l.expoName).filter(Boolean));
     return ["All", ...Array.from(set)];
-  }, [expoLeads]);
+  }, [leads]);
 
   const uniqueVillagesCount = useMemo(() => {
-    return new Set((expoLeads || []).map((l) => (l.village || "").toLowerCase().trim()).filter(Boolean)).size;
-  }, [expoLeads]);
+    return new Set(leads.map((l) => (l.village || "").toLowerCase().trim()).filter(Boolean)).size;
+  }, [leads]);
 
   const followedUpCount = useMemo(
-    () => (expoLeads || []).filter((l) => l.status === "Followed Up" || l.status === "Converted").length,
-    [expoLeads]
+    () => leads.filter((l) => l.status === "Followed Up" || l.status === "Converted").length,
+    [leads]
   );
 
-  const count = (cat) => expoLeads.filter((l) => l.category === cat).length;
+  const count = (cat) => leads.filter((l) => l.category === cat).length;
 
   const filteredLeads = useMemo(() => {
     const q = search.toLowerCase().trim();
-    return (expoLeads || []).filter((lead) => {
+    return leads.filter((lead) => {
       if (sectorFilter !== "All" && lead.category !== sectorFilter) return false;
       if (eventFilter !== "All" && lead.expoName !== eventFilter) return false;
       if (!q) return true;
       return [lead.name, lead.village, getMobile(lead), getRemark(lead), lead.expoName, lead.taluka, lead.district]
         .some((v) => v && String(v).toLowerCase().includes(q));
     });
-  }, [expoLeads, sectorFilter, eventFilter, search]);
+  }, [leads, sectorFilter, eventFilter, search]);
 
   // Handlers
   const handleOpenAdd = () => { setEditingLead(null); setLeadModalOpen(true); };
   const handleOpenEdit = (lead) => { setEditingLead(lead); setLeadModalOpen(true); };
 
-  const handleSaveLead = (saved) => {
-    let updated;
+  // Throws on failure so the modal stays open and shows the error
+  const handleSaveLead = async (data) => {
     if (editingLead) {
-      updated = expoLeads.map((l) => (l.id === saved.id ? saved : l));
-      if (showToast) showToast(`✓ Updated details for ${saved.name}`);
+      const updated = await updateExpoLead(editingLead.id, data);
+      setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      if (showToast) showToast(`✓ Updated details for ${updated.name}`);
     } else {
-      updated = [saved, ...expoLeads];
-      if (showToast) showToast(`✓ Added Expo Lead: ${saved.name} (${saved.village})`);
+      const created = await createExpoLead(data);
+      setLeads((prev) => [created, ...prev]);
+      if (showToast) showToast(`✓ Added Expo Lead: ${created.name} (${created.village})`);
     }
-    if (onSaveExpoLeads) onSaveExpoLeads(updated);
-    setLeadModalOpen(false);
-    setEditingLead(null);
+    if (onRefresh) onRefresh();
   };
 
-  const handleDeleteConfirm = () => {
-    if (!deletingLead) return;
-    const updated = expoLeads.filter((l) => l.id !== deletingLead.id);
-    if (onSaveExpoLeads) onSaveExpoLeads(updated);
-    if (showToast) showToast(`✓ Removed ${deletingLead.name} from Expo Registry`);
-    setSelectedLeadIds((prev) => { const n = new Set(prev); n.delete(deletingLead.id); return n; });
-    setDeletingLead(null);
-    if (viewingLead && viewingLead.id === deletingLead.id) setViewingLead(null);
+  const handleStatusChange = async (leadId, newStatus) => {
+    const before = leads;
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l)));
+    setViewingLead((v) => (v && v.id === leadId ? { ...v, status: newStatus } : v));
+    try {
+      await updateExpoLead(leadId, { status: newStatus });
+    } catch (err) {
+      setLeads(before);
+      setViewingLead((v) => (v && v.id === leadId ? before.find((l) => l.id === leadId) || v : v));
+      if (showToast) showToast(`⚠ Could not update status: ${err.message}`);
+    }
   };
 
-  const handleStatusChange = (leadId, newStatus) => {
-    const updated = expoLeads.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l));
-    if (onSaveExpoLeads) onSaveExpoLeads(updated);
-    if (viewingLead && viewingLead.id === leadId) setViewingLead((prev) => ({ ...prev, status: newStatus }));
-  };
-
-  const handleDownloadVCF = () => {
-    downloadVCardFile(expoLeads, `Laxmi_Enterprises_Expo_Contacts.vcf`);
-    if (showToast) showToast("✓ Downloaded vCard (.vcf) for WhatsApp Broadcast Lists");
+  // Called by the bulk sender after it logs sent messages to the database
+  const handleBroadcastLogged = (updatedLeads = []) => {
+    if (updatedLeads.length) {
+      const byId = new Map(updatedLeads.map((l) => [l.id, l]));
+      setLeads((prev) => prev.map((l) => byId.get(l.id) || l));
+    }
+    if (onRefresh) onRefresh();
   };
 
   const toggleSelectAll = () => {
@@ -196,7 +188,7 @@ export default function ExpoPage({
             <span>Total Visitors</span>
             <div className="stat-icon" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}><Users size={19} /></div>
           </div>
-          <div className="stat-value">{expoLeads.length}</div>
+          <div className="stat-value">{leads.length}</div>
           <div className="trend positive"><span>Registered at stall</span></div>
         </div>
 
@@ -216,7 +208,7 @@ export default function ExpoPage({
           </div>
           <div className="stat-value" style={{ color: "#128C7E" }}>{followedUpCount}</div>
           <div className="trend positive">
-            <span>{expoLeads.length > 0 ? Math.round((followedUpCount / expoLeads.length) * 100) : 0}% engagement</span>
+            <span>{leads.length > 0 ? Math.round((followedUpCount / leads.length) * 100) : 0}% engagement</span>
           </div>
         </div>
 
@@ -247,7 +239,7 @@ export default function ExpoPage({
         <div className="card-head" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div className="filter-pills-bar" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className={`filter-pill ${sectorFilter === "All" ? "active" : ""}`} onClick={() => setSectorFilter("All")}>
-              All ({expoLeads.length})
+              All ({leads.length})
             </button>
             <button className={`filter-pill ${sectorFilter === "Animal Feed Shop" ? "active" : ""}`} onClick={() => setSectorFilter("Animal Feed Shop")} style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <Wheat size={13} style={{ color: "#059669" }} /> Feed Shop ({count("Animal Feed Shop")})
@@ -294,7 +286,7 @@ export default function ExpoPage({
           )}
 
           <span style={{ marginLeft: "auto", fontSize: "12px", color: "var(--text-muted)", fontWeight: 600 }}>
-            Showing {filteredLeads.length} of {expoLeads.length} visitors
+            Showing {filteredLeads.length} of {leads.length} visitors
           </span>
         </div>
 
@@ -324,7 +316,7 @@ export default function ExpoPage({
               <div className="empty-state-icon"><MessageCircle size={26} style={{ color: "#25D366" }} /></div>
               <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Expo Visitors Found</h4>
               <p style={{ fontSize: 13, marginBottom: 16 }}>
-                {expoLeads.length === 0
+                {leads.length === 0
                   ? "No expo visitors recorded yet."
                   : "No visitors match your current search or filters."}
               </p>
@@ -360,8 +352,15 @@ export default function ExpoPage({
                   const place = [lead.taluka, lead.district].filter(Boolean).join(", ");
 
                   return (
-                    <tr key={lead.id} style={{ background: isSelected ? "rgba(37, 211, 102, 0.04)" : "transparent" }}>
-                      <td style={{ textAlign: "center" }}>
+                    <tr
+                      key={lead.id}
+                      style={{
+                        background: isSelected ? "rgba(37, 211, 102, 0.04)" : "transparent",
+                        cursor: "pointer"
+                      }}
+                      onClick={() => setViewingLead(lead)}
+                    >
+                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={isSelected} onChange={() => toggleSelectLead(lead.id)} />
                       </td>
 
@@ -422,10 +421,15 @@ export default function ExpoPage({
                         <span className={`badge ${statusClass(lead.status)}`}>{lead.status || "New Lead"}</span>
                       </td>
 
-                      {/* Action: sirf View */}
-                      <td style={{ textAlign: "center" }}>
+                      {/* Action: view only */}
+                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                         <div className="row-actions" style={{ justifyContent: "center" }}>
-                          <button title={`View ${lead.name}`} onClick={() => setViewingLead(lead)} style={{ color: "var(--accent)" }}>
+                          <button
+                            type="button"
+                            title={`View ${lead.name}`}
+                            onClick={() => setViewingLead(lead)}
+                            style={{ color: "var(--accent)", cursor: "pointer" }}
+                          >
                             <Eye size={14} />
                           </button>
                         </div>
@@ -440,30 +444,24 @@ export default function ExpoPage({
       </div>
 
       {/* MODALS */}
-      <ExpoLeadModal
-        key={editingLead ? editingLead.id : "new-expo-lead"}
-        isOpen={leadModalOpen}
-        onClose={() => { setLeadModalOpen(false); setEditingLead(null); }}
-        onSave={handleSaveLead}
-        leadToEdit={editingLead}
-        nextId={nextLeadId}
-        company={company}
-      />
+      {leadModalOpen && (
+        <ExpoLeadModal
+          key={editingLead ? editingLead.id : "new-expo-lead"}
+          onClose={() => { setLeadModalOpen(false); setEditingLead(null); }}
+          onSave={handleSaveLead}
+          leadToEdit={editingLead}
+          nextId={nextLeadId}
+          company={company}
+        />
+      )}
 
       <WhatsAppBulkModal
         isOpen={whatsAppModalOpen}
         onClose={() => setWhatsAppModalOpen(false)}
-        leads={selectedLeadIds.size > 0 ? expoLeads.filter((l) => selectedLeadIds.has(l.id)) : expoLeads}
+        leads={selectedLeadIds.size > 0 ? leads.filter((l) => selectedLeadIds.has(l.id)) : leads}
         company={company}
         showToast={showToast}
-      />
-
-      <DeleteConfirmModal
-        isOpen={!!deletingLead}
-        onClose={() => setDeletingLead(null)}
-        onConfirm={handleDeleteConfirm}
-        title="Confirm Lead Removal"
-        message={deletingLead ? `Are you sure you want to remove ${deletingLead.name} (${deletingLead.village}) from the Expo visitor registry?` : ""}
+        onSent={handleBroadcastLogged}
       />
 
       <ExpoLeadViewModal
@@ -472,7 +470,6 @@ export default function ExpoPage({
         lead={viewingLead}
         company={company}
         onEdit={(lead) => { setViewingLead(null); handleOpenEdit(lead); }}
-        onDelete={(lead) => { setViewingLead(null); setDeletingLead(lead); }}
         onStatusChange={handleStatusChange}
         onConvertToClient={onConvertToClient}
         showToast={showToast}

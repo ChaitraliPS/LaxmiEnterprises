@@ -82,11 +82,15 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
     accountName: "Laxmi Enterprises Commercial"
   };
 
-  const invoiceAmount = Number(invoice.amount) || 0;
-  const invoiceTax = Number(invoice.tax) || Math.round(invoiceAmount * 0.18);
-  const invoiceTotal = Number(invoice.total) || (invoiceAmount + invoiceTax);
-  const cgst = Math.round(invoiceTax / 2);
-  const sgst = invoiceTax - cgst;
+  const invoiceAmount = Number(invoice.amount || invoice.subtotal || invoice.taxableTotal) || 0;
+  const invoiceTax = Number(invoice.tax || invoice.taxAmount || invoice.gstTotal) || (invoice.gstRate ? Math.round(invoiceAmount * (Number(invoice.gstRate) / 100)) : 0);
+  const invoiceTotal = Number(invoice.total || invoice.grandTotal) || (invoiceAmount + invoiceTax);
+  const effectiveGstRate = invoice.gstRate !== undefined && invoice.gstRate !== null
+    ? Number(invoice.gstRate)
+    : (invoiceAmount > 0 ? Math.round((invoiceTax / invoiceAmount) * 100) : 0);
+  const halfRate = (effectiveGstRate / 2).toFixed(1).replace(/\.0$/, "");
+  const cgst = Number(invoice.cgstTotal) || Math.round(invoiceTax / 2);
+  const sgst = Number(invoice.sgstTotal) || (invoiceTax - cgst);
 
   // 1. TOP BRAND HEADER ACCENT BAR (Royal Sapphire)
   doc.setFillColor(0, 91, 181); // #005bb5
@@ -241,10 +245,10 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(`Client ID: ${invoice.clientId || "CL-001"}`, box2X + 4, currentY + 16);
-  doc.text(`GSTIN: ${clientExtra.gstin || "27AABCS1429B1Z2 (Registered)"}`, box2X + 4, currentY + 20);
-  doc.text(`Location / City: ${clientExtra.city || "Pune / Maharashtra, India"}`, box2X + 4, currentY + 24);
-  doc.text(`Payment Mode: ${invoice.paymentMethod || "NEFT / Commercial Transfer"}`, box2X + 4, currentY + 28);
+  doc.text(`Client ID: ${invoice.clientId || clientExtra.clientId || "—"}`, box2X + 4, currentY + 16);
+  doc.text(`GSTIN: ${clientExtra.gstin || invoice.clientGstin || "—"}`, box2X + 4, currentY + 20);
+  doc.text(`Location / City: ${clientExtra.city || clientExtra.address || "Maharashtra, India"}`, box2X + 4, currentY + 24);
+  doc.text(`Payment Mode: ${invoice.paymentMode || invoice.paymentMethod || "—"}`, box2X + 4, currentY + 28);
 
   currentY += boxH + 6;
 
@@ -267,7 +271,7 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
         `${item.qty || 1} ${item.unit || "Nos"}`,
         `Rs. ${Number(item.rate || item.price || 0).toLocaleString("en-IN")}`,
         `Rs. ${Number(item.taxable || (Number(item.qty || 1) * Number(item.rate || item.price || 0))).toLocaleString("en-IN")}`,
-        `${item.gstRate || 18}%`,
+        `${item.gstRate !== undefined && item.gstRate !== null ? item.gstRate : effectiveGstRate}%`,
         `Rs. ${Number(item.total || 0).toLocaleString("en-IN")}`
       ])
     : [
@@ -278,7 +282,7 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
           "1 Lot",
           `Rs. ${invoiceAmount.toLocaleString("en-IN")}`,
           `Rs. ${invoiceAmount.toLocaleString("en-IN")}`,
-          "18% GST",
+          `${effectiveGstRate > 0 ? `${effectiveGstRate}% GST` : "GST"}`,
           `Rs. ${invoiceTotal.toLocaleString("en-IN")}`
         ]
       ];
@@ -355,21 +359,21 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   // CGST (9%)
   lineY += 5;
   doc.setFont("helvetica", "normal");
-  doc.text("CGST @ 9%:", summaryBoxX + 4, lineY);
+  doc.text(`CGST${halfRate > 0 ? ` @ ${halfRate}%` : ""}:`, summaryBoxX + 4, lineY);
   doc.setFont("helvetica", "bold");
   doc.text(`Rs. ${cgst.toLocaleString("en-IN")}`, rightX - 4, lineY, { align: "right" });
 
   // SGST (9%)
   lineY += 5;
   doc.setFont("helvetica", "normal");
-  doc.text("SGST @ 9%:", summaryBoxX + 4, lineY);
+  doc.text(`SGST${halfRate > 0 ? ` @ ${halfRate}%` : ""}:`, summaryBoxX + 4, lineY);
   doc.setFont("helvetica", "bold");
   doc.text(`Rs. ${sgst.toLocaleString("en-IN")}`, rightX - 4, lineY, { align: "right" });
 
   // Total GST
   lineY += 5;
   doc.setFont("helvetica", "normal");
-  doc.text("Total Tax (GST 18%):", summaryBoxX + 4, lineY);
+  doc.text(`Total Tax (GST${effectiveGstRate > 0 ? ` ${effectiveGstRate}%` : ""}):`, summaryBoxX + 4, lineY);
   doc.setFont("helvetica", "bold");
   doc.text(`Rs. ${invoiceTax.toLocaleString("en-IN")}`, rightX - 4, lineY, { align: "right" });
 

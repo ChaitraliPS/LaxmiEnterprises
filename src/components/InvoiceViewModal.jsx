@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import {
-  X, Download, Receipt, ShieldCheck, Edit3
+  X, Download, Receipt, ShieldCheck, Edit3, CreditCard, Ban, CheckCircle2, AlertCircle
 } from "lucide-react";
 import { generateInvoicePDF, numberToWordsINR } from "../services/pdfService";
+import { erpApi } from "../services/api";
+import { getToday } from "../constants/erpConstants";
 
 export default function InvoiceViewModal({
   isOpen,
@@ -10,11 +12,19 @@ export default function InvoiceViewModal({
   invoice,
   company = {},
   client = null,
-  onDelete,
   onEdit,
-  showToast
+  showToast,
+  onRefresh
 }) {
   if (!isOpen || !invoice) return null;
+
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMode, setPayMode] = useState("NEFT");
+  const [payDate, setPayDate] = useState(() => getToday());
+  const [payRef, setPayRef] = useState("");
+  const [payNotes, setPayNotes] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const companyInfo = {
     name: company.name || "Laxmi Enterprises",
@@ -26,11 +36,18 @@ export default function InvoiceViewModal({
     address: company.address || "Shop No. 12, Commercial Complex, Near Industrial Estate, Pune - 411038, Maharashtra, India"
   };
 
-  const amount = Number(invoice.amount) || 0;
-  const tax = Number(invoice.tax) || Math.round(amount * 0.18);
-  const total = Number(invoice.total) || (amount + tax);
-  const cgst = Math.round(tax / 2);
-  const sgst = tax - cgst;
+  const amount = Number(invoice.amount ?? invoice.taxableTotal ?? invoice.subtotal ?? 0);
+  const tax = Number(invoice.tax ?? invoice.gstTotal ?? ((Number(invoice.cgstTotal || 0) + Number(invoice.sgstTotal || 0) + Number(invoice.igstTotal || 0)) || (invoice.gstRate ? amount * (Number(invoice.gstRate) / 100) : 0)));
+  const total = Number(invoice.total ?? invoice.grandTotal ?? (amount + tax));
+  const effectiveGstRate = invoice.gstRate !== undefined && invoice.gstRate !== null
+    ? Number(invoice.gstRate)
+    : (amount > 0 ? Math.round((tax / amount) * 100) : 0);
+  const halfRate = (effectiveGstRate / 2).toFixed(1).replace(/\.0$/, "");
+  const cgst = Number(invoice.cgstTotal) || Math.round(tax / 2);
+  const sgst = Number(invoice.sgstTotal) || (tax - cgst);
+  const paid = Number(invoice.paidAmount || 0);
+  const balanceDue = Number(invoice.balanceDue !== undefined && invoice.balanceDue !== null ? invoice.balanceDue : Math.max(0, total - paid));
+  const isCancelled = Boolean(invoice.isCancelled);
 
   const handleDownloadPDF = () => {
     try {
@@ -39,6 +56,55 @@ export default function InvoiceViewModal({
     } catch (err) {
       console.error("PDF generation failed:", err);
       if (showToast) showToast("⚠️ Failed to generate PDF: " + err.message);
+    }
+  };
+
+  const handleRecordPayment = async (e) => {
+    e.preventDefault();
+    const parsedAmount = Number(payAmount);
+    if (!parsedAmount || parsedAmount <= 0) {
+      if (showToast) showToast("⚠️ Please enter a valid payment amount");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const targetId = invoice.invoiceNumber || invoice.id;
+      await erpApi.recordPayment(targetId, {
+        paymentAmount: parsedAmount,
+        paymentMode: payMode,
+        paymentDate: payDate,
+        referenceNo: payRef,
+        notes: payNotes,
+      });
+      if (showToast) showToast(`✓ Payment of ₹${parsedAmount.toLocaleString("en-IN")} recorded for ${targetId}`);
+      setShowPaymentForm(false);
+      if (onRefresh) await onRefresh();
+      onClose();
+    } catch (err) {
+      console.error("Failed to record payment:", err);
+      if (showToast) showToast(`⚠️ Failed to record payment: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancelInvoice = async () => {
+    const targetId = invoice.invoiceNumber || invoice.id;
+    const confirmed = window.confirm(
+      `Are you sure you want to cancel Invoice ${targetId}? This will reverse inventory stock deductions and remove any remaining balance due.`
+    );
+    if (!confirmed) return;
+    setIsSubmitting(true);
+    try {
+      await erpApi.deleteInvoice(targetId);
+      if (showToast) showToast(`✓ Invoice ${targetId} cancelled successfully.`);
+      if (onRefresh) await onRefresh();
+      onClose();
+    } catch (err) {
+      console.error("Failed to cancel invoice:", err);
+      if (showToast) showToast(`⚠️ Failed to cancel invoice: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -51,7 +117,7 @@ export default function InvoiceViewModal({
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 840, width: "95vw", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
       >
-        {/* ── MODAL HEADER — title + close only ── */}
+        {/* ── MODAL HEADER ── */}
         <div className="modal-header" style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="mini-avatar" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
@@ -59,15 +125,14 @@ export default function InvoiceViewModal({
             </div>
             <div>
               <h3 style={{ fontSize: 16, margin: 0, color: "var(--text-main)" }}>
-                Tax Invoice: <span style={{ color: "var(--primary)" }}>{invoice.id}</span>
+                Tax Invoice: <span style={{ color: "var(--primary)" }}>{invoice.id || invoice.invoiceNumber}</span>
               </h3>
               <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
-                GST Tax Invoice Preview • Ready for PDF Download
+                GST Tax Invoice Preview • Real-Time Database Record
               </span>
             </div>
           </div>
 
-          {/* Close only — no duplicate download button */}
           <button
             type="button"
             className="modal-close-btn"
@@ -80,6 +145,119 @@ export default function InvoiceViewModal({
 
         {/* ── PRINTABLE INVOICE PAPER BODY ── */}
         <div className="modal-body" style={{ overflowY: "auto", padding: 24, background: "#f8fafc" }}>
+          
+          {/* Inline Payment Form Panel if active */}
+          {showPaymentForm && (
+            <div style={{
+              background: "#ffffff",
+              border: "1px solid #005bb5",
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 16,
+              boxShadow: "0 4px 12px rgba(0, 91, 181, 0.12)"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, color: "#005bb5", fontSize: 14 }}>
+                  <CreditCard size={18} />
+                  <span>Record Client Payment for {invoice.invoiceNumber || invoice.id}</span>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setShowPaymentForm(false)}
+                  style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <form onSubmit={handleRecordPayment} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Payment Amount (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max={balanceDue > 0 ? balanceDue : total}
+                    required
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(e.target.value)}
+                    placeholder={`Max ₹${balanceDue.toLocaleString("en-IN")}`}
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Payment Mode *
+                  </label>
+                  <select
+                    value={payMode}
+                    onChange={(e) => setPayMode(e.target.value)}
+                    required
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  >
+                    <option value="NEFT">NEFT / Commercial Transfer</option>
+                    <option value="RTGS">RTGS</option>
+                    <option value="IMPS">IMPS</option>
+                    <option value="UPI">UPI / Digital</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Cash">Cash</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    Payment Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={payDate}
+                    onChange={(e) => setPayDate(e.target.value)}
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#475569", display: "block", marginBottom: 4 }}>
+                    UTR / Reference No
+                  </label>
+                  <input
+                    type="text"
+                    value={payRef}
+                    onChange={(e) => setPayRef(e.target.value)}
+                    placeholder="e.g. UTR10293848"
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #cbd5e1" }}
+                  />
+                </div>
+
+                <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className="outline"
+                    onClick={() => setShowPaymentForm(false)}
+                    disabled={isSubmitting}
+                    style={{ padding: "6px 14px", fontSize: 12 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary"
+                    disabled={isSubmitting}
+                    style={{ padding: "6px 16px", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <CheckCircle2 size={14} />
+                    <span>{isSubmitting ? "Submitting..." : "Submit Payment"}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
           <div
             className="invoice-paper"
             id="printable-invoice"
@@ -97,7 +275,7 @@ export default function InvoiceViewModal({
             <div
               style={{
                 height: 6,
-                background: "linear-gradient(90deg, #005bb5 0%, #00b4d8 100%)",
+                background: isCancelled ? "#ef4444" : "linear-gradient(90deg, #005bb5 0%, #00b4d8 100%)",
                 borderRadius: "4px 4px 0 0",
                 margin: "-32px -32px 24px -32px"
               }}
@@ -139,17 +317,17 @@ export default function InvoiceViewModal({
                 <span
                   style={{
                     display: "inline-block",
-                    background: "rgba(0, 91, 181, 0.08)",
-                    color: "#005bb5",
+                    background: isCancelled ? "rgba(239, 68, 68, 0.1)" : "rgba(0, 91, 181, 0.08)",
+                    color: isCancelled ? "#dc2626" : "#005bb5",
                     padding: "4px 14px",
                     borderRadius: 6,
                     fontWeight: 800,
                     fontSize: 16,
                     letterSpacing: "0.04em",
-                    border: "1px solid rgba(0, 91, 181, 0.2)"
+                    border: isCancelled ? "1px solid rgba(239, 68, 68, 0.3)" : "1px solid rgba(0, 91, 181, 0.2)"
                   }}
                 >
-                  TAX INVOICE
+                  {isCancelled ? "CANCELLED INVOICE" : "TAX INVOICE"}
                 </span>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3 }}>
                   Original for Recipient
@@ -167,17 +345,17 @@ export default function InvoiceViewModal({
                   }}
                 >
                   <div style={{ fontSize: 12, color: "#64748b" }}>
-                    Invoice #: <strong style={{ color: "#005bb5", fontSize: 13 }}>{invoice.id}</strong>
+                    Invoice #: <strong style={{ color: "#005bb5", fontSize: 13 }}>{invoice.id || invoice.invoiceNumber}</strong>
                   </div>
                   <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
-                    Date: <strong>{invoice.date}</strong>
+                    Date: <strong>{invoice.date || invoice.invoiceDate}</strong>
                   </div>
                   <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
                     Due Date: <strong>{invoice.dueDate || "-"}</strong>
                   </div>
                   <div style={{ marginTop: 6 }}>
                     <span
-                      className={`badge ${statusClass === "paid" ? "paid" : statusClass === "pending" ? "pending-payment" : "overdue"}`}
+                      className={`badge ${statusClass === "paid" ? "paid" : statusClass === "partial" ? "pending-payment" : statusClass === "overdue" ? "overdue" : statusClass === "cancelled" ? "danger" : "muted"}`}
                       style={{ fontSize: 11, padding: "3px 10px" }}
                     >
                       {invoice.status || "Paid"}
@@ -205,13 +383,13 @@ export default function InvoiceViewModal({
                 </div>
                 <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>{invoice.clientName}</div>
                 <div style={{ fontSize: 11.5, color: "#475569", marginTop: 4 }}>
-                  Account ID: <strong>{invoice.clientId || "CL-001"}</strong>
+                  Account ID: <strong>{invoice.clientId || "—"}</strong>
                 </div>
                 <div style={{ fontSize: 11.5, color: "#475569", marginTop: 2 }}>
-                  GSTIN: {client?.gstin || "27AABCS1429B1Z2 (Registered)"}
+                  GSTIN: {client?.gstin || invoice.clientGstin || "—"}
                 </div>
                 <div style={{ fontSize: 11.5, color: "#475569", marginTop: 2 }}>
-                  Payment Method: <strong>{invoice.paymentMethod || "NEFT / RTGS"}</strong>
+                  Payment Mode: <strong>{invoice.paymentMode || invoice.paymentMethod || "—"}</strong>
                 </div>
               </div>
             </div>
@@ -234,16 +412,16 @@ export default function InvoiceViewModal({
                 <tbody style={{ fontSize: 12 }}>
                   {Array.isArray(invoice.items) && invoice.items.length > 0 ? (
                     invoice.items.map((it, idx) => {
-                      const itemTaxable = Number(it.taxable) || (Number(it.qty || 1) * Number(it.rate || 0));
-                      const itemGst = Number(it.gstRate || 18);
+                      const itemTaxable = Number(it.taxable) || (Number(it.qty || it.quantity || 1) * Number(it.rate || it.unitPrice || 0));
+                      const itemGst = it.gstRate !== undefined && it.gstRate !== null ? Number(it.gstRate) : effectiveGstRate;
                       const itemTax = Math.round(itemTaxable * (itemGst / 100));
-                      const itemTotal = Number(it.total) || (itemTaxable + itemTax);
+                      const itemTotal = Number(it.total || it.lineTotal) || (itemTaxable + itemTax);
                       return (
                         <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
                           <td style={{ padding: "10px 12px", textAlign: "center", color: "#64748b" }}>{idx + 1}</td>
                           <td style={{ padding: "10px 12px" }}>
                             <div style={{ fontWeight: 700, color: "#0f172a" }}>
-                              {it.description || it.name || "Industrial Supplies Item"}
+                              {it.description || it.name || it.productName || "Commercial Product Item"}
                             </div>
                             {it.productId && (
                               <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
@@ -252,13 +430,13 @@ export default function InvoiceViewModal({
                             )}
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "center", fontFamily: "monospace", color: "#475569" }}>
-                            {it.hsn || "7306 / 8481"}
+                            {it.hsn || it.hsnCode || "—"}
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "center", fontWeight: 600 }}>
-                            {it.qty || 1} {it.unit || "Nos"}
+                            {it.qty || it.quantity || 1} {it.unit || it.unitOfMeasure || "Nos"}
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                            ₹{Number(it.rate || 0).toLocaleString("en-IN")}
+                            ₹{Number(it.rate || it.unitPrice || 0).toLocaleString("en-IN")}
                           </td>
                           <td style={{ padding: "10px 12px", textAlign: "center", color: "#64748b" }}>{itemGst}%</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600 }}>
@@ -275,7 +453,7 @@ export default function InvoiceViewModal({
                       <td style={{ padding: "12px", textAlign: "center", color: "#64748b" }}>1</td>
                       <td style={{ padding: "12px" }}>
                         <div style={{ fontWeight: 700, color: "#0f172a" }}>
-                          {invoice.category || "Industrial Hardware"} Supplies Lot
+                          {invoice.category || "Commercial Supplies"} Order Consignment
                         </div>
                         <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
                           Commercial supply order as per agreed technical specification & delivery challan
@@ -284,7 +462,9 @@ export default function InvoiceViewModal({
                       <td style={{ padding: "12px", textAlign: "center", fontFamily: "monospace", color: "#475569" }}>8481 / 7318</td>
                       <td style={{ padding: "12px", textAlign: "center" }}>1 Lot</td>
                       <td style={{ padding: "12px", textAlign: "right" }}>₹{amount.toLocaleString("en-IN")}</td>
-                      <td style={{ padding: "12px", textAlign: "center", color: "#64748b" }}>18% GST</td>
+                      <td style={{ padding: "12px", textAlign: "center", color: "#64748b" }}>
+                        {effectiveGstRate > 0 ? `${effectiveGstRate}% GST` : "GST"}
+                      </td>
                       <td style={{ padding: "12px", textAlign: "right", fontWeight: 600 }}>₹{amount.toLocaleString("en-IN")}</td>
                       <td style={{ padding: "12px", textAlign: "right", fontWeight: 800, color: "#005bb5" }}>₹{total.toLocaleString("en-IN")}</td>
                     </tr>
@@ -324,15 +504,15 @@ export default function InvoiceViewModal({
                   <span style={{ fontWeight: 600 }}>₹{amount.toLocaleString("en-IN")}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#475569", marginBottom: 6 }}>
-                  <span>CGST @ 9%:</span>
+                  <span>CGST {halfRate > 0 ? `@ ${halfRate}%` : ""}:</span>
                   <span>₹{cgst.toLocaleString("en-IN")}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#475569", marginBottom: 6 }}>
-                  <span>SGST @ 9%:</span>
+                  <span>SGST {halfRate > 0 ? `@ ${halfRate}%` : ""}:</span>
                   <span>₹{sgst.toLocaleString("en-IN")}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#475569", marginBottom: 10, paddingBottom: 6, borderBottom: "1px solid #cbd5e1" }}>
-                  <span>Total Tax (GST 18%):</span>
+                  <span>Total Tax (GST{effectiveGstRate > 0 ? ` ${effectiveGstRate}%` : ""}):</span>
                   <span style={{ fontWeight: 700 }}>₹{tax.toLocaleString("en-IN")}</span>
                 </div>
                 <div
@@ -341,7 +521,7 @@ export default function InvoiceViewModal({
                     justifyContent: "space-between",
                     fontSize: 14,
                     color: "#ffffff",
-                    background: "#005bb5",
+                    background: isCancelled ? "#ef4444" : "#005bb5",
                     padding: "8px 12px",
                     borderRadius: 6,
                     fontWeight: 800
@@ -351,18 +531,16 @@ export default function InvoiceViewModal({
                   <span>₹{total.toLocaleString("en-IN")}</span>
                 </div>
 
-                {invoice.paidAmount !== undefined && (
-                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #e2e8f0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#059669", marginBottom: 4 }}>
-                      <span>Amount Received / Paid:</span>
-                      <span style={{ fontWeight: 700 }}>₹{Number(invoice.paidAmount || 0).toLocaleString("en-IN")}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: (Number(invoice.balanceDue) || 0) > 0 ? "#dc2626" : "#059669" }}>
-                      <span>Remaining Balance Due:</span>
-                      <span style={{ fontWeight: 800 }}>₹{(Number(invoice.balanceDue) || 0).toLocaleString("en-IN")}</span>
-                    </div>
+                <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #e2e8f0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#059669", marginBottom: 4 }}>
+                    <span>Amount Received / Paid:</span>
+                    <span style={{ fontWeight: 700 }}>₹{paid.toLocaleString("en-IN")}</span>
                   </div>
-                )}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: balanceDue > 0 ? "#dc2626" : "#059669" }}>
+                    <span>Remaining Balance Due:</span>
+                    <span style={{ fontWeight: 800 }}>₹{balanceDue.toLocaleString("en-IN")}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -422,14 +600,60 @@ export default function InvoiceViewModal({
             gap: 10
           }}
         >
-          {/* Left: verified badge */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--text-muted)" }}>
-            <ShieldCheck size={16} color="#10b981" />
-            <span>Verified Tax Invoice</span>
+          {/* Left: cancel button & verified badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--text-muted)" }}>
+              <ShieldCheck size={16} color="#10b981" />
+              <span>Verified Tax Invoice</span>
+            </div>
+
+            {!isCancelled && (
+              <button
+                type="button"
+                className="outline"
+                onClick={handleCancelInvoice}
+                disabled={isSubmitting}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  color: "#dc2626",
+                  borderColor: "rgba(220, 38, 38, 0.4)",
+                  padding: "5px 10px",
+                  fontSize: 12
+                }}
+                title="Cancel this invoice and reverse stock"
+              >
+                <Ban size={13} />
+                <span>Cancel Invoice</span>
+              </button>
+            )}
           </div>
 
-          {/* Right: Edit Invoice | Download PDF */}
+          {/* Right: Record Payment | Edit Invoice | Download PDF */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            {!isCancelled && balanceDue > 0 && !showPaymentForm && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  setPayAmount(balanceDue);
+                  setShowPaymentForm(true);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#059669",
+                  borderColor: "#059669"
+                }}
+                title="Record payment received for this invoice"
+              >
+                <CreditCard size={15} />
+                <span>Record Payment</span>
+              </button>
+            )}
+
             <button
               type="button"
               className="outline"

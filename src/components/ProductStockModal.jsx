@@ -365,13 +365,13 @@ export default function ProductStockModal({
 
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: 6 }}>
                 <span style={{ color: "var(--text-muted)" }}>Safety Threshold Limit (Min Stock):</span>
-                <b>{stockData.minStock} units</b>
+                <b>{stockData.minStock !== null ? `${stockData.minStock} units` : "Not set"}</b>
               </div>
 
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: 10 }}>
                 <span style={{ color: "var(--text-muted)" }}>Free Buffer Margin:</span>
                 <b style={{ color: stockData.bufferMargin >= 0 ? "var(--success)" : "var(--danger)" }}>
-                  {stockData.bufferMargin >= 0 ? `+${stockData.bufferMargin} units above limit` : `${stockData.bufferMargin} units below limit!`}
+                  {stockData.minStock === null ? "— (Not set)" : stockData.bufferMargin >= 0 ? `+${stockData.bufferMargin} units above limit` : `${stockData.bufferMargin} units below limit!`}
                 </b>
               </div>
 
@@ -405,17 +405,17 @@ export default function ProductStockModal({
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <IndianRupee size={16} style={{ color: "var(--primary)" }} />
-                <h4 style={{ margin: 0, fontSize: "0.9rem" }}>Commercial Inventory Asset Valuation</h4>
+                <h4 style={{ margin: 0, fontSize: "0.9rem" }}>Inventory Asset Valuation (at Cost)</h4>
               </div>
 
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: 6 }}>
-                <span style={{ color: "var(--text-muted)" }}>Unit Selling Price:</span>
-                <b>₹{stockData.unitPrice.toLocaleString("en-IN")} / unit</b>
+                <span style={{ color: "var(--text-muted)" }}>Unit Cost Price:</span>
+                <b>₹{Number(stockData.costPrice || 0).toLocaleString("en-IN")} / unit</b>
               </div>
 
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.82rem", marginBottom: 6 }}>
                 <span style={{ color: "var(--text-muted)" }}>Calculation Formula:</span>
-                <code>{stockData.currentAvailableStock} units × ₹{stockData.unitPrice.toLocaleString("en-IN")}</code>
+                <code>{stockData.currentAvailableStock} units × ₹{Number(stockData.costPrice || 0).toLocaleString("en-IN")}</code>
               </div>
 
               <div style={{
@@ -428,7 +428,7 @@ export default function ProductStockModal({
                 justifyContent: "space-between",
                 alignItems: "center"
               }}>
-                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#059669" }}>Total Stock Asset Value:</span>
+                <span style={{ fontSize: "0.82rem", fontWeight: 700, color: "#059669" }}>Total Valuation (at Cost):</span>
                 <span style={{ fontSize: "1.2rem", fontWeight: 800, color: "#059669" }}>
                   ₹{stockData.valuation.toLocaleString("en-IN")}
                 </span>
