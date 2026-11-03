@@ -13,36 +13,28 @@
  * @returns {Object} Calculated stock breakdown metrics and step-by-step audit
  */
 export function calculateProductStock(product = {}, inventoryItem = null) {
-  const openingStock = Math.max(0, Number(product.openingStock) || 0);
+  const openingStock = Math.max(0, Number(product.openingStock ?? inventoryItem?.openingStock ?? product.extraData?.openingStock ?? 0));
 
   // Inward received stock: determine true cumulative inward from product and linked inventory
   const pIn = Number(product.inwardStock);
-  const pStock = Number(product.stock);
-  const invIn = inventoryItem && !isNaN(Number(inventoryItem.in)) ? Number(inventoryItem.in) : NaN;
-  const invStock = inventoryItem && !isNaN(Number(inventoryItem.stock ?? inventoryItem.currentStock)) ? Number(inventoryItem.stock ?? inventoryItem.currentStock) : NaN;
-
-  const hasExplicitInward =
-    product.inwardStock !== undefined && product.inwardStock !== null && product.inwardStock !== "" && !isNaN(pIn);
+  const pInAlt = Number(product.in);
+  const invIn = inventoryItem && !isNaN(Number(inventoryItem.inwardStock ?? inventoryItem.in)) ? Number(inventoryItem.inwardStock ?? inventoryItem.in) : NaN;
 
   let inwardStock = 0;
-  if (hasExplicitInward) {
+  if (product.inwardStock !== undefined && product.inwardStock !== null && product.inwardStock !== "" && !isNaN(pIn)) {
     inwardStock = pIn;
+  } else if (product.in !== undefined && product.in !== null && product.in !== "" && !isNaN(pInAlt)) {
+    inwardStock = pInAlt;
   } else if (!isNaN(invIn)) {
     inwardStock = invIn;
-  } else if (openingStock === 0) {
-    if (!isNaN(pStock) && pStock > 0) {
-      inwardStock = pStock;
-    } else if (!isNaN(invStock) && invStock > 0) {
-      inwardStock = invStock;
-    }
   }
   inwardStock = Math.max(0, inwardStock);
 
   // Outward dispatched stock: prioritize product.outwardStock, fallback to inventoryItem.out
-  let outwardStock = Number(product.outwardStock);
+  let outwardStock = Number(product.outwardStock ?? product.out);
   if (isNaN(outwardStock) || outwardStock === undefined) {
-    if (inventoryItem && !isNaN(Number(inventoryItem.out))) {
-      outwardStock = Number(inventoryItem.out);
+    if (inventoryItem && !isNaN(Number(inventoryItem.outwardStock ?? inventoryItem.out))) {
+      outwardStock = Number(inventoryItem.outwardStock ?? inventoryItem.out);
     } else {
       outwardStock = 0;
     }

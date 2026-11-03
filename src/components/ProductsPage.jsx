@@ -394,7 +394,7 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                                 </button>
                               </div>
                               <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "monospace" }}>
-                                In: +{metrics.inwardStock} | Out: −{metrics.outwardStock}
+                                Open: {metrics.openingStock} | In: +{metrics.inwardStock} | Out: −{metrics.outwardStock}
                               </span>
                             </div>
                           </td>
@@ -470,6 +470,10 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                       ]}
                       expandedDetails={
                         <div>
+                          <div className="mobile-record-detail-row">
+                            <span className="mobile-record-detail-label">Opening Base Stock</span>
+                            <span className="mobile-record-detail-val" style={{ color: "#0284c7" }}>{metrics.openingStock} {uom}</span>
+                          </div>
                           <div className="mobile-record-detail-row">
                             <span className="mobile-record-detail-label">Inward Stock</span>
                             <span className="mobile-record-detail-val" style={{ color: "var(--success)" }}>+{metrics.inwardStock} {uom}</span>

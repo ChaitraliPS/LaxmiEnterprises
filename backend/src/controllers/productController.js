@@ -23,11 +23,10 @@ export const getProducts = asyncHandler(async (req, res) => {
     const json = prod.toJSON();
     const metrics = healthMap.get(prod.productId);
 
-    const fallbackStock = Number(json.stock ?? json.extraData?.stock ?? 0);
-    const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
-    const openStock = metrics ? (metrics.hasMovements ? metrics.openingStock : Number(json.openingStock ?? json.extraData?.openingStock ?? 0)) : Number(json.openingStock ?? json.extraData?.openingStock ?? 0);
-    const inW = metrics ? (metrics.hasMovements ? metrics.totalInward : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0)) : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0);
+    const openStock = metrics ? metrics.openingStock : Number(json.openingStock ?? json.extraData?.openingStock ?? 0);
+    const inW = metrics ? metrics.totalInward : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0);
     const outW = metrics ? metrics.totalOut : Number(json.outwardStock ?? json.extraData?.outwardStock ?? 0);
+    const balance = metrics ? metrics.currentBalance : Math.max(0, openStock + inW - outW);
     const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(prod.costPrice || 0);
 
     return {

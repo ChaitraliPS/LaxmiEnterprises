@@ -82,9 +82,10 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
 
     combinedProducts.forEach(p => {
       const u = p.unitOfMeasure || p.unit || "Units";
+      const openStock = Number(p.openingStock || 0);
       const stockIn = Number(p.inwardStock ?? p.in ?? 0);
       const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-      const balance = Number(p.currentStock ?? p.stock ?? (stockIn - stockOut));
+      const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
 
       inMap[u] = (inMap[u] || 0) + stockIn;
       outMap[u] = (outMap[u] || 0) + stockOut;
@@ -177,8 +178,8 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
         );
       }
       showToast(`✓ Stock movement recorded & synchronized.`);
-      fetchMovements();
-      if (onRefresh) onRefresh();
+      await fetchMovements();
+      if (onRefresh) await onRefresh();
       setModalOpen(false);
       setSelectedProductForModal(null);
     } catch (err) {
@@ -204,16 +205,18 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
       ]);
       downloadCSV("Inventory_Movements_Laxmi_Enterprises", headers, rows);
     } else {
-      const headers = ["Product_ID", "Product_Name", "Category", "Inward", "Outward", "Balance_Available", "Unit", "Reorder_Level", "Warehouse_Bay", "Status"];
+      const headers = ["Product_ID", "Product_Name", "Category", "Opening_Stock", "Inward", "Outward", "Balance_Available", "Unit", "Reorder_Level", "Warehouse_Bay", "Status"];
       const rows = filteredProducts.map(p => {
         const uom = p.unitOfMeasure || p.unit || "Units";
+        const openStock = Number(p.openingStock || 0);
         const stockIn = Number(p.inwardStock ?? p.in ?? 0);
         const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-        const balance = Number(p.currentStock ?? p.stock ?? (stockIn - stockOut));
+        const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
         return [
           p.id || p.productId,
           p.name,
           p.category,
+          openStock,
           stockIn,
           stockOut,
           balance,
@@ -527,6 +530,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                       <tr>
                         <th>Product ID</th>
                         <th>Product Item</th>
+                        <th>Opening Base</th>
                         <th>Inward (+)</th>
                         <th>Outward (−)</th>
                         <th>Balance Units</th>
@@ -539,9 +543,10 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                     <tbody>
                       {filteredProducts.map(p => {
                         const uom = p.unitOfMeasure || p.unit || "Units";
+                        const openStock = Number(p.openingStock || 0);
                         const stockIn = Number(p.inwardStock ?? p.in ?? 0);
                         const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-                        const balance = Number(p.currentStock ?? p.stock ?? (stockIn - stockOut));
+                        const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
                         const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
                         const reorderNum = hasReorder ? Number(p.reorderLevel) : null;
                         const isOut = hasReorder && balance <= 0;
@@ -553,6 +558,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                           <tr key={p.id || p.productId}>
                             <td><code>{p.id || p.productId}</code></td>
                             <td><b>{p.name}</b></td>
+                            <td style={{ color: "#0284c7", fontWeight: 600 }}>{openStock} {uom}</td>
                             <td style={{ color: "var(--success)", fontWeight: 700 }}>+{stockIn} {uom}</td>
                             <td style={{ color: "var(--text-muted)", fontWeight: 600 }}>−{stockOut} {uom}</td>
                             <td>
@@ -605,9 +611,10 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                 <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                   {filteredProducts.map(p => {
                     const uom = p.unitOfMeasure || p.unit || "Units";
+                    const openStock = Number(p.openingStock || 0);
                     const stockIn = Number(p.inwardStock ?? p.in ?? 0);
                     const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-                    const balance = Number(p.currentStock ?? p.stock ?? (stockIn - stockOut));
+                    const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
                     const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
                     const reorderNum = hasReorder ? Number(p.reorderLevel) : null;
                     const isOut = hasReorder && balance <= 0;
@@ -630,6 +637,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                         }
                         primaryMetrics={[
                           { label: "Available Balance", value: `${balance} ${uom}`, color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--primary)" },
+                          { label: "Opening Base", value: `${openStock} ${uom}`, color: "#0284c7" },
                           { label: "Inward (+)", value: `+${stockIn} ${uom}`, color: "var(--success)" },
                           { label: "Outward (−)", value: `−${stockOut} ${uom}`, color: "var(--text-muted)" },
                         ]}

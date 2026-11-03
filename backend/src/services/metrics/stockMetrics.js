@@ -4,45 +4,85 @@ import { formatISTDateString } from "./dateRangeHelper.js";
 import { getToday, evaluateStockHealth } from "../../constants/erpConstants.js";
 
 /**
- * Returns exact stock balance for a product from the movement ledger as of a date
- * Stock balance = sum(IN) - sum(OUT)
+ * Returns exact stock balance for a product from the movement ledger as of a date/period
+ * Stock balance = sum(IN) - sum(OUT) = openingStock + inwardStock - outwardStock
+ *
+ * @param {string} productId
+ * @param {string|Date} [asOfDate=getToday()] - End of period / balance date
+ * @param {string|Date} [periodStart=null] - Start of period. If provided, all movements before this are opening balance
  */
-export async function getStockBalance(productId, asOfDate = getToday()) {
+export async function getStockBalance(productId, asOfDate = getToday(), periodStart = null) {
   const asOfStr = formatISTDateString(asOfDate);
   const endUTC = new Date(`${asOfStr}T23:59:59.999+05:30`);
+  const startUTC = periodStart ? new Date(periodStart) : null;
 
   const movements = await StockMovement.findAll({
     where: {
       productId,
       movementDate: { [Op.lte]: endUTC },
     },
-    attributes: ["quantity", "direction", "quantityChange", "movementType"],
+    attributes: ["quantity", "direction", "quantityChange", "movementType", "movementDate", "id"],
+    order: [["movementDate", "ASC"], ["id", "ASC"]],
   });
 
-  let balance = 0;
+  // Fetch product definition for baseline opening stock
+  const prod = await Product.findOne({
+    where: { productId },
+    attributes: ["productId", "name", "category", "unitOfMeasure", "unit", "costPrice", "sellingPrice", "reorderLevel", "warehouseLocation", "extraData"],
+  });
+
+  const baselineOpening = Number(prod?.extraData?.openingStock || 0);
+
   let totalIn = 0;
   let totalInward = 0;
   let openingStock = 0;
   let totalOut = 0;
+  let hasExplicitOpeningInLedger = false;
 
   for (const m of movements) {
     const qty = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
     const dir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
     const mType = String(m.movementType || "").toUpperCase();
+    const mDate = m.movementDate ? new Date(m.movementDate) : new Date();
 
-    if (dir === "IN") {
-      totalIn += qty;
-      balance += qty;
-      if (mType === "OPENING") {
+    const isPriorToPeriod = startUTC ? mDate < startUTC : false;
+
+    if (mType === "OPENING" || isPriorToPeriod) {
+      if (mType === "OPENING") hasExplicitOpeningInLedger = true;
+      if (dir === "IN") {
         openingStock += qty;
+        totalIn += qty;
       } else {
-        totalInward += qty;
+        openingStock -= qty;
+        totalOut += qty;
       }
     } else {
-      totalOut += qty;
-      balance -= qty;
+      if (dir === "IN") {
+        totalInward += qty;
+        totalIn += qty;
+      } else {
+        totalOut += qty;
+      }
     }
   }
+
+  // If the product has a baseline opening stock that was not recorded as an explicit OPENING movement in the ledger
+  if (!hasExplicitOpeningInLedger && baselineOpening > 0) {
+    openingStock += baselineOpening;
+    totalIn += baselineOpening;
+  }
+
+  // If no movements exist at all, check fallback from Inventory / Product
+  if (movements.length === 0 && openingStock === 0) {
+    const inv = await Inventory.findOne({ where: { productId }, attributes: ["currentStock"] });
+    const fallbackBal = Number(inv?.currentStock ?? prod?.extraData?.stock ?? 0);
+    if (fallbackBal > 0) {
+      openingStock = fallbackBal;
+      totalIn = fallbackBal;
+    }
+  }
+
+  const balance = Math.max(0, openingStock + totalInward - totalOut);
 
   return {
     productId,
@@ -52,7 +92,7 @@ export async function getStockBalance(productId, asOfDate = getToday()) {
     openingStock: Math.round(openingStock * 100) / 100,
     totalOut: Math.round(totalOut * 100) / 100,
     asOfDate: asOfStr,
-    hasMovements: movements.length > 0,
+    hasMovements: movements.length > 0 || openingStock > 0,
   };
 }
 
