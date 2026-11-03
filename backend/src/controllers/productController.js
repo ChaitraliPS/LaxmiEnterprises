@@ -116,7 +116,7 @@ export const createProduct = asyncHandler(async (req, res) => {
       productName: product.name,
       category: product.category,
       unit: product.unitOfMeasure,
-      currentStock: openingQty,
+      currentStock: 0,
       minStockAlert: reorderLevel || 10,
       warehouseLocation,
     });

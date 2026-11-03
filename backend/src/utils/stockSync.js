@@ -75,8 +75,15 @@ export async function applyStockChange(
     currentLedgerBalance += mDir === "IN" ? mQty : -mQty;
   }
 
-  // If no ledger movements recorded yet, use physical inventory or product baseline stock
-  if (movements.length === 0) {
+  const direction = qty > 0 ? "IN" : "OUT";
+  const absQty = Math.abs(qty);
+  let resolvedMovementType = movementType || type;
+  if (!resolvedMovementType) {
+    resolvedMovementType = direction === "IN" ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT";
+  }
+
+  // If no ledger movements recorded yet and this is NOT an opening stock transaction, use existing baseline
+  if (movements.length === 0 && resolvedMovementType !== "OPENING" && movementType !== "OPENING") {
     const baseline = Number(inv?.currentStock || prod?.extraData?.stock || prod?.extraData?.openingStock || 0);
     if (baseline > 0) {
       currentLedgerBalance = baseline;
@@ -90,13 +97,6 @@ export async function applyStockChange(
     throw ApiError.badRequest(
       `Insufficient stock for "${prod.name}" (${productId}): Available balance is ${currentLedgerBalance} ${unit}, requested outward transfer is ${Math.abs(qty)} ${unit}. Stock cannot be negative.`
     );
-  }
-
-  const direction = qty > 0 ? "IN" : "OUT";
-  const absQty = Math.abs(qty);
-  let resolvedMovementType = movementType || type;
-  if (!resolvedMovementType) {
-    resolvedMovementType = direction === "IN" ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT";
   }
 
   // Write StockMovement ledger entry
@@ -171,23 +171,53 @@ export async function backfillInventory() {
       }
 
       // Check if any movements exist for this product
-      const movementCount = await StockMovement.count({ where: { productId: pId } });
-      const currentStock = Number(inv.currentStock || initialStock || 0);
+      const movements = await StockMovement.findAll({ where: { productId: pId } });
 
-      if (movementCount === 0 && currentStock > 0) {
+      if (movements.length === 0 && initialStock > 0) {
         await StockMovement.create({
           productId: pId,
           movementType: "OPENING",
-          quantity: currentStock,
+          quantity: initialStock,
           direction: "IN",
           referenceType: "OPENING",
           referenceId: "INITIAL-STOCK",
           warehouseLocation: inv.warehouseLocation || prod.warehouseLocation || "Godown Bay A-1",
           movementDate: prod.createdAt || new Date(),
-          quantityChange: currentStock,
+          quantityChange: initialStock,
           notes: `Automatic initial opening stock backfill for ${prod.name}`,
         });
-        console.log(`⚡ Backfilled opening stock of ${currentStock} for ${prod.name} (${pId})`);
+        inv.currentStock = initialStock;
+        await inv.save();
+        console.log(`⚡ Backfilled opening stock of ${initialStock} for ${prod.name} (${pId})`);
+      } else if (movements.length > 0) {
+        // Enforce ledger truth: balance = sum(IN) - sum(OUT)
+        let ledgerBal = 0;
+        let inTotal = 0;
+        let outTotal = 0;
+        for (const m of movements) {
+          const qty = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
+          const dir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
+          if (dir === "IN") {
+            ledgerBal += qty;
+            inTotal += qty;
+          } else {
+            ledgerBal -= qty;
+            outTotal += qty;
+          }
+        }
+        if (Number(inv.currentStock) !== ledgerBal) {
+          inv.currentStock = ledgerBal;
+          await inv.save();
+        }
+        if (prod.extraData?.stock !== ledgerBal) {
+          prod.extraData = {
+            ...(prod.extraData || {}),
+            stock: ledgerBal,
+            inwardStock: inTotal,
+            outwardStock: outTotal,
+          };
+          await prod.save();
+        }
       }
     }
   } catch (err) {

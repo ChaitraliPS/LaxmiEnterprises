@@ -10,7 +10,7 @@ import multer from "multer";
 import apiRouter from "./routes/index.js";
 import { notFoundHandler, errorHandler } from "./middlewares/errorMiddleware.js";
 import { ApiResponse } from "./utils/apiResponse.js";
-import { dbConnectionState } from "./config/db.js";
+import { dbConnectionState, sequelize } from "./config/db.js";
 
 dotenv.config();
 
@@ -93,8 +93,18 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/uploads", express.static(uploadDir));
 
 // Root health check endpoints
-const healthCheckHandler = (req, res) => {
-  const isDbConnected = dbConnectionState.connected;
+const healthCheckHandler = async (req, res) => {
+  let isDbConnected = dbConnectionState.connected;
+  if (!isDbConnected && sequelize) {
+    try {
+      await sequelize.authenticate();
+      dbConnectionState.connected = true;
+      dbConnectionState.error = null;
+      isDbConnected = true;
+    } catch (err) {
+      dbConnectionState.error = err.message;
+    }
+  }
   const status = isDbConnected ? 200 : 503;
   return res.status(status).json({
     success: isDbConnected,

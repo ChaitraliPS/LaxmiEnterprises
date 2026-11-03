@@ -395,7 +395,7 @@ export const syncProducts = asyncHandler(async (req, res) => {
         productName: record.name,
         category: record.category,
         unit: record.unit,
-        currentStock: requestedStock,
+        currentStock: 0,
         minStockAlert: Number(item.reorderLevel ?? item.minStockAlert ?? 10),
         warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
       });

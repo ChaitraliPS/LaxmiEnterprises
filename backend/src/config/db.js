@@ -100,6 +100,8 @@ export const autoEvolveSchema = async () => {
   }
 };
 
+let reconnectTimer = null;
+
 /**
  * Connect to MySQL and automatically synchronize schema changes
  */
@@ -114,11 +116,25 @@ export const connectDB = async () => {
     await sequelize.authenticate();
     dbConnectionState.connected = true;
     dbConnectionState.error = null;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     console.log(`✅ MySQL Connected Successfully: ${dbHost}/${dbName}`);
   } catch (error) {
     dbConnectionState.connected = false;
     dbConnectionState.error = error.message;
     console.error(`❌ MySQL Connection Error: ${error.message}`);
+    // Schedule retry so temporary reboot / startup delay doesn't leave backend degraded
+    if (!reconnectTimer && process.env.NODE_ENV !== "test") {
+      reconnectTimer = setTimeout(async () => {
+        reconnectTimer = null;
+        if (!dbConnectionState.connected) {
+          console.log("🔄 Retrying MySQL connection...");
+          await connectDB();
+        }
+      }, 3000);
+    }
     console.warn("\n------------------------------------------------------------");
     console.warn("💡 Troubleshooting your MySQL connection:");
     console.warn("1. Check DB_HOST, DB_NAME, DB_USER, DB_PASSWORD in backend/.env");
@@ -139,9 +155,11 @@ export const connectDB = async () => {
     await sequelize.sync();
     console.log("⚡ Schema base sync complete: all model tables verified.");
 
-    // 6. Ensure Inventory rows exist and initial opening stock is backfilled
-    const { backfillInventory } = await import("../utils/stockSync.js");
-    await backfillInventory();
+    // 6. Ensure Inventory rows exist and initial opening stock is backfilled (production/runtime only)
+    if (process.env.NODE_ENV !== "test") {
+      const { backfillInventory } = await import("../utils/stockSync.js");
+      await backfillInventory();
+    }
   } catch (syncErr) {
     console.warn("⚠️ Base sync warning:", syncErr.message);
   }
