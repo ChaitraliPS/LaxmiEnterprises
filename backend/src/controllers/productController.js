@@ -6,7 +6,7 @@ import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { getStockHealth, getStockBalance } from "../services/metrics/stockMetrics.js";
 import { applyStockChange } from "../utils/stockSync.js";
-import { getToday, evaluateStockHealth, canonicalProductCategory } from "../constants/erpConstants.js";
+import { getToday, evaluateStockHealth, canonicalProductCategory, calculateCurrentStock } from "../constants/erpConstants.js";
 
 /**
  * Get all products (calling shared metrics service for exact ledger in/out and valuation)
@@ -26,7 +26,7 @@ export const getProducts = asyncHandler(async (req, res) => {
     const openStock = metrics ? metrics.openingStock : Number(json.openingStock ?? json.extraData?.openingStock ?? 0);
     const inW = metrics ? metrics.totalInward : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0);
     const outW = metrics ? metrics.totalOut : Number(json.outwardStock ?? json.extraData?.outwardStock ?? 0);
-    const balance = metrics ? metrics.currentBalance : Math.max(0, openStock + inW - outW);
+    const balance = metrics ? metrics.currentBalance : calculateCurrentStock({ opening: openStock, inward: inW, outward: outW });
     const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(prod.costPrice || 0);
 
     return {
@@ -82,9 +82,8 @@ export const createProduct = asyncHandler(async (req, res) => {
   let openingStock = Math.max(0, Number(inputData.openingStock ?? 0));
   let inwardStock = Math.max(0, Number(inputData.inwardStock ?? 0));
   const outwardStock = Math.max(0, Number(inputData.outwardStock ?? 0));
-  const reservedStock = Math.max(0, Number(inputData.reservedStock ?? 0));
 
-  let netStock = Math.max(0, (openingStock + inwardStock) - outwardStock - reservedStock);
+  let netStock = calculateCurrentStock({ opening: openingStock, inward: inwardStock, outward: outwardStock });
   if (netStock === 0 && Number(inputData.stock ?? 0) > 0) {
     netStock = Number(inputData.stock);
     if (openingStock === 0 && inwardStock === 0) {
@@ -98,9 +97,9 @@ export const createProduct = asyncHandler(async (req, res) => {
     openingStock,
     inwardStock,
     outwardStock,
-    reservedStock,
     minStock: reorderLevel,
   };
+  delete extraData.reservedStock;
 
   const product = await Product.create({
     productId: inputData.productId,

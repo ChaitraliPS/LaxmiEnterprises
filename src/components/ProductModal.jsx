@@ -45,7 +45,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
         purchasePrice: cp,
         sellingPrice: sp,
         price: sp,
-        gstRate: productToEdit.gstRate !== undefined ? Number(productToEdit.gstRate) : (productToEdit.category === PRODUCT_CATEGORIES.DAIRY ? 0 : 5),
+        gstRate: 0,
         reorderLevel: reorder,
         openingStock: open,
         inwardStock: inW,
@@ -64,7 +64,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
       purchasePrice: "",
       sellingPrice: "",
       price: "",
-      gstRate: 5,
+      gstRate: 0,
       reorderLevel: "",
       openingStock: 0,
       inwardStock: 0,
@@ -86,11 +86,9 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
         if (val === PRODUCT_CATEGORIES.DAIRY && prev.unitOfMeasure === "Bags") {
           next.unitOfMeasure = "Liters";
           next.unit = "Liters";
-          next.gstRate = 0;
         } else if (val === PRODUCT_CATEGORIES.ANIMAL_FEED && prev.unitOfMeasure === "Liters") {
           next.unitOfMeasure = "Bags";
           next.unit = "Bags";
-          next.gstRate = 5;
         }
       }
       return next;
@@ -279,22 +277,6 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                   <option value="Kg">Kg</option>
                 </select>
                 <span className="form-help">Measurement unit (Bags, Liters, Kg)</span>
-              </div>
-
-              {/* GST Rate */}
-              <div className="form-group">
-                <label>GST Rate (%) <RequiredStar /></label>
-                <select
-                  className="form-select"
-                  value={form.gstRate}
-                  onChange={(e) => handleFieldChange("gstRate", Number(e.target.value))}
-                >
-                  <option value={0}>0% (Exempt)</option>
-                  <option value={5}>5% (Standard Animal Feed)</option>
-                  <option value={12}>12%</option>
-                  <option value={18}>18%</option>
-                </select>
-                <span className="form-help">Applicable GST percentage</span>
               </div>
 
               {/* Cost Price (Purchase Rate) - REQUIRED */}

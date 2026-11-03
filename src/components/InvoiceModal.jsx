@@ -60,7 +60,7 @@ export default function InvoiceModal({
       const p = products[0];
       const qty = 1;
       const rate = Number(p.sellingPrice || p.price || 0);
-      const gstRate = Number(p.gstRate || 18);
+      const gstRate = p && p.gstRate !== undefined && p.gstRate !== null && !isNaN(Number(p.gstRate)) ? Number(p.gstRate) : 0;
       const taxable = Math.round(qty * rate);
       const tax = Math.round(taxable * (gstRate / 100));
       return [{
@@ -84,8 +84,8 @@ export default function InvoiceModal({
         unit: "Bags",
         rate: 750,
         taxable: 750,
-        gstRate: 5,
-        total: 788,
+        gstRate: 0,
+        total: 750,
         category: "Animal Feed"
       }
     ];
@@ -137,7 +137,7 @@ export default function InvoiceModal({
   const taxableAmount = items.reduce((sum, it) => sum + (Number(it.taxable) || 0), 0);
   const gstTax = items.reduce((sum, it) => {
     const t = Number(it.taxable) || 0;
-    const r = Number(it.gstRate || 18) / 100;
+    const r = (it.gstRate !== undefined && it.gstRate !== null && !isNaN(Number(it.gstRate)) ? Number(it.gstRate) : 0) / 100;
     return sum + Math.round(t * r);
   }, 0);
   const grandTotal = taxableAmount + gstTax;
@@ -207,7 +207,8 @@ export default function InvoiceModal({
     if (field === "qty" || field === "rate" || field === "gstRate") {
       const q = Number(field === "qty" ? value : item.qty) || 0;
       const r = Number(field === "rate" ? value : item.rate) || 0;
-      const gst = Number(field === "gstRate" ? value : item.gstRate) || 18;
+      const gst = field === "gstRate" ? (value === "" ? 0 : Number(value)) : (item.gstRate !== undefined && item.gstRate !== null ? Number(item.gstRate) : 0);
+      item.gstRate = gst;
       item.taxable = Math.round(q * r);
       const tax = Math.round(item.taxable * (gst / 100));
       item.total = item.taxable + tax;
@@ -233,7 +234,7 @@ export default function InvoiceModal({
     const updated = [...items];
     const currentQty = Number(updated[index]?.qty) || 1;
     const rate = Number(p.sellingPrice || p.price || 0);
-    const gstRate = Number(p.gstRate || 18);
+    const gstRate = p && p.gstRate !== undefined && p.gstRate !== null && !isNaN(Number(p.gstRate)) ? Number(p.gstRate) : 0;
     const taxable = Math.round(currentQty * rate);
     const tax = Math.round(taxable * (gstRate / 100));
 
@@ -265,7 +266,7 @@ export default function InvoiceModal({
     const p = products && products.length > 0 ? products[0] : null;
     const qty = 1;
     const rate = p ? Number(p.sellingPrice || p.price || 0) : 500;
-    const gstRate = p ? Number(p.gstRate || 18) : 18;
+    const gstRate = p && p.gstRate !== undefined && p.gstRate !== null && !isNaN(Number(p.gstRate)) ? Number(p.gstRate) : 0;
     const taxable = Math.round(qty * rate);
     const tax = Math.round(taxable * (gstRate / 100));
 
@@ -844,7 +845,7 @@ export default function InvoiceModal({
                             <select
                               className="form-select"
                               style={{ height: 34, fontSize: "0.82rem", padding: "2px 4px", textAlign: "center" }}
-                              value={it.gstRate || 18}
+                              value={it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : 0}
                               onChange={(e) => handleItemChange(idx, "gstRate", e.target.value)}
                             >
                               <option value="0">0%</option>

@@ -2,6 +2,8 @@ import { Inventory } from "../models/Inventory.js";
 import { Product } from "../models/Product.js";
 import { StockMovement } from "../models/StockMovement.js";
 import { ApiError } from "./apiError.js";
+import { sequelize } from "../config/db.js";
+import { calculateCurrentStock, getToday } from "../constants/erpConstants.js";
 
 /**
  * Executes a transactional stock change.
@@ -30,150 +32,200 @@ export async function applyStockChange(
     movementType,
     referenceType = "MANUAL",
     reference = "",
-    date = new Date(),
+    date,
     createdBy = "System",
     transaction,
   } = {}
 ) {
-  const qty = Number(delta) || 0;
-  if (qty === 0) return { balance: 0, applied: 0 };
+  const qty = Number(delta);
+  if (isNaN(qty) || qty === 0) return { balance: 0, applied: 0 };
 
-  const prod = await Product.findOne({ where: { productId }, transaction });
-  if (!prod) {
-    throw ApiError.notFound(`Product with ID "${productId}" not found in catalogue.`);
-  }
+  const ownTransaction = !transaction;
+  const t = transaction || (await sequelize.transaction());
 
-  let inv = await Inventory.findOne({ where: { productId }, transaction });
-  const loc = warehouseLocation || location || prod.warehouseLocation || (prod.category === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1");
+  try {
+    const prod = await Product.findOne({
+      where: { productId },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!prod) {
+      throw ApiError.notFound(`Product with ID "${productId}" not found in catalogue.`);
+    }
 
-  if (!inv) {
-    inv = await Inventory.create(
-      {
-        productId: prod.productId,
-        productName: prod.name,
-        category: prod.category,
-        unit: prod.unitOfMeasure || prod.unit || "Bags",
-        currentStock: 0,
-        minStockAlert: prod.reorderLevel || 10,
-        warehouseLocation: loc,
-      },
-      { transaction }
-    );
-  }
+    let inv = await Inventory.findOne({
+      where: { productId },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    const loc = warehouseLocation || location || prod.warehouseLocation || (prod.category === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1");
 
-  // Calculate current ledger balance from movements
-  const movements = await StockMovement.findAll({
-    where: { productId },
-    attributes: ["quantity", "direction", "quantityChange", "movementType"],
-    transaction,
-  });
+    if (!inv) {
+      inv = await Inventory.create(
+        {
+          productId: prod.productId,
+          productName: prod.name,
+          category: prod.category,
+          unit: prod.unitOfMeasure || prod.unit || "Bags",
+          currentStock: 0,
+          minStockAlert: prod.reorderLevel || 10,
+          warehouseLocation: loc,
+        },
+        { transaction: t }
+      );
+    }
 
-  const hasOpening = movements.some(m => String(m.movementType || "").toUpperCase() === "OPENING");
-  const baselineOpening = Number(prod?.extraData?.openingStock ?? (movements.length === 0 ? (inv?.currentStock || prod?.extraData?.stock || 0) : 0));
+    // Calculate current ledger balance from movements with row-lock
+    const movements = await StockMovement.findAll({
+      where: { productId },
+      attributes: ["quantity", "direction", "quantityChange", "movementType"],
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
 
-  let currentLedgerBalance = 0;
-  for (const m of movements) {
-    const mQty = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
-    const mDir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
-    currentLedgerBalance += mDir === "IN" ? mQty : -mQty;
-  }
+    let openingTotal = 0;
+    let inTotal = 0;
+    let outTotal = 0;
+    let hasOpening = false;
 
-  const direction = qty > 0 ? "IN" : "OUT";
-  const absQty = Math.abs(qty);
-  let resolvedMovementType = movementType || type;
-  if (!resolvedMovementType) {
-    resolvedMovementType = direction === "IN" ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT";
-  }
+    for (const m of movements) {
+      const mQty = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
+      const mDir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
+      const mType = String(m.movementType || "").toUpperCase();
 
-  const effectiveDate = date
-    ? new Date(date)
-    : (process.env.ANCHOR_DATE ? new Date(`${process.env.ANCHOR_DATE}T12:00:00.000+05:30`) : new Date());
+      if (mType === "OPENING") {
+        hasOpening = true;
+        if (mDir === "IN") openingTotal += mQty;
+        else openingTotal -= mQty;
+      } else if (mDir === "IN") {
+        inTotal += mQty;
+      } else {
+        outTotal += mQty;
+      }
+    }
 
-  // If no explicit OPENING movement exists in the ledger and product has an initial baseline opening stock,
-  // backfill the OPENING movement into the ledger now to preserve full audit trail
-  if (!hasOpening && baselineOpening > 0 && resolvedMovementType !== "OPENING") {
-    const initialDate = prod.createdAt ? new Date(new Date(prod.createdAt).getTime() - 1000) : new Date(effectiveDate.getTime() - 60000);
-    await StockMovement.create(
+    const baselineOpening = Number(prod?.extraData?.openingStock ?? (movements.length === 0 ? (inv?.currentStock || prod?.extraData?.stock || 0) : 0));
+
+    const direction = qty > 0 ? "IN" : "OUT";
+    const absQty = Math.abs(qty);
+    let resolvedMovementType = movementType || type;
+    if (!resolvedMovementType) {
+      resolvedMovementType = direction === "IN" ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT";
+    }
+
+    const effectiveDate = date
+      ? new Date(date)
+      : (process.env.ANCHOR_DATE || process.env.TEST_ANCHOR_DATE
+          ? new Date(`${getToday()}T12:00:00.000+05:30`)
+          : new Date());
+
+    // If no explicit OPENING movement exists in the ledger and product has an initial baseline opening stock,
+    // backfill the OPENING movement into the ledger now to preserve full audit trail
+    if (!hasOpening && baselineOpening > 0 && resolvedMovementType !== "OPENING") {
+      const initialDate = prod.createdAt ? new Date(new Date(prod.createdAt).getTime() - 1000) : new Date(effectiveDate.getTime() - 60000);
+      await StockMovement.create(
+        {
+          productId,
+          quantity: baselineOpening,
+          direction: "IN",
+          movementType: "OPENING",
+          referenceType: "OPENING",
+          referenceId: "INITIAL-STOCK",
+          movementDate: initialDate,
+          warehouseLocation: loc,
+          createdBy: "System",
+          quantityChange: baselineOpening,
+          type: "OPENING",
+          reference: "Initial opening stock baseline",
+          notes: `Opening stock baseline for ${prod.name}`,
+        },
+        { transaction: t }
+      );
+      openingTotal += baselineOpening;
+      hasOpening = true;
+    }
+
+    const currentLedgerBalance = calculateCurrentStock({
+      opening: openingTotal,
+      inward: inTotal,
+      outward: outTotal,
+    });
+
+    // Block the transaction if outward movement exceeds current stock
+    if (qty < 0 && absQty > currentLedgerBalance) {
+      const unit = prod.unitOfMeasure || prod.unit || "units";
+      throw ApiError.badRequest(
+        `Insufficient stock for "${prod.name}" (${productId}): Available balance is ${currentLedgerBalance} ${unit}, requested outward transfer is ${absQty} ${unit}. Stock cannot be negative.`
+      );
+    }
+
+    // Write StockMovement ledger entry
+    const movement = await StockMovement.create(
       {
         productId,
-        quantity: baselineOpening,
-        direction: "IN",
-        movementType: "OPENING",
-        referenceType: "OPENING",
-        referenceId: "INITIAL-STOCK",
-        movementDate: initialDate,
+        quantity: absQty,
+        direction,
+        movementType: resolvedMovementType,
+        referenceType: referenceType || resolvedMovementType,
+        referenceId: reference || "",
+        movementDate: effectiveDate,
         warehouseLocation: loc,
-        createdBy: "System",
-        quantityChange: baselineOpening,
-        type: "OPENING",
-        reference: "Initial opening stock baseline",
-        notes: `Opening stock baseline for ${prod.name}`,
+        createdBy: createdBy || "System",
+        quantityChange: qty,
+        type: resolvedMovementType,
+        reference: reference || "",
+        date: effectiveDate,
+        notes: `${direction} movement of ${absQty} ${prod.unitOfMeasure || "units"} (Reference: ${reference})`,
       },
-      { transaction }
+      { transaction: t }
     );
-    currentLedgerBalance += baselineOpening;
-  }
 
-  // Block the transaction if stock would become negative
-  const resultingBalance = currentLedgerBalance + qty;
-  if (resultingBalance < 0) {
-    const unit = prod.unitOfMeasure || prod.unit || "units";
-    throw ApiError.badRequest(
-      `Insufficient stock for "${prod.name}" (${productId}): Available balance is ${currentLedgerBalance} ${unit}, requested outward transfer is ${Math.abs(qty)} ${unit}. Stock cannot be negative.`
-    );
-  }
+    // Compute updated totals
+    const newOpening = openingTotal + (resolvedMovementType === "OPENING" ? absQty : 0);
+    const newInward = inTotal + (direction === "IN" && resolvedMovementType !== "OPENING" ? absQty : 0);
+    const newOutward = outTotal + (direction === "OUT" ? absQty : 0);
+    const resultingBalance = calculateCurrentStock({
+      opening: newOpening,
+      inward: newInward,
+      outward: newOutward,
+    });
 
-  // Write StockMovement ledger entry
-  const movement = await StockMovement.create(
-    {
-      productId,
-      quantity: absQty,
-      direction,
-      movementType: resolvedMovementType,
-      referenceType: referenceType || resolvedMovementType,
-      referenceId: reference || "",
-      movementDate: effectiveDate,
-      warehouseLocation: loc,
-      createdBy: createdBy || "System",
-      quantityChange: qty,
-      type: resolvedMovementType,
-      reference: reference || "",
-      date: effectiveDate,
-      notes: `${direction} movement of ${absQty} ${prod.unitOfMeasure || "units"} (Reference: ${reference})`,
-    },
-    { transaction }
-  );
+    // Update cached inventory column in the same transaction
+    inv.currentStock = resultingBalance;
+    inv.warehouseLocation = loc;
+    inv.lastUpdated = effectiveDate;
+    await inv.save({ transaction: t });
 
-  // Update cached inventory column in the same transaction
-  inv.currentStock = resultingBalance;
-  inv.warehouseLocation = loc;
-  inv.lastUpdated = effectiveDate;
-  await inv.save({ transaction });
-
-  // Keep Product metadata/extraData in sync
-  if (prod) {
+    // Keep Product metadata/extraData in sync
     const extra = { ...(prod.extraData || {}) };
+    delete extra.reservedStock;
     extra.stock = resultingBalance;
-    if (resolvedMovementType === "OPENING") {
-      extra.openingStock = Math.abs(qty);
-    } else if (direction === "IN") {
-      extra.inwardStock = (Number(extra.inwardStock) || 0) + Math.abs(qty);
-    } else {
-      extra.outwardStock = (Number(extra.outwardStock) || 0) + Math.abs(qty);
-    }
-    if (baselineOpening > 0 && !extra.openingStock) {
-      extra.openingStock = baselineOpening;
-    }
+    extra.openingStock = newOpening;
+    extra.inwardStock = newInward;
+    extra.outwardStock = newOutward;
     prod.extraData = extra;
-    await prod.save({ transaction });
-  }
+    await prod.save({ transaction: t });
 
-  return {
-    movementId: movement.id,
-    previousBalance: currentLedgerBalance,
-    newBalance: resultingBalance,
-    applied: qty,
-  };
+    if (ownTransaction) {
+      await t.commit();
+    }
+
+    return {
+      movementId: movement.id,
+      previousBalance: currentLedgerBalance,
+      newBalance: resultingBalance,
+      applied: qty,
+      currentStock: resultingBalance,
+      openingStock: newOpening,
+      inwardStock: newInward,
+      outwardStock: newOutward,
+    };
+  } catch (err) {
+    if (ownTransaction) {
+      await t.rollback();
+    }
+    throw err;
+  }
 }
 
 /**
@@ -251,17 +303,19 @@ export async function backfillInventory() {
         ledgerBal += registeredOpening;
       }
 
+      ledgerBal = calculateCurrentStock({ opening: openingTotal, inward: inTotal, outward: outTotal });
+
       if (Number(inv.currentStock) !== ledgerBal) {
         inv.currentStock = ledgerBal;
         await inv.save();
       }
-      prod.extraData = {
-        ...(prod.extraData || {}),
-        stock: ledgerBal,
-        openingStock: openingTotal,
-        inwardStock: inTotal,
-        outwardStock: outTotal,
-      };
+      const extra = { ...(prod.extraData || {}) };
+      delete extra.reservedStock;
+      extra.stock = ledgerBal;
+      extra.openingStock = openingTotal;
+      extra.inwardStock = inTotal;
+      extra.outwardStock = outTotal;
+      prod.extraData = extra;
       await prod.save();
     }
   } catch (err) {

@@ -6,7 +6,8 @@ import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { getStockHealth } from "../services/metrics/stockMetrics.js";
 import { applyStockChange } from "../utils/stockSync.js";
-import { getToday } from "../constants/erpConstants.js";
+import { getToday, calculateCurrentStock } from "../constants/erpConstants.js";
+import { sequelize } from "../config/db.js";
 
 /**
  * Get inventory overview with per-unit totals and product health
@@ -68,31 +69,46 @@ export const recordStockMovement = asyncHandler(async (req, res) => {
     throw ApiError.badRequest("productId is required");
   }
 
-  let delta = 0;
-  if (adjustment !== undefined && !isNaN(Number(adjustment))) {
-    delta = Number(adjustment);
-  } else if (quantity !== undefined && !isNaN(Number(quantity))) {
-    const isOut = String(movementType || "").toLowerCase() === "outward" || String(movementType || "").toUpperCase().includes("OUT");
-    delta = isOut ? -Math.abs(Number(quantity)) : Math.abs(Number(quantity));
+  // Parse inputs with Number() so strings like "5" are never concatenated ("50" + "5" = "505")
+  let rawQty;
+  if (quantity !== undefined && quantity !== null && String(quantity).trim() !== "") {
+    rawQty = Number(quantity);
+  } else if (adjustment !== undefined && adjustment !== null && String(adjustment).trim() !== "") {
+    rawQty = Math.abs(Number(adjustment));
+  } else {
+    throw ApiError.badRequest("Quantity is required");
   }
 
-  if (delta === 0) {
-    throw ApiError.badRequest("Adjustment quantity must be a non-zero number (+inward / -outward)");
+  // Validate on SERVER: quantity must be a positive integer
+  if (isNaN(rawQty) || !Number.isInteger(rawQty) || rawQty <= 0) {
+    throw ApiError.badRequest("Quantity must be a positive integer");
   }
 
+  const isOut = String(movementType || "").toLowerCase() === "outward" ||
+    String(movementType || "").toUpperCase().includes("OUT") ||
+    (adjustment !== undefined && Number(adjustment) < 0);
+
+  const delta = isOut ? -rawQty : rawQty;
   const mType = movementType
     ? (movementType === "inward" ? "ADJUSTMENT_IN" : movementType === "outward" ? "ADJUSTMENT_OUT" : movementType)
     : (delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT");
 
-  const result = await applyStockChange(productId, delta, {
-    warehouseLocation,
-    movementType: mType,
-    referenceType: "MANUAL",
-    reference: reference || reason || notes || "Stock Movement Entry",
-    notes: notes || reason || "",
-  });
-
-  return ApiResponse.created(res, result, `Stock movement of ${delta > 0 ? "+" : ""}${delta} recorded successfully`);
+  const t = await sequelize.transaction();
+  try {
+    const result = await applyStockChange(productId, delta, {
+      warehouseLocation,
+      movementType: mType,
+      referenceType: "MANUAL",
+      reference: reference || reason || notes || "Stock Movement Entry",
+      notes: notes || reason || "",
+      transaction: t,
+    });
+    await t.commit();
+    return ApiResponse.created(res, result, `Stock movement of ${delta > 0 ? "+" : ""}${delta} recorded successfully`);
+  } catch (err) {
+    await t.rollback();
+    throw err;
+  }
 });
 
 /**
@@ -102,24 +118,41 @@ export const adjustStock = asyncHandler(async (req, res) => {
   const { productId } = req.params;
   const { adjustment, warehouseLocation, reason, movementType } = req.body;
 
-  const qty = Number(adjustment);
-  if (isNaN(qty) || qty === 0) {
+  if (adjustment === undefined || adjustment === null || String(adjustment).trim() === "") {
     throw ApiError.badRequest("adjustment must be a non-zero number (+inward / -outward)");
   }
 
-  const mType = movementType || (qty > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT");
-  const result = await applyStockChange(productId, qty, {
-    warehouseLocation,
-    movementType: mType,
-    referenceType: "ADJUSTMENT",
-    reference: reason || "Manual stock adjustment",
-  });
+  const rawQty = Math.abs(Number(adjustment));
+  if (isNaN(rawQty) || !Number.isInteger(rawQty) || rawQty <= 0) {
+    throw ApiError.badRequest("Quantity must be a positive integer");
+  }
 
-  return ApiResponse.success(
-    res,
-    result,
-    `Stock ${qty > 0 ? "increased" : "decreased"} successfully`
-  );
+  const isOut = String(movementType || "").toLowerCase() === "outward" ||
+    String(movementType || "").toUpperCase().includes("OUT") ||
+    Number(adjustment) < 0;
+
+  const qty = isOut ? -rawQty : rawQty;
+  const mType = movementType || (qty > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT");
+
+  const t = await sequelize.transaction();
+  try {
+    const result = await applyStockChange(productId, qty, {
+      warehouseLocation,
+      movementType: mType,
+      referenceType: "ADJUSTMENT",
+      reference: reason || "Manual stock adjustment",
+      transaction: t,
+    });
+    await t.commit();
+    return ApiResponse.success(
+      res,
+      result,
+      `Stock ${qty > 0 ? "increased" : "decreased"} successfully`
+    );
+  } catch (err) {
+    await t.rollback();
+    throw err;
+  }
 });
 
 /**

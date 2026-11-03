@@ -218,9 +218,12 @@ export const createInvoice = asyncHandler(async (req, res) => {
         throw ApiError.badRequest(`Discount (₹${discount}) cannot exceed line total (₹${lineGross}) for product "${prod.name}" (${prodId}).`);
       }
 
-      // Do not trust client-sent calculations: use Product master price and GST rate
+      // Determine gstRate: honor line-item selection, fallback to product master
       const taxable = Math.max(0, Math.round((lineGross - discount) * 100) / 100);
-      const gstRate = Number(prod.gstRate || 0);
+      const rawLineGst = line.gstRate ?? line.gst;
+      const gstRate = (rawLineGst !== undefined && rawLineGst !== null && !isNaN(Number(rawLineGst)))
+        ? Math.max(0, Number(rawLineGst))
+        : Math.max(0, Number(prod.gstRate || 0));
       const gstAmt = Math.round(taxable * (gstRate / 100) * 100) / 100;
       const lineTotal = Math.round((taxable + gstAmt) * 100) / 100;
 
@@ -268,11 +271,6 @@ export const createInvoice = asyncHandler(async (req, res) => {
       paidAmount = Number(inputData.paidAmount);
       if (isNaN(paidAmount) || !isFinite(paidAmount) || paidAmount < 0) {
         throw ApiError.badRequest(`Paid amount must be a valid non-negative number. Received: ${inputData.paidAmount}`);
-      }
-      if (paidAmount > calculatedGrandTotal + 0.005) {
-        throw ApiError.badRequest(
-          `Initial payment amount (₹${paidAmount}) exceeds invoice grand total (₹${calculatedGrandTotal}). Overpayment is not allowed.`
-        );
       }
     }
     paidAmount = Math.round(paidAmount * 100) / 100;

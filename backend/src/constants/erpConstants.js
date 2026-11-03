@@ -3,6 +3,28 @@
  * Single Source of Truth for Backend modules (Self-contained, zero external path dependencies).
  */
 
+/**
+ * Single source of truth stock equation:
+ * Current Stock = Opening Stock + Inward Received - Outward Dispatched
+ *
+ * @param {Object} params
+ * @param {number|string} [params.opening] - Opening Stock
+ * @param {number|string} [params.openingStock] - Opening Stock alias
+ * @param {number|string} [params.inward] - Inward Received
+ * @param {number|string} [params.inwardStock] - Inward Received alias
+ * @param {number|string} [params.in] - Inward Received alias
+ * @param {number|string} [params.outward] - Outward Dispatched
+ * @param {number|string} [params.outwardStock] - Outward Dispatched alias
+ * @param {number|string} [params.out] - Outward Dispatched alias
+ * @returns {number} Opening + Inward - Outward
+ */
+export function calculateCurrentStock(params = {}) {
+  const opening = Number(params?.opening ?? params?.openingStock ?? 0) || 0;
+  const inward = Number(params?.inward ?? params?.inwardStock ?? params?.in ?? 0) || 0;
+  const outward = Number(params?.outward ?? params?.outwardStock ?? params?.out ?? 0) || 0;
+  return opening + inward - outward;
+}
+
 // Real IST Date string (YYYY-MM-DD)
 export function getRealISTDateString() {
   const formatter = new Intl.DateTimeFormat("en-CA", {

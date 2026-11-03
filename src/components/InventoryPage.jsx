@@ -14,6 +14,7 @@ import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { downloadCSV } from "../utils/exportUtils";
 import { erpApi } from "../services/api";
 import { formatDate } from "../utils/formatters";
+import { calculateCurrentStock } from "../constants/erpConstants";
 
 export default function InventoryPage({ inventory = [], onSaveInventory, products = [], onSaveProducts, onRefresh }) {
   const [search, setSearch] = useState("");
@@ -85,7 +86,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
       const openStock = Number(p.openingStock || 0);
       const stockIn = Number(p.inwardStock ?? p.in ?? 0);
       const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-      const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
+      const balance = calculateCurrentStock({ opening: openStock, inward: stockIn, outward: stockOut });
 
       inMap[u] = (inMap[u] || 0) + stockIn;
       outMap[u] = (outMap[u] || 0) + stockOut;
@@ -102,7 +103,11 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
   const lowCount = useMemo(() => combinedProducts.filter(p => {
     const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
     if (!hasReorder) return false;
-    const balance = Number(p.currentStock ?? p.stock ?? 0);
+    const balance = calculateCurrentStock({
+      opening: p.openingStock,
+      inward: p.inwardStock ?? p.in,
+      outward: p.outwardStock ?? p.out,
+    });
     return balance <= Number(p.reorderLevel);
   }).length, [combinedProducts]);
 
@@ -125,10 +130,15 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
 
   const filteredProducts = useMemo(() => {
     return combinedProducts.filter(p => {
+      const balance = calculateCurrentStock({
+        opening: p.openingStock,
+        inward: p.inwardStock ?? p.in,
+        outward: p.outwardStock ?? p.out,
+      });
       const status = p.stockStatus || (
         p.reorderLevel === null || p.reorderLevel === undefined
           ? "Not set"
-          : (Number(p.currentStock ?? p.stock ?? 0) <= 0 ? "Out of Stock" : Number(p.currentStock ?? p.stock ?? 0) <= Number(p.reorderLevel) ? "Low Stock" : "In Stock")
+          : (balance <= 0 ? "Out of Stock" : balance <= Number(p.reorderLevel) ? "Low Stock" : "In Stock")
       );
       if (statusFilter !== "All" && status !== statusFilter) {
         return false;
@@ -183,7 +193,9 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
       setModalOpen(false);
       setSelectedProductForModal(null);
     } catch (err) {
-      showToast(`⚠️ Movement error: ${err.message}`);
+      const errMsg = err?.response?.data?.message || err.message || "Failed to record movement";
+      showToast(`⚠️ Movement error: ${errMsg}`);
+      throw err;
     }
   };
 

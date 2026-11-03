@@ -6,7 +6,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { getStockHealth, getStockBalance } from "../services/metrics/stockMetrics.js";
 import { getReceivables } from "../services/metrics/salesMetrics.js";
 import { getVendorPayables } from "../services/metrics/purchaseMetrics.js";
-import { getToday, evaluateStockHealth, canonicalClientType, canonicalVendorType, canonicalProductCategory } from "../constants/erpConstants.js";
+import { getToday, evaluateStockHealth, canonicalClientType, canonicalVendorType, canonicalProductCategory, calculateCurrentStock } from "../constants/erpConstants.js";
 
 /**
  * Get all ERP data from MySQL database with server-derived metrics
@@ -74,7 +74,7 @@ export const getAllData = asyncHandler(async (req, res) => {
         const openStock = metrics ? metrics.openingStock : Number(json.openingStock ?? json.extraData?.openingStock ?? 0);
         const inW = metrics ? metrics.totalInward : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0);
         const outW = metrics ? metrics.totalOut : Number(json.outwardStock ?? json.extraData?.outwardStock ?? 0);
-        const balance = metrics ? metrics.currentBalance : Math.max(0, openStock + inW - outW);
+        const balance = metrics ? metrics.currentBalance : calculateCurrentStock({ opening: openStock, inward: inW, outward: outW });
         const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(p.costPrice || 0);
         return {
           ...json,
@@ -99,8 +99,8 @@ export const getAllData = asyncHandler(async (req, res) => {
           const base = toInventoryView(i, p);
           const openStock = metrics ? metrics.openingStock : Number(p?.extraData?.openingStock ?? 0);
           const inW = metrics ? metrics.totalInward : Number(p?.extraData?.inwardStock ?? 0);
-          const outW = metrics ? metrics.totalOut : 0;
-          const balance = metrics ? metrics.currentBalance : Math.max(0, openStock + inW - outW);
+          const outW = metrics ? metrics.totalOut : Number(p?.extraData?.outwardStock ?? 0);
+          const balance = metrics ? metrics.currentBalance : calculateCurrentStock({ opening: openStock, inward: inW, outward: outW });
           return {
             ...base,
             openingStock: openStock,
@@ -121,8 +121,8 @@ export const getAllData = asyncHandler(async (req, res) => {
             const metrics = healthMap.get(p.productId);
             const openStock = metrics ? metrics.openingStock : Number(p.extraData?.openingStock ?? 0);
             const inW = metrics ? metrics.totalInward : Number(p.extraData?.inwardStock ?? 0);
-            const outW = metrics ? metrics.totalOut : 0;
-            const balance = metrics ? metrics.currentBalance : Math.max(0, openStock + inW - outW);
+            const outW = metrics ? metrics.totalOut : Number(p.extraData?.outwardStock ?? 0);
+            const balance = metrics ? metrics.currentBalance : calculateCurrentStock({ opening: openStock, inward: inW, outward: outW });
             return {
               productId: p.productId,
               productName: p.name,
@@ -353,9 +353,8 @@ export const syncProducts = asyncHandler(async (req, res) => {
     let openingStock = Math.max(0, Number(item.openingStock ?? 0));
     let inwardStock = Math.max(0, Number(item.inwardStock ?? 0));
     const outwardStock = Math.max(0, Number(item.outwardStock ?? 0));
-    const reservedStock = Math.max(0, Number(item.reservedStock ?? 0));
 
-    let requestedStock = Math.max(0, (openingStock + inwardStock) - outwardStock - reservedStock);
+    let requestedStock = calculateCurrentStock({ opening: openingStock, inward: inwardStock, outward: outwardStock });
     if (requestedStock === 0 && Number(item.stock ?? item.currentStock ?? 0) > 0) {
       requestedStock = Number(item.stock ?? item.currentStock ?? 0);
       if (openingStock === 0 && inwardStock === 0) {
@@ -369,9 +368,9 @@ export const syncProducts = asyncHandler(async (req, res) => {
       openingStock,
       inwardStock,
       outwardStock,
-      reservedStock,
       minStock: item.minStock || item.reorderLevel || 10,
     };
+    delete extraData.reservedStock;
 
     const productData = {
       productId,

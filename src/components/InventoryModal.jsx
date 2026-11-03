@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
 import {
   X, Save, AlertTriangle, Boxes, Warehouse, TrendingUp, TrendingDown,
-  Package, Info
+  Package, Info, Loader2
 } from "lucide-react";
 import { FieldError, RequiredStar, ValidationSummary } from "./ValidationFeedback";
+import { calculateCurrentStock } from "../constants/erpConstants";
 
 /**
  * InventoryModal — Stock Movement Entry
@@ -41,15 +42,22 @@ export default function InventoryModal({
   });
 
   const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Derive selected product details
   const selectedProduct = products.find(p => String(p.id) === String(form.productId)) || null;
   const currentStock = selectedProduct
-    ? Number(selectedProduct.stock ?? selectedProduct.currentStock ?? 0)
+    ? (selectedProduct.openingStock !== undefined || selectedProduct.inwardStock !== undefined || selectedProduct.outwardStock !== undefined
+        ? calculateCurrentStock({
+            opening: selectedProduct.openingStock,
+            inward: selectedProduct.inwardStock ?? selectedProduct.in,
+            outward: selectedProduct.outwardStock ?? selectedProduct.out,
+          })
+        : Number(selectedProduct.stock ?? selectedProduct.currentStock ?? 0))
     : 0;
   const afterAdjustment = form.movementType === "inward"
     ? currentStock + (Number(form.quantity) || 0)
-    : Math.max(0, currentStock - (Number(form.quantity) || 0));
+    : calculateCurrentStock({ opening: currentStock, inward: 0, outward: Number(form.quantity) || 0 });
 
   const handleProductChange = (prodId) => {
     const p = products.find(pr => String(pr.id) === String(prodId));
@@ -71,8 +79,8 @@ export default function InventoryModal({
     const errs = {};
     if (!form.productId) errs.productId = "Please select a product from the catalogue.";
     const qty = Number(form.quantity);
-    if (!form.quantity || isNaN(qty) || qty <= 0) {
-      errs.quantity = "Quantity must be a positive number.";
+    if (!form.quantity || isNaN(qty) || !Number.isInteger(qty) || qty <= 0) {
+      errs.quantity = "Quantity must be a positive integer.";
     } else if (form.movementType === "outward" && qty > currentStock) {
       errs.quantity = `Cannot dispatch more than available stock (${currentStock} units).`;
     }
@@ -83,25 +91,33 @@ export default function InventoryModal({
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (isSubmitting || !validate()) return;
+    const qty = Number(form.quantity);
     const adjustment = form.movementType === "inward"
-      ? Number(form.quantity)
-      : -Number(form.quantity);
+      ? qty
+      : -qty;
 
-    onSave({
-      productId: form.productId,
-      productName: selectedProduct?.name || "",
-      adjustment,
-      movementType: form.movementType,
-      quantity: Number(form.quantity),
-      warehouseLocation: form.warehouseLocation,
-      reason: form.reason || (form.movementType === "inward" ? "Purchase / Inward" : "Sale / Outward"),
-      sku: selectedProduct?.sku || selectedProduct?.id || "",
-      category: selectedProduct?.category || "",
-      unit: selectedProduct?.unit || "Units",
-    });
+    try {
+      setIsSubmitting(true);
+      await onSave({
+        productId: form.productId,
+        productName: selectedProduct?.name || "",
+        adjustment,
+        movementType: form.movementType,
+        quantity: qty,
+        warehouseLocation: form.warehouseLocation,
+        reason: form.reason || (form.movementType === "inward" ? "Purchase / Inward" : "Sale / Outward"),
+        sku: selectedProduct?.sku || selectedProduct?.id || "",
+        category: selectedProduct?.category || "",
+        unit: selectedProduct?.unit || "Units",
+      });
+    } catch (err) {
+      // Handled in parent or toast
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const isOutward = form.movementType === "outward";
@@ -367,13 +383,13 @@ export default function InventoryModal({
             gap: 12,
             marginTop: "auto"
           }}>
-            <button type="button" className="outline" onClick={onClose} style={{ minWidth: 100 }}>
+            <button type="button" className="outline" onClick={onClose} disabled={isSubmitting} style={{ minWidth: 100 }}>
               Cancel
             </button>
             <button
               type="submit"
               className="primary"
-              disabled={products.length === 0}
+              disabled={products.length === 0 || isSubmitting}
               style={{
                 background: isOutward ? "#ef4444" : undefined,
                 minWidth: 180,
@@ -381,10 +397,21 @@ export default function InventoryModal({
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 8,
+                opacity: isSubmitting ? 0.75 : 1,
+                cursor: isSubmitting ? "not-allowed" : "pointer"
               }}
             >
-              <Save size={15} />
-              {isOutward ? "Record Outward Dispatch" : "Record Inward Receipt"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={15} className="spinner" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <Save size={15} />
+                  <span>{isOutward ? "Record Outward Dispatch" : "Record Inward Receipt"}</span>
+                </>
+              )}
             </button>
           </div>
         </form>

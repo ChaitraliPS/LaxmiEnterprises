@@ -1,9 +1,15 @@
+import { calculateCurrentStock } from "../constants/erpConstants";
+
+export { calculateCurrentStock };
+
 /**
  * Stock Calculation Service for Laxmi Enterprises ERP
  * Provides precise, transparent stock accounting & audit math for Products & Inventory.
  *
- * Specific Mathematical Formula:
- *   Current Available Stock = (Opening Stock + Total Inward Received) - Total Outward Dispatched - Reserved Stock
+ * Specific Mathematical Formula (Single Source of Truth):
+ *   Current Stock = Opening Stock + Inward Received - Outward Dispatched
+ *
+ * NOTE: There is NO reserved stock in this system.
  */
 
 /**
@@ -41,13 +47,13 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
   }
   outwardStock = Math.max(0, outwardStock);
 
-  // Reserved or damaged / quarantined stock
-  const reservedStock = Math.max(0, Number(product.reservedStock) || 0);
-
-  // Specific Mathematical Calculation
+  // Single Source of Truth Stock Equation: Opening + Inward - Outward
   const grossInward = openingStock + inwardStock;
-  const totalDeductions = outwardStock + reservedStock;
-  const currentAvailableStock = Math.max(0, grossInward - totalDeductions);
+  const currentAvailableStock = calculateCurrentStock({
+    opening: openingStock,
+    inward: inwardStock,
+    outward: outwardStock,
+  });
 
   // Safety threshold & reorder level analysis
   const hasReorder = product.reorderLevel !== undefined && product.reorderLevel !== null && product.reorderLevel !== "";
@@ -86,7 +92,7 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
   // Turnover / Fulfillment Rate
   const turnoverPercent = grossInward > 0 ? Math.min(100, Math.round((outwardStock / grossInward) * 100)) : 0;
 
-  // Step-by-Step Ledger Audit Steps
+  // Step-by-Step Ledger Audit Steps (NO RESERVED STOCK)
   const auditSteps = [
     {
       step: 1,
@@ -118,13 +124,6 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
     },
     {
       step: 5,
-      label: "Reserved Stock (- Quarantine / Hold)",
-      sign: "-",
-      quantity: reservedStock,
-      description: "Allocated customer orders, damaged stock, or quality assurance hold"
-    },
-    {
-      step: 6,
       label: "Current Available Stock",
       sign: "=",
       quantity: currentAvailableStock,
@@ -132,15 +131,13 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
     }
   ];
 
-  const formulaText = `(${openingStock} Opening + ${inwardStock} Inward) - ${outwardStock} Outward - ${reservedStock} Reserved = ${currentAvailableStock} Available`;
+  const formulaText = `(${openingStock} Opening + ${inwardStock} Inward) - ${outwardStock} Outward = ${currentAvailableStock} Available`;
 
   return {
     openingStock,
     inwardStock,
     outwardStock,
-    reservedStock,
     grossInward,
-    totalDeductions,
     currentAvailableStock,
     minStock,
     bufferMargin,
@@ -163,14 +160,18 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
 /**
  * Recalculates simulated stock based on hypothetical adjustments.
  */
-export function simulateStock(baseOpening, baseInward, baseOutward, baseReserved, addInward = 0, addOutward = 0) {
-  const newInward = Math.max(0, baseInward + Number(addInward || 0));
-  const newOutward = Math.max(0, baseOutward + Number(addOutward || 0));
-  const newAvailable = Math.max(0, (baseOpening + newInward) - newOutward - baseReserved);
+export function simulateStock(baseOpening, baseInward, baseOutward, addInward = 0, addOutward = 0) {
+  const newInward = Math.max(0, Number(baseInward || 0) + Number(addInward || 0));
+  const newOutward = Math.max(0, Number(baseOutward || 0) + Number(addOutward || 0));
+  const newAvailable = calculateCurrentStock({
+    opening: baseOpening,
+    inward: newInward,
+    outward: newOutward,
+  });
   return {
     newInward,
     newOutward,
     newAvailable,
-    diff: newAvailable - ((baseOpening + baseInward) - baseOutward - baseReserved)
+    diff: newAvailable - calculateCurrentStock({ opening: baseOpening, inward: baseInward, outward: baseOutward }),
   };
 }

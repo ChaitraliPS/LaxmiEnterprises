@@ -311,7 +311,6 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
             productId: testProdId,
             quantity: qty,
             taxableAmount: 1, // Malicious override
-            gstRate: 0, // Malicious override
             gstAmount: 0, // Malicious override
             grandTotal: 1, // Malicious override
             status: "Paid", // Malicious override
@@ -574,18 +573,25 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
       });
 
       try {
-        // 1. Overpayment: paidAmount > grandTotal
+        // 1. Flexible payment: user can pay any amount on their mind without error
         {
           const { req, res, next } = mockReqRes({
             clientId: "CL-001",
             invoiceDate: "2026-11-01",
-            paidAmount: 99999, // Exceeds grand total
+            paidAmount: 99999,
             paymentMode: "UPI",
             items: [{ productId: "PR-001", quantity: 1 }],
           });
           await createInvoice(req, res, next);
-          assert.strictEqual(res.statusCode, 400);
-          assert.match(res.data.message, /exceeds invoice grand total/i);
+          assert.strictEqual(res.statusCode, 201);
+          assert.strictEqual(Number(res.data.data.paidAmount), 99999);
+          assert.strictEqual(Number(res.data.data.balanceDue), 0);
+          assert.strictEqual(res.data.data.status, "Paid");
+          if (res.data.data.invoiceNumber) {
+            await InvoiceLine.destroy({ where: { invoiceId: res.data.data.invoiceNumber } }).catch(() => {});
+            await StockMovement.destroy({ where: { referenceId: res.data.data.invoiceNumber } }).catch(() => {});
+            await Invoice.destroy({ where: { invoiceNumber: res.data.data.invoiceNumber } }).catch(() => {});
+          }
         }
 
         // 2. Negative paidAmount
@@ -670,6 +676,45 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
         }
       } finally {
         await tempMovement.destroy();
+      }
+    });
+
+    it("createInvoice should strictly respect line-item gstRate (e.g. 18%) chosen at invoice creation and accept matching paidAmount", async () => {
+      const tempMovement = await StockMovement.create({
+        productId: "PR-001",
+        quantity: 50,
+        direction: "IN",
+        movementType: "ADJUSTMENT_IN",
+        referenceType: "TEST",
+        referenceId: "TEST-LINE-GST",
+        movementDate: new Date(),
+        warehouseLocation: "Main Warehouse - Bay 01",
+      });
+      let createdInv = null;
+      try {
+        const { req, res, next } = mockReqRes({
+          clientId: "CL-001",
+          invoiceDate: "2026-11-01",
+          paidAmount: 2360,
+          paymentMode: "UPI",
+          items: [{ productId: "PR-001", quantity: 20, rate: 100, gstRate: 18 }],
+        });
+        await createInvoice(req, res, next);
+        assert.strictEqual(res.statusCode, 201);
+        createdInv = res.data.data;
+        assert.strictEqual(Number(createdInv.taxableTotal), 2000);
+        assert.strictEqual(Number(createdInv.gstTotal), 360);
+        assert.strictEqual(Number(createdInv.grandTotal), 2360);
+        assert.strictEqual(Number(createdInv.paidAmount), 2360);
+        assert.strictEqual(Number(createdInv.balanceDue), 0);
+        assert.strictEqual(createdInv.status, "Paid");
+      } finally {
+        await tempMovement.destroy().catch(() => {});
+        if (createdInv) {
+          await InvoiceLine.destroy({ where: { invoiceId: createdInv.invoiceNumber } }).catch(() => {});
+          await StockMovement.destroy({ where: { referenceId: createdInv.invoiceNumber } }).catch(() => {});
+          await Invoice.destroy({ where: { invoiceNumber: createdInv.invoiceNumber } }).catch(() => {});
+        }
       }
     });
 

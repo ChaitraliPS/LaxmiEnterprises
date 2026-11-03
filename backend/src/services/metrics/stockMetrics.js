@@ -1,7 +1,7 @@
 import { Op } from "sequelize";
 import { StockMovement, Product, Inventory } from "../../models/index.js";
 import { formatISTDateString } from "./dateRangeHelper.js";
-import { getToday, evaluateStockHealth } from "../../constants/erpConstants.js";
+import { getToday, evaluateStockHealth, calculateCurrentStock } from "../../constants/erpConstants.js";
 
 /**
  * Returns exact stock balance for a product from the movement ledger as of a date/period
@@ -82,7 +82,7 @@ export async function getStockBalance(productId, asOfDate = getToday(), periodSt
     }
   }
 
-  const balance = Math.max(0, openingStock + totalInward - totalOut);
+  const balance = calculateCurrentStock({ opening: openingStock, inward: totalInward, outward: totalOut });
 
   return {
     productId,
@@ -174,11 +174,11 @@ export async function getStockHealth(asOfDate = getToday(), periodRange = null) 
       };
     }
     unitsSummary[u].totalBalance += item.currentBalance;
-    unitsSummary[u].totalIn += item.totalIn;
+    unitsSummary[u].totalIn += item.totalInward;
     unitsSummary[u].totalOut += item.totalOut;
     unitsSummary[u].productCount += 1;
 
-    totalMovementsIn += item.totalIn;
+    totalMovementsIn += item.totalInward;
     totalMovementsOut += item.totalOut;
   }
 
