@@ -27,12 +27,14 @@ export function calculateProductStock(product = {}, inventoryItem = null) {
   let inwardStock = 0;
   if (hasExplicitInward) {
     inwardStock = pIn;
-  } else if (!isNaN(invIn) && invIn > 0) {
+  } else if (!isNaN(invIn)) {
     inwardStock = invIn;
-  } else if (!isNaN(pStock) && pStock > 0) {
-    inwardStock = pStock;
-  } else if (!isNaN(invStock) && invStock > 0) {
-    inwardStock = invStock;
+  } else if (openingStock === 0) {
+    if (!isNaN(pStock) && pStock > 0) {
+      inwardStock = pStock;
+    } else if (!isNaN(invStock) && invStock > 0) {
+      inwardStock = invStock;
+    }
   }
   inwardStock = Math.max(0, inwardStock);
 

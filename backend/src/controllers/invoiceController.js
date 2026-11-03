@@ -8,7 +8,36 @@ import { applyStockChange } from "../utils/stockSync.js";
 import { generateInvoiceNumber, generatePaymentNumber } from "../utils/numberSequence.js";
 import { getToday, deriveTransactionStatus, TRANSACTION_STATUSES } from "../constants/erpConstants.js";
 
-const VALID_PAYMENT_MODES = ["NEFT", "RTGS", "IMPS", "UPI", "Cheque", "Cash", "Commercial Transfer"];
+export const canonicalizePaymentMode = (mode) => {
+  if (!mode) return "UPI";
+  const str = String(mode).trim();
+  const lower = str.toLowerCase();
+  if (lower.includes("upi")) return "UPI";
+  if (lower.includes("neft")) return "NEFT";
+  if (lower.includes("rtgs")) return "RTGS";
+  if (lower.includes("imps")) return "IMPS";
+  if (lower.includes("cheque")) return "Cheque";
+  if (lower.includes("cash")) return "Cash";
+  if (lower.includes("commercial")) return "Commercial Transfer";
+  if (lower.includes("transfer") || lower.includes("deposit")) return "Commercial Transfer";
+  return str;
+};
+
+const VALID_PAYMENT_MODES = [
+  "NEFT",
+  "RTGS",
+  "IMPS",
+  "UPI",
+  "Cheque",
+  "Cash",
+  "Commercial Transfer",
+  "UPI Commercial / NEFT",
+  "Bank Transfer (NEFT/RTGS)",
+  "Bank Transfer",
+  "Cash Counter",
+  "Cheque (In Clearance)",
+  "Direct Deposit",
+];
 
 /**
  * Returns all invoices, optionally filtered by status or date range
@@ -249,14 +278,16 @@ export const createInvoice = asyncHandler(async (req, res) => {
     paidAmount = Math.round(paidAmount * 100) / 100;
     const balanceDue = Math.round(Math.max(0, calculatedGrandTotal - paidAmount) * 100) / 100;
 
+    const rawMode = inputData.paymentMode || inputData.paymentMethod;
     if (paidAmount > 0) {
-      const payMode = inputData.paymentMode;
-      if (!payMode || !VALID_PAYMENT_MODES.some((m) => m.toLowerCase() === String(payMode).trim().toLowerCase())) {
+      if (!rawMode || !VALID_PAYMENT_MODES.some((m) => m.toLowerCase() === String(rawMode).trim().toLowerCase())) {
         throw ApiError.badRequest(
-          `Valid paymentMode is required when recording an initial payment (${VALID_PAYMENT_MODES.join(", ")}). Received: ${payMode || "none"}`
+          `Valid paymentMode is required when recording an initial payment (${VALID_PAYMENT_MODES.join(", ")}). Received: ${rawMode || "none"}`
         );
       }
     }
+
+    const canonicalMode = rawMode ? (canonicalizePaymentMode(rawMode) || rawMode) : null;
 
     const status = deriveTransactionStatus({
       grandTotal: calculatedGrandTotal,
@@ -293,7 +324,7 @@ export const createInvoice = asyncHandler(async (req, res) => {
         balanceDue,
         status,
         paymentStatus: status,
-        paymentMode: inputData.paymentMode || null,
+        paymentMode: canonicalMode,
         isCancelled: false,
         notes: inputData.notes || "",
       },
@@ -322,10 +353,7 @@ export const createInvoice = asyncHandler(async (req, res) => {
 
     // 6. Record Initial Payment if provided
     if (paidAmount > 0) {
-      const payMode = inputData.paymentMode;
-      if (!payMode) {
-        throw ApiError.badRequest("Real paymentMode is required when recording an initial payment.");
-      }
+      const payMode = canonicalMode || "UPI";
       const payNumber = await generatePaymentNumber(t, businessDateStr);
       await Payment.create(
         {
@@ -498,6 +526,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
     const payNumber = await generatePaymentNumber(t, payDate);
 
     // 1. Create Payment record
+    const canonicalMode = canonicalizePaymentMode(paymentMode);
     const payment = await Payment.create(
       {
         paymentNumber: payNumber,
@@ -505,7 +534,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
         clientId: invoice.clientId || "",
         amount,
         paymentDate: payDate,
-        paymentMode,
+        paymentMode: canonicalMode,
         status: "Completed",
         reference: referenceNo || reference || `Settlement for ${invoice.invoiceNumber}`,
         notes: notes || "",
@@ -534,7 +563,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
     invoice.balanceDue = balanceDue;
     invoice.status = derivedStatus;
     invoice.paymentStatus = derivedStatus;
-    invoice.paymentMode = paymentMode;
+    invoice.paymentMode = canonicalMode;
     if (balanceDue === 0) invoice.paidDate = payDate;
     await invoice.save({ transaction: t });
 

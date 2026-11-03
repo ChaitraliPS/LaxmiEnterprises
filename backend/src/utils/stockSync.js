@@ -130,8 +130,10 @@ export async function applyStockChange(
   if (prod) {
     const extra = { ...(prod.extraData || {}) };
     extra.stock = resultingBalance;
-    if (qty > 0) {
-      extra.inwardStock = (Number(extra.inwardStock) || 0) + qty;
+    if (resolvedMovementType === "OPENING") {
+      extra.openingStock = Math.abs(qty);
+    } else if (direction === "IN") {
+      extra.inwardStock = (Number(extra.inwardStock) || 0) + Math.abs(qty);
     } else {
       extra.outwardStock = (Number(extra.outwardStock) || 0) + Math.abs(qty);
     }
@@ -192,14 +194,20 @@ export async function backfillInventory() {
       } else if (movements.length > 0) {
         // Enforce ledger truth: balance = sum(IN) - sum(OUT)
         let ledgerBal = 0;
+        let openingTotal = 0;
         let inTotal = 0;
         let outTotal = 0;
         for (const m of movements) {
           const qty = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
           const dir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
+          const mType = String(m.movementType || "").toUpperCase();
           if (dir === "IN") {
             ledgerBal += qty;
-            inTotal += qty;
+            if (mType === "OPENING") {
+              openingTotal += qty;
+            } else {
+              inTotal += qty;
+            }
           } else {
             ledgerBal -= qty;
             outTotal += qty;
@@ -209,15 +217,14 @@ export async function backfillInventory() {
           inv.currentStock = ledgerBal;
           await inv.save();
         }
-        if (prod.extraData?.stock !== ledgerBal) {
-          prod.extraData = {
-            ...(prod.extraData || {}),
-            stock: ledgerBal,
-            inwardStock: inTotal,
-            outwardStock: outTotal,
-          };
-          await prod.save();
-        }
+        prod.extraData = {
+          ...(prod.extraData || {}),
+          stock: ledgerBal,
+          openingStock: openingTotal,
+          inwardStock: inTotal,
+          outwardStock: outTotal,
+        };
+        await prod.save();
       }
     }
   } catch (err) {

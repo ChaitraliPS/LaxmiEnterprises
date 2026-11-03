@@ -16,20 +16,28 @@ export async function getStockBalance(productId, asOfDate = getToday()) {
       productId,
       movementDate: { [Op.lte]: endUTC },
     },
-    attributes: ["quantity", "direction", "quantityChange"],
+    attributes: ["quantity", "direction", "quantityChange", "movementType"],
   });
 
   let balance = 0;
   let totalIn = 0;
+  let totalInward = 0;
+  let openingStock = 0;
   let totalOut = 0;
 
   for (const m of movements) {
     const qty = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
     const dir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
+    const mType = String(m.movementType || "").toUpperCase();
 
     if (dir === "IN") {
       totalIn += qty;
       balance += qty;
+      if (mType === "OPENING") {
+        openingStock += qty;
+      } else {
+        totalInward += qty;
+      }
     } else {
       totalOut += qty;
       balance -= qty;
@@ -40,6 +48,8 @@ export async function getStockBalance(productId, asOfDate = getToday()) {
     productId,
     balance: Math.round(balance * 100) / 100,
     totalIn: Math.round(totalIn * 100) / 100,
+    totalInward: Math.round(totalInward * 100) / 100,
+    openingStock: Math.round(openingStock * 100) / 100,
     totalOut: Math.round(totalOut * 100) / 100,
     asOfDate: asOfStr,
     hasMovements: movements.length > 0,
@@ -62,7 +72,7 @@ export async function getInventoryValue(asOfDate = getToday()) {
 
   for (const p of products) {
     const pId = p.productId;
-    const { balance, totalIn, totalOut } = await getStockBalance(pId, asOfDate);
+    const { balance, totalIn, totalInward, openingStock, totalOut, hasMovements } = await getStockBalance(pId, asOfDate);
     const cp = Number(p.costPrice || 0);
     const sp = Number(p.sellingPrice || 0);
 
@@ -80,7 +90,10 @@ export async function getInventoryValue(asOfDate = getToday()) {
       warehouseLocation: p.warehouseLocation,
       currentBalance: balance,
       totalIn,
+      totalInward,
+      openingStock,
       totalOut,
+      hasMovements,
       costPrice: cp,
       sellingPrice: sp,
       valuationAtCost: Math.round(valAtCost * 100) / 100,

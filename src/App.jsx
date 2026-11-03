@@ -189,6 +189,9 @@ export default function App() {
           existingProductIds.add(pId);
           const p = prodMap.get(pId);
           const rawStock = Number(p.stock ?? p.currentStock ?? 0);
+          const rawOpen = Number(p.openingStock || 0);
+          const rawIn = Number(p.inwardStock || 0);
+          const rawOut = Number(p.outwardStock || 0);
           return {
             ...inv,
             product: p.name,
@@ -196,6 +199,11 @@ export default function App() {
             sku: p.sku || inv.sku || pId,
             category: p.category || inv.category,
             unit: p.unit || inv.unit,
+            openingStock: rawOpen,
+            in: rawIn,
+            inwardStock: rawIn,
+            out: rawOut,
+            outwardStock: rawOut,
             stock: rawStock,
             currentStock: rawStock,
             minStockAlert: Number(p.minStock ?? inv.minStockAlert ?? 10),
@@ -208,8 +216,9 @@ export default function App() {
         const pId = String(p.id || p.productId);
         if (!existingProductIds.has(pId)) {
           const rawStock = Number(p.stock ?? p.currentStock ?? 0);
-          const rawIn = Number(p.inwardStock ?? p.openingStock ?? rawStock);
-          const rawOut = Number(p.outwardStock ?? 0);
+          const rawOpen = Number(p.openingStock || 0);
+          const rawIn = Number(p.inwardStock || 0);
+          const rawOut = Number(p.outwardStock || 0);
           const minAlert = Number(p.minStock ?? 10);
           newEntries.push({
             id: pId,
@@ -219,8 +228,11 @@ export default function App() {
             sku: p.sku || pId,
             category: p.category || "General",
             unit: p.unit || "Bags",
+            openingStock: rawOpen,
             in: rawIn,
+            inwardStock: rawIn,
             out: rawOut,
+            outwardStock: rawOut,
             stock: rawStock,
             currentStock: rawStock,
             minStockAlert: minAlert,

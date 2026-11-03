@@ -608,6 +608,13 @@ export default function InvoiceModal({
                   value={form.paymentMethod}
                   onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}
                 >
+                  <option value="UPI">UPI (Google Pay / PhonePe / Paytm)</option>
+                  <option value="NEFT">NEFT (National Electronic Fund Transfer)</option>
+                  <option value="RTGS">RTGS (Real Time Gross Settlement)</option>
+                  <option value="IMPS">IMPS (Immediate Payment)</option>
+                  <option value="Cash">Cash Counter</option>
+                  <option value="Cheque">Cheque (In Clearance)</option>
+                  <option value="Commercial Transfer">Commercial Transfer / Net Banking</option>
                   <option value="UPI Commercial / NEFT">UPI Commercial / NEFT</option>
                   <option value="Bank Transfer (NEFT/RTGS)">Bank Transfer (NEFT/RTGS)</option>
                   <option value="Cash Counter">Cash Counter</option>

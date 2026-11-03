@@ -25,18 +25,20 @@ export const getProducts = asyncHandler(async (req, res) => {
 
     const fallbackStock = Number(json.stock ?? json.extraData?.stock ?? 0);
     const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
-    const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
-    const totalOut = metrics ? metrics.totalOut : 0;
+    const openStock = metrics ? (metrics.hasMovements ? metrics.openingStock : Number(json.openingStock ?? json.extraData?.openingStock ?? 0)) : Number(json.openingStock ?? json.extraData?.openingStock ?? 0);
+    const inW = metrics ? (metrics.hasMovements ? metrics.totalInward : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0)) : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0);
+    const outW = metrics ? metrics.totalOut : Number(json.outwardStock ?? json.extraData?.outwardStock ?? 0);
     const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(prod.costPrice || 0);
 
     return {
       ...json,
       stock: balance,
       currentStock: balance,
-      in: totalIn,
-      inwardStock: totalIn,
-      out: totalOut,
-      outwardStock: totalOut,
+      openingStock: openStock,
+      in: inW,
+      inwardStock: inW,
+      out: outW,
+      outwardStock: outW,
       inventoryValue: valAtCost,
       valuationAtCost: valAtCost,
       unitOfMeasure: prod.unitOfMeasure || prod.unit || "Bags",
@@ -78,14 +80,26 @@ export const createProduct = asyncHandler(async (req, res) => {
     : null;
   const warehouseLocation = inputData.warehouseLocation || (canonicalCat === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1");
 
-  const openingQty = Number(inputData.openingStock ?? inputData.stock ?? 0);
+  let openingStock = Math.max(0, Number(inputData.openingStock ?? 0));
+  let inwardStock = Math.max(0, Number(inputData.inwardStock ?? 0));
+  const outwardStock = Math.max(0, Number(inputData.outwardStock ?? 0));
+  const reservedStock = Math.max(0, Number(inputData.reservedStock ?? 0));
+
+  let netStock = Math.max(0, (openingStock + inwardStock) - outwardStock - reservedStock);
+  if (netStock === 0 && Number(inputData.stock ?? 0) > 0) {
+    netStock = Number(inputData.stock);
+    if (openingStock === 0 && inwardStock === 0) {
+      openingStock = netStock;
+    }
+  }
+
   const extraData = {
     ...(inputData.extraData || {}),
-    stock: openingQty,
-    openingStock: Number(inputData.openingStock || 0),
-    inwardStock: Number(inputData.inwardStock || openingQty),
-    outwardStock: Number(inputData.outwardStock || 0),
-    reservedStock: Number(inputData.reservedStock || 0),
+    stock: netStock,
+    openingStock,
+    inwardStock,
+    outwardStock,
+    reservedStock,
     minStock: reorderLevel,
   };
 
@@ -116,19 +130,45 @@ export const createProduct = asyncHandler(async (req, res) => {
       productName: product.name,
       category: product.category,
       unit: product.unitOfMeasure,
-      currentStock: 0,
+      currentStock: netStock,
       minStockAlert: reorderLevel || 10,
       warehouseLocation,
     });
+  } else {
+    inv.currentStock = netStock;
+    await inv.save();
   }
 
-  if (openingQty > 0) {
-    await applyStockChange(product.productId, openingQty, {
+  // Create clean, separate movement records for openingStock and inwardStock
+  if (openingStock > 0) {
+    await StockMovement.create({
+      productId: product.productId,
       movementType: "OPENING",
+      quantity: openingStock,
+      direction: "IN",
+      quantityChange: openingStock,
+      balanceAfter: openingStock,
       referenceType: "OPENING",
-      reference: "INITIAL-STOCK",
+      referenceId: "INITIAL-STOCK",
       warehouseLocation,
-      date: new Date(),
+      movementDate: new Date(),
+      notes: `Opening stock baseline for ${product.name}`,
+    });
+  }
+
+  if (inwardStock > 0) {
+    await StockMovement.create({
+      productId: product.productId,
+      movementType: "ADJUSTMENT_IN",
+      quantity: inwardStock,
+      direction: "IN",
+      quantityChange: inwardStock,
+      balanceAfter: openingStock + inwardStock,
+      referenceType: "INWARD",
+      referenceId: "INITIAL-INWARD",
+      warehouseLocation,
+      movementDate: new Date(),
+      notes: `Initial inward received for ${product.name}`,
     });
   }
 

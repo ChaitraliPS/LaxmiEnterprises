@@ -75,17 +75,19 @@ export const getAllData = asyncHandler(async (req, res) => {
         const jsonStock = Number(json.stock ?? json.extraData?.stock ?? 0);
         const fallbackStock = invStock || jsonStock || 0;
         const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
-        const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
-        const totalOut = metrics ? metrics.totalOut : 0;
+        const openStock = metrics ? (metrics.hasMovements ? metrics.openingStock : Number(json.openingStock ?? json.extraData?.openingStock ?? 0)) : Number(json.openingStock ?? json.extraData?.openingStock ?? 0);
+        const inW = metrics ? (metrics.hasMovements ? metrics.totalInward : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0)) : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0);
+        const outW = metrics ? metrics.totalOut : Number(json.outwardStock ?? json.extraData?.outwardStock ?? 0);
         const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(p.costPrice || 0);
         return {
           ...json,
           stock: balance,
           currentStock: balance,
-          in: totalIn,
-          inwardStock: totalIn,
-          out: totalOut,
-          outwardStock: totalOut,
+          openingStock: openStock,
+          in: inW,
+          inwardStock: inW,
+          out: outW,
+          outwardStock: outW,
           inventoryValue: valAtCost,
           valuationAtCost: valAtCost,
           unitOfMeasure: p.unitOfMeasure || p.unit || "Bags",
@@ -100,14 +102,16 @@ export const getAllData = asyncHandler(async (req, res) => {
           const base = toInventoryView(i, p);
           const fallbackStock = Number(i.currentStock || 0);
           const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
-          const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
-          const totalOut = metrics ? metrics.totalOut : 0;
+          const openStock = metrics ? (metrics.hasMovements ? metrics.openingStock : Number(p?.extraData?.openingStock ?? 0)) : Number(p?.extraData?.openingStock ?? 0);
+          const inW = metrics ? (metrics.hasMovements ? metrics.totalInward : Number(p?.extraData?.inwardStock ?? 0)) : Number(p?.extraData?.inwardStock ?? 0);
+          const outW = metrics ? metrics.totalOut : 0;
           return {
             ...base,
-            in: totalIn,
-            out: totalOut,
-            inwardStock: totalIn,
-            outwardStock: totalOut,
+            openingStock: openStock,
+            in: inW,
+            out: outW,
+            inwardStock: inW,
+            outwardStock: outW,
             stock: balance,
             currentStock: balance,
             reorderLevel: p?.reorderLevel !== null && p?.reorderLevel !== undefined ? Number(p.reorderLevel) : null,
@@ -121,8 +125,9 @@ export const getAllData = asyncHandler(async (req, res) => {
             const metrics = healthMap.get(p.productId);
             const fallbackStock = Number(p.extraData?.stock ?? p.extraData?.openingStock ?? 0);
             const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
-            const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
-            const totalOut = metrics ? metrics.totalOut : 0;
+            const openStock = metrics ? (metrics.hasMovements ? metrics.openingStock : Number(p.extraData?.openingStock ?? 0)) : Number(p.extraData?.openingStock ?? 0);
+            const inW = metrics ? (metrics.hasMovements ? metrics.totalInward : Number(p.extraData?.inwardStock ?? 0)) : Number(p.extraData?.inwardStock ?? 0);
+            const outW = metrics ? metrics.totalOut : 0;
             return {
               productId: p.productId,
               productName: p.name,
@@ -130,10 +135,11 @@ export const getAllData = asyncHandler(async (req, res) => {
               unit: p.unitOfMeasure || p.unit || "Bags",
               currentStock: balance,
               stock: balance,
-              in: totalIn,
-              out: totalOut,
-              inwardStock: totalIn,
-              outwardStock: totalOut,
+              openingStock: openStock,
+              in: inW,
+              out: outW,
+              inwardStock: inW,
+              outwardStock: outW,
               minStockAlert: Number(p.reorderLevel || 10),
               reorderLevel: p.reorderLevel !== null && p.reorderLevel !== undefined ? Number(p.reorderLevel) : null,
               warehouseLocation: p.warehouseLocation || "Main Warehouse",
@@ -349,14 +355,26 @@ export const syncProducts = asyncHandler(async (req, res) => {
     const productId = String(item.productId || item.id || "");
     if (!productId) continue;
 
-    const requestedStock = Number(item.stock ?? item.currentStock ?? item.openingStock ?? 0);
+    let openingStock = Math.max(0, Number(item.openingStock ?? 0));
+    let inwardStock = Math.max(0, Number(item.inwardStock ?? 0));
+    const outwardStock = Math.max(0, Number(item.outwardStock ?? 0));
+    const reservedStock = Math.max(0, Number(item.reservedStock ?? 0));
+
+    let requestedStock = Math.max(0, (openingStock + inwardStock) - outwardStock - reservedStock);
+    if (requestedStock === 0 && Number(item.stock ?? item.currentStock ?? 0) > 0) {
+      requestedStock = Number(item.stock ?? item.currentStock ?? 0);
+      if (openingStock === 0 && inwardStock === 0) {
+        openingStock = requestedStock;
+      }
+    }
+
     const extraData = {
       ...(item.extraData || {}),
       stock: requestedStock,
-      openingStock: Number(item.openingStock || 0),
-      inwardStock: Number(item.inwardStock || requestedStock),
-      outwardStock: Number(item.outwardStock || 0),
-      reservedStock: Number(item.reservedStock || 0),
+      openingStock,
+      inwardStock,
+      outwardStock,
+      reservedStock,
       minStock: item.minStock || item.reorderLevel || 10,
     };
 
@@ -395,7 +413,7 @@ export const syncProducts = asyncHandler(async (req, res) => {
         productName: record.name,
         category: record.category,
         unit: record.unit,
-        currentStock: 0,
+        currentStock: requestedStock,
         minStockAlert: Number(item.reorderLevel ?? item.minStockAlert ?? 10),
         warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
       });
@@ -404,6 +422,7 @@ export const syncProducts = asyncHandler(async (req, res) => {
         productName: record.name,
         category: record.category,
         unit: record.unit,
+        currentStock: requestedStock,
         minStockAlert: Number(item.reorderLevel ?? inv.minStockAlert),
         warehouseLocation: item.warehouseLocation || inv.warehouseLocation,
       });
@@ -411,13 +430,35 @@ export const syncProducts = asyncHandler(async (req, res) => {
 
     // Sync stock with movements ledger
     const balanceInfo = await getStockBalance(productId);
-    if (created && requestedStock > 0) {
-      await applyStockChange(productId, requestedStock, {
-        movementType: "OPENING",
-        referenceType: "OPENING",
-        reference: "INITIAL-STOCK",
-        warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
-      });
+    if (created) {
+      if (openingStock > 0) {
+        await StockMovement.create({
+          productId,
+          movementType: "OPENING",
+          quantity: openingStock,
+          direction: "IN",
+          quantityChange: openingStock,
+          balanceAfter: openingStock,
+          referenceType: "OPENING",
+          referenceId: "INITIAL-STOCK",
+          warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
+          notes: `Opening stock baseline for ${record.name}`,
+        });
+      }
+      if (inwardStock > 0) {
+        await StockMovement.create({
+          productId,
+          movementType: "ADJUSTMENT_IN",
+          quantity: inwardStock,
+          direction: "IN",
+          quantityChange: inwardStock,
+          balanceAfter: openingStock + inwardStock,
+          referenceType: "INWARD",
+          referenceId: "INITIAL-INWARD",
+          warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
+          notes: `Initial inward received for ${record.name}`,
+        });
+      }
     } else if (!created && item.stock !== undefined) {
       const delta = requestedStock - balanceInfo.balance;
       if (delta !== 0) {
