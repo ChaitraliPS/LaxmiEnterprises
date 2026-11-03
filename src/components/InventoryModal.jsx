@@ -24,6 +24,7 @@ export default function InventoryModal({
   products = [],
   initialProductId = null,
   showToast,
+  onOpenAddProduct,
 }) {
   if (!isOpen) return null;
 
@@ -108,10 +109,21 @@ export default function InventoryModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: 560, width: "95vw" }}>
+      <div
+        className="modal-card"
+        onClick={e => e.stopPropagation()}
+        style={{
+          maxWidth: 580,
+          width: "95vw",
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden"
+        }}
+      >
         {/* Header */}
-        <div className="modal-header">
-          <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="modal-header" style={{ flexShrink: 0 }}>
+          <h3 style={{ display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
             <Boxes size={19} style={{ color: "var(--primary)" }} />
             Record Stock Movement
           </h3>
@@ -120,8 +132,8 @@ export default function InventoryModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} noValidate>
-          <div className="modal-body">
+        <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+          <div className="modal-body" style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
             <ValidationSummary errors={errors} title="Please fix the following:" />
 
             {/* Movement Type Toggle */}
@@ -163,11 +175,31 @@ export default function InventoryModal({
               </div>
             </div>
 
-            {/* Product Selection — strict dropdown, NO free text */}
+            {/* Product Selection — strict dropdown with shortcut to add product */}
             <div className="form-group full" style={{ marginBottom: 16 }}>
-              <label>
-                Product from Catalogue <RequiredStar />
-              </label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <label style={{ margin: 0, fontWeight: 700 }}>
+                  Product from Catalogue <RequiredStar />
+                </label>
+                {onOpenAddProduct && (
+                  <button
+                    type="button"
+                    onClick={() => { onClose(); onOpenAddProduct(); }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--primary)",
+                      fontSize: "0.82rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      padding: 0,
+                      textDecoration: "underline",
+                    }}
+                  >
+                    + Add New Product
+                  </button>
+                )}
+              </div>
               {products.length === 0 ? (
                 <div style={{
                   padding: "12px 16px",
@@ -181,7 +213,17 @@ export default function InventoryModal({
                   alignItems: "center"
                 }}>
                   <AlertTriangle size={16} />
-                  No products in catalogue. Please add products first.
+                  <span>No products in catalogue.</span>
+                  {onOpenAddProduct && (
+                    <button
+                      type="button"
+                      className="primary btn-sm"
+                      onClick={() => { onClose(); onOpenAddProduct(); }}
+                      style={{ marginLeft: "auto", padding: "4px 10px", fontSize: "0.78rem" }}
+                    >
+                      + Add Product Now
+                    </button>
+                  )}
                 </div>
               ) : (
                 <select
@@ -315,14 +357,30 @@ export default function InventoryModal({
             )}
           </div>
 
-          <div className="modal-footer">
-            <button type="button" className="outline" onClick={onClose}>Cancel</button>
+          <div className="modal-footer" style={{
+            flexShrink: 0,
+            borderTop: "1px solid var(--border)",
+            padding: "14px 20px",
+            background: "var(--surface)",
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 12,
+            marginTop: "auto"
+          }}>
+            <button type="button" className="outline" onClick={onClose} style={{ minWidth: 100 }}>
+              Cancel
+            </button>
             <button
               type="submit"
               className="primary"
               disabled={products.length === 0}
               style={{
                 background: isOutward ? "#ef4444" : undefined,
+                minWidth: 180,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
               }}
             >
               <Save size={15} />

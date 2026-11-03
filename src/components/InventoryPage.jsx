@@ -5,6 +5,7 @@ import {
   ListFilter, History, Layers
 } from "lucide-react";
 import InventoryModal from "./InventoryModal";
+import ProductModal from "./ProductModal";
 import InventoryViewDrawer from "./InventoryViewDrawer";
 import ExportMenu from "./ExportMenu";
 import MobileRecordCard from "./responsive/MobileRecordCard";
@@ -20,6 +21,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
   const [directionFilter, setDirectionFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
+  const [productModalOpen, setProductModalOpen] = useState(false);
   const [viewingInventory, setViewingInventory] = useState(null);
   const [selectedProductForModal, setSelectedProductForModal] = useState(null);
   const [toast, setToast] = useState(null);
@@ -147,6 +149,19 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
   const handleOpenMovement = (productId) => {
     setSelectedProductForModal(productId);
     setModalOpen(true);
+  };
+
+  const handleSaveNewProduct = (productData) => {
+    const exists = products.some(p => (p.id || p.productId || "").toLowerCase() === (productData.id || productData.productId || "").toLowerCase());
+    if (exists) {
+      showToast(`⚠️ A product with ID ${productData.id || productData.productId} already exists.`);
+      return;
+    }
+    const updated = [productData, ...products];
+    if (onSaveProducts) onSaveProducts(updated);
+    showToast(`✓ Added ${productData.name} to catalogue & inventory!`);
+    setProductModalOpen(false);
+    if (onRefresh) onRefresh();
   };
 
   const handleStockMovement = async (movementData) => {
@@ -321,8 +336,11 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
             onExportCSV={handleExportCSV}
             showToast={showToast}
           />
-          <button className="primary" onClick={handleOpenAdd} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Plus size={16} /> Record Movement
+          <button className="secondary" onClick={handleOpenAdd} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <History size={16} /> Record Movement
+          </button>
+          <button className="primary" onClick={() => setProductModalOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Plus size={16} /> Add Product
           </button>
         </div>
       </div>
@@ -489,7 +507,14 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
               <div className="empty-state-icon"><Boxes size={26} /></div>
               <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Products Found</h4>
               <p style={{ fontSize: 13, marginBottom: 16 }}>No product stock entries match your search query or filter.</p>
-              <button className="primary" onClick={handleOpenAdd}><Plus size={15} /> Record Movement</button>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <button className="primary" onClick={() => setProductModalOpen(true)}>
+                  <Plus size={15} /> Add New Product
+                </button>
+                <button className="secondary" onClick={handleOpenAdd}>
+                  <History size={15} /> Record Movement
+                </button>
+              </div>
             </div>
           ) : (
             <ResponsiveDataTable
@@ -648,6 +673,16 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
         products={combinedProducts}
         initialProductId={selectedProductForModal}
         showToast={showToast}
+        onOpenAddProduct={() => setProductModalOpen(true)}
+      />
+
+      <ProductModal
+        isOpen={productModalOpen}
+        onClose={() => setProductModalOpen(false)}
+        onSave={handleSaveNewProduct}
+        productToEdit={null}
+        nextId={`PR-${String(products.length + 1).padStart(3, "0")}`}
+        existingIds={products.map(p => p.id || p.productId)}
       />
     </div>
   );
