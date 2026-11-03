@@ -90,9 +90,10 @@ export async function getSalesSummary(range = "fy", asOfDate = getToday()) {
   // Dashboard/Sales metrics read collection totals directly from the Collection data
   const colSummary = await getCollections(range, asOfDate);
   const collectionsCollected = Number(colSummary.totalCollected || 0);
-  const effectiveCollected = colSummary.paymentCount > 0 ? collectionsCollected : collectedAmount;
+  const effectiveCollected = Math.max(collectionsCollected, collectedAmount);
 
-  const pendingDues = Math.max(0, grossInvoiced - effectiveCollected);
+  // Outstanding receivables is strictly the remaining unpaid balance across invoices
+  const pendingDues = Math.max(0, grossInvoiced - collectedAmount);
   const grossProfit = taxableRevenue - totalCost;
   const grossMarginPct = taxableRevenue > 0 ? (grossProfit / taxableRevenue) * 100 : null;
   const realizedPct = grossInvoiced > 0 ? (effectiveCollected / grossInvoiced) * 100 : null;

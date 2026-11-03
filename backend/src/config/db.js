@@ -159,6 +159,12 @@ export const connectDB = async () => {
     if (process.env.NODE_ENV !== "test") {
       const { backfillInventory } = await import("../utils/stockSync.js");
       await backfillInventory();
+
+      // 7. Ensure historical payments and paid invoices have synchronized Collection entries
+      const { backfillCollectionsFromExistingData } = await import("../migrations/runMigrations.js");
+      await backfillCollectionsFromExistingData().catch((err) => {
+        console.warn("⚠️ Backfill collections notice on startup:", err.message);
+      });
     }
   } catch (syncErr) {
     console.warn("⚠️ Base sync warning:", syncErr.message);

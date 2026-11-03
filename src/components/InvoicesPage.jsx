@@ -110,7 +110,7 @@ export default function InvoicesPage({
     }
 
     const collectionsTotal = periodCollections.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-    const effectiveCollected = periodCollections.length > 0 ? collectionsTotal : collectedAmount;
+    const effectiveCollected = Math.max(collectionsTotal, collectedAmount);
 
     return {
       grossInvoiced,
