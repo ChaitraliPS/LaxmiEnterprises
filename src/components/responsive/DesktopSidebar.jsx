@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Users, Truck, ShoppingCart, MessageCircle, Receipt,
-  IndianRupee, Package, Boxes, ShieldCheck, Database, X, LogOut
+  IndianRupee, Package, Boxes, ShieldCheck, Database, X, LogOut, Wallet
 } from "lucide-react";
 
 export const coreNav = [
@@ -16,6 +16,7 @@ export const coreNav = [
 export const financialNav = [
   { to: "/invoices", label: "Sales", icon: Receipt },
   { to: "/revenue", label: "Revenue", icon: IndianRupee },
+  { to: "/expenses", label: "Expenses", icon: Wallet },
   { to: "/products", label: "Products", icon: Package },
   { to: "/inventory", label: "Inventory", icon: Boxes },
 ];

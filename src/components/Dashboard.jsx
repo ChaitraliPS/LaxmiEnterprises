@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import {
-  TrendingUp, TrendingDown, AlertTriangle, Users, IndianRupee, Package, Boxes, RotateCcw, ChevronRight
+  TrendingUp, TrendingDown, AlertTriangle, Users, IndianRupee, Package, Boxes, RotateCcw, ChevronRight, Coins, Wallet
 } from "lucide-react";
 import {
   AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, PieChart, Pie, Cell
@@ -180,8 +180,8 @@ export default function Dashboard({
         </button>
       </div>
 
-      {/* DUAL-RESPONSIVE KPI METRICS GRID: 4 columns on Laptop, 2 columns on Mobile */}
-      <ResponsiveKpiGrid cols={4}>
+      {/* DUAL-RESPONSIVE KPI METRICS GRID: 5 columns on Laptop, 2 columns on Mobile */}
+      <ResponsiveKpiGrid cols={5}>
         <StatCard
           title="Total Clients"
           value={clientCountVal}
@@ -191,11 +191,22 @@ export default function Dashboard({
           loading={loading}
         />
         <StatCard
-          title="Taxable Revenue (YTD)"
+          title="Taxable Revenue"
           value={revenueVal}
           change={kpis.revenue?.changePct ?? 40.0}
           comparisonLabel={kpis.revenue?.changeLabel || "vs Apr 2025"}
+          subtitle={kpis.revenue?.gstCollected ? `GST: ${formatIndianCurrency(kpis.revenue.gstCollected)}` : null}
           icon={IndianRupee}
+          loading={loading}
+        />
+        <StatCard
+          title="Profit after Expense"
+          value={formatIndianCurrency(kpis.profitAfterExpense?.value ?? 0)}
+          change={kpis.profitAfterExpense?.netMarginPct !== null && kpis.profitAfterExpense?.netMarginPct !== undefined ? `${kpis.profitAfterExpense.netMarginPct}% Net Margin` : null}
+          trendType={(kpis.profitAfterExpense?.value ?? 0) >= 0 ? "positive" : "negative"}
+          fallbackBadge="No prior data"
+          subtitle={`GP: ${formatIndianCurrency(kpis.profitAfterExpense?.grossProfit ?? kpis.revenue?.grossProfit ?? 0)} - Exp: ${formatIndianCurrency(kpis.profitAfterExpense?.totalExpenses ?? 0)}`}
+          icon={Coins}
           loading={loading}
         />
         <StatCard

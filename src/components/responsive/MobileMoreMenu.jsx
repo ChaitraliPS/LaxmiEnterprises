@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import {
   Truck, ShoppingCart, MessageCircle, IndianRupee, Package,
-  Database, ShieldCheck, X, RefreshCw, Moon, Sun, LogOut, ChevronRight
+  Database, ShieldCheck, X, RefreshCw, Moon, Sun, LogOut, ChevronRight, Wallet
 } from "lucide-react";
 
 export default function MobileMoreMenu({
@@ -44,6 +44,7 @@ export default function MobileMoreMenu({
     { to: "/purchases", label: "Purchases & Inward", sub: "Feed & Raw Goods Bills", icon: ShoppingCart, color: "#10b981" },
     { to: "/expo", label: "Expo Leads & WhatsApp", sub: "Visitor Registry & Campaigns", icon: MessageCircle, color: "#25D366" },
     { to: "/revenue", label: "Revenue Intelligence", sub: "Cash Flows & Targets", icon: IndianRupee, color: "#d97706" },
+    { to: "/expenses", label: "Operating Expenses", sub: "Overhead Bills & Outflows", icon: Wallet, color: "#ef4444" },
     { to: "/products", label: "Product Catalogue", sub: "SKUs & Unit Safety", icon: Package, color: "#6366f1" },
     { to: "/data-hub", label: "Data Hub & Cloud Sync", sub: "MySQL Registers & Backups", icon: Database, color: "#0ea5e9" },
     { to: "/workspace", label: "Admin Workspace", sub: "Enterprise Configuration", icon: ShieldCheck, color: "var(--primary)" },

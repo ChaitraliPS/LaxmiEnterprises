@@ -11,6 +11,7 @@ import InvoicesPage from "./components/InvoicesPage";
 import PurchasesPage from "./components/PurchasesPage";
 import ExpoPage from "./components/ExpoPage";
 import RevenuePage from "./components/RevenuePage";
+import ExpensesPage from "./components/ExpensesPage";
 import ProductsPage from "./components/ProductsPage";
 import InventoryPage from "./components/InventoryPage";
 import DataHubPage from "./components/DataHubPage";
@@ -78,6 +79,18 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [purchases, setPurchases] = useState([]);
 
+  // Operating Expenses state with persistence & MySQL sync
+  const [expenses, setExpenses] = useState(() => {
+    const saved = localStorage.getItem("le_expenses");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {}
+    }
+    return [];
+  });
+
   // Expo Leads state with persistence & MySQL sync
   const [expoLeads, setExpoLeads] = useState(() => {
     const saved = localStorage.getItem("le_expo_leads");
@@ -140,6 +153,10 @@ export default function App() {
       if (Array.isArray(data.expoLeads)) {
         setExpoLeads(data.expoLeads);
         localStorage.setItem("le_expo_leads", JSON.stringify(data.expoLeads));
+      }
+      if (Array.isArray(data.expenses)) {
+        setExpenses(data.expenses);
+        localStorage.setItem("le_expenses", JSON.stringify(data.expenses));
       }
       if (data.company && data.company.name) {
         setCompany(data.company);
@@ -418,6 +435,7 @@ export default function App() {
       inventory,
       invoices,
       purchases,
+      expenses,
       expoLeads,
     };
     const blob = new Blob([JSON.stringify(masterData, null, 2)], { type: "application/json" });
@@ -658,6 +676,17 @@ export default function App() {
                 onCreateInvoice={handleCreateInvoiceCascade}
                 products={products}
                 company={company}
+                onRefresh={fetchMasterDataFromDB}
+              />
+            } 
+          />
+          <Route 
+            path="/expenses" 
+            element={
+              <ExpensesPage 
+                expenses={expenses}
+                onRefresh={fetchMasterDataFromDB}
+                showToast={showGlobalToast}
               />
             } 
           />

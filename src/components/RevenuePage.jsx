@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import {
   IndianRupee, Plus, Search, Filter, Receipt, FileText, Download, Eye, X,
   CheckCircle2, AlertTriangle, Pencil, Calendar, RotateCcw,
-  TrendingUp, ShoppingCart, Coins
+  TrendingUp, ShoppingCart, Coins, Wallet
 } from "lucide-react";
 import {
   AreaChart, Area, CartesianGrid, XAxis, YAxis,
@@ -139,8 +139,8 @@ export default function Revenue({
         </div>
       </div>
 
-      {/* DUAL-RESPONSIVE KPI METRIC CARDS: 4-5 cols on Laptop, 2 cols on Mobile */}
-      <ResponsiveKpiGrid cols={4}>
+      {/* DUAL-RESPONSIVE KPI METRIC CARDS: 6 cards in 3 cols on Laptop, 2 cols on Mobile */}
+      <ResponsiveKpiGrid cols={3}>
         {/* 1. Gross Turnover */}
         <StatCard 
           title={`Taxable Revenue (${summaryData?.periodLabel || selectedFY})`} 
@@ -160,11 +160,38 @@ export default function Revenue({
           comparisonLabel=""
           trendType={summaryData?.grossMarginPct !== null ? "positive" : "neutral"}
           fallbackBadge="No prior margin"
+          subtitle="Taxable Revenue - COGS"
           icon={Coins} 
           loading={loading}
         />
 
-        {/* 3. Realized Collections */}
+        {/* 3. Profit after Expense (Net Profit) */}
+        <StatCard 
+          title="Profit after Expense" 
+          value={formatIndianCurrency(summaryData?.profitAfterExpense ?? (summaryData?.grossProfit ?? 0) - (summaryData?.totalExpenses ?? 0))} 
+          change={summaryData?.netMarginPct !== null && summaryData?.netMarginPct !== undefined ? `${summaryData.netMarginPct}% Net Margin` : null} 
+          comparisonLabel=""
+          trendType={(summaryData?.profitAfterExpense ?? 0) >= 0 ? "positive" : "negative"}
+          fallbackBadge="No prior data"
+          subtitle={`GP (${formatIndianCurrency(summaryData?.grossProfit ?? 0)}) - Expenses (${formatIndianCurrency(summaryData?.totalExpenses ?? 0)})`}
+          icon={TrendingUp} 
+          loading={loading}
+        />
+
+        {/* 4. Total Operating Expenses */}
+        <StatCard 
+          title="Operating Expenses" 
+          value={formatIndianCurrency(summaryData?.totalExpenses ?? 0)} 
+          change={summaryData?.expenseCount > 0 ? `${summaryData.expenseCount} Vouchers` : null} 
+          comparisonLabel=""
+          trendType="neutral"
+          fallbackBadge="0 Expenses logged"
+          subtitle={`Total overheads for ${selectedFY}`}
+          icon={Wallet} 
+          loading={loading}
+        />
+
+        {/* 5. Realized Collections */}
         <StatCard 
           title="Realized Collections" 
           value={formatIndianCurrency(summaryData?.collectedAmount ?? 0)} 
@@ -172,11 +199,12 @@ export default function Revenue({
           comparisonLabel=""
           trendType={summaryData?.realizedPct !== null ? "positive" : "neutral"}
           fallbackBadge="No collections"
-          icon={TrendingUp} 
+          subtitle="Direct bank & cash receipts"
+          icon={IndianRupee} 
           loading={loading}
         />
 
-        {/* 4. Outstanding Receivables */}
+        {/* 6. Outstanding Receivables */}
         <StatCard 
           title="Outstanding Receivables" 
           value={formatIndianCurrency(summaryData?.pendingDues ?? 0)} 
@@ -185,6 +213,7 @@ export default function Revenue({
           trendType={summaryData?.counts?.pending > 0 ? "negative" : "positive"}
           icon={AlertTriangle} 
           fallbackBadge="0 Pending"
+          subtitle="Unsettled client invoices"
           loading={loading}
         />
       </ResponsiveKpiGrid>
@@ -271,7 +300,10 @@ export default function Revenue({
                   domain={[0, "auto"]}
                 />
                 <Tooltip 
-                  formatter={(v, name) => [formatIndianCurrency(v), name === "turnover" ? "Taxable Turnover" : "Gross Invoiced"]}
+                  formatter={(v, name) => [
+                    formatIndianCurrency(v),
+                    name === "turnover" ? "Taxable Turnover" : name === "grossInvoiced" ? "Gross Invoiced" : name === "profitAfterExpense" ? "Profit after Expense" : "Expenses"
+                  ]}
                   contentStyle={{
                     background: "var(--card-bg)",
                     borderColor: "var(--border)",

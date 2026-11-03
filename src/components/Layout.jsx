@@ -58,6 +58,7 @@ export default function Layout({
     "/expo": ["Expo Leads & WhatsApp Broadcasting", "Stall visitors registry with 1-click bulk WhatsApp campaigns"],
     "/invoices": ["Sales", "Commercial GST tax invoices, billing ledger & PDF download"],
     "/revenue": ["Revenue Intelligence", "Track financial milestones, invoicing and gross earnings"],
+    "/expenses": ["Operating Expenses", "Operational costs, bills ledger, expense categories & tracking"],
     "/products": ["Product Catalogue", "Manage supplies, pricing tiers, stock levels & safety thresholds"],
     "/inventory": ["Inventory Logistics", "Track inward receipts, outward dispatches, SKU flow & bay storage"],
     "/data-hub": ["Data Hub & Cloud Sync", "Enterprise data registers, CSV exports & MySQL database synchronization"],
