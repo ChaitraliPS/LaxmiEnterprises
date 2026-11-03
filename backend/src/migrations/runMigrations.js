@@ -150,6 +150,19 @@ export async function runSchemaMigrations() {
         defaultValue: null,
       }).catch(() => {});
     }
+    if (!invoiceDesc.paidDate) {
+      await queryInterface.addColumn("invoices", "paidDate", {
+        type: sequelize.Sequelize.DATE,
+        allowNull: true,
+        comment: "Date when invoice was settled",
+      }).catch(() => {});
+    }
+    if (!invoiceDesc.totalCost) {
+      await queryInterface.addColumn("invoices", "totalCost", {
+        type: sequelize.Sequelize.DECIMAL(12, 2),
+        defaultValue: 0.0,
+      }).catch(() => {});
+    }
     if (!invoiceDesc.isCancelled) {
       await queryInterface.addColumn("invoices", "isCancelled", {
         type: sequelize.Sequelize.BOOLEAN,

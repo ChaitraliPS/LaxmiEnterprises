@@ -96,20 +96,20 @@ export const connectDB = async () => {
   // 3. Dynamically import models to ensure all models are registered
   await import("../models/index.js");
 
-  // 4. Schema Sync: Ensures all tables and relations exist in the database
-  try {
-    await sequelize.sync();
-    console.log("⚡ Schema base sync complete: all model tables verified.");
-  } catch (syncErr) {
-    console.warn("⚠️ Base sync warning:", syncErr.message);
-  }
-
-  // 5. Migration-First Approach: Execute migrations and verify schema health
+  // 4. Migration-First: Ensure all missing columns exist before creating indexes / syncing
   const { runMigrations, verifySchemaHealth } = await import("../migrations/runMigrations.js");
   try {
     await runMigrations();
   } catch (migError) {
     console.warn(`⚠️ Migration notice during startup: ${migError.message}`);
+  }
+
+  // 5. Schema Sync: Ensures all tables and relations exist in the database
+  try {
+    await sequelize.sync();
+    console.log("⚡ Schema base sync complete: all model tables verified.");
+  } catch (syncErr) {
+    console.warn("⚠️ Base sync warning:", syncErr.message);
   }
 
   try {
