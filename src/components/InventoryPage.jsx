@@ -223,7 +223,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
         const openStock = Number(p.openingStock || 0);
         const stockIn = Number(p.inwardStock ?? p.in ?? 0);
         const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-        const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
+        const balance = calculateCurrentStock({ opening: openStock, inward: stockIn, outward: stockOut });
         return [
           p.id || p.productId,
           p.name,
@@ -558,7 +558,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                         const openStock = Number(p.openingStock || 0);
                         const stockIn = Number(p.inwardStock ?? p.in ?? 0);
                         const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-                        const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
+                        const balance = calculateCurrentStock({ opening: openStock, inward: stockIn, outward: stockOut });
                         const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
                         const reorderNum = hasReorder ? Number(p.reorderLevel) : null;
                         const isOut = hasReorder && balance <= 0;
@@ -626,7 +626,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                     const openStock = Number(p.openingStock || 0);
                     const stockIn = Number(p.inwardStock ?? p.in ?? 0);
                     const stockOut = Number(p.outwardStock ?? p.out ?? 0);
-                    const balance = Number(p.currentStock ?? p.stock ?? (openStock + stockIn - stockOut));
+                    const balance = calculateCurrentStock({ opening: openStock, inward: stockIn, outward: stockOut });
                     const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
                     const reorderNum = hasReorder ? Number(p.reorderLevel) : null;
                     const isOut = hasReorder && balance <= 0;

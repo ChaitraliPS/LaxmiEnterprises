@@ -25,7 +25,6 @@ export default function ProductStockModal({
     stockData.openingStock,
     stockData.inwardStock,
     stockData.outwardStock,
-    stockData.reservedStock,
     simInward,
     simOutward
   );
@@ -119,8 +118,6 @@ export default function ProductStockModal({
                   <span style={{ color: "#059669" }}>Inward Received</span>
                   <span>−</span>
                   <span style={{ color: "#d97706" }}>Outward Dispatched</span>
-                  <span>−</span>
-                  <span style={{ color: "#dc2626" }}>Reserved</span>
                   <span>=</span>
                   <span style={{
                     color: "var(--primary)",
@@ -224,30 +221,6 @@ export default function ProductStockModal({
                 Billed sales & client fulfillments
               </div>
             </div>
-
-            {/* Reserved / Hold */}
-            <div style={{
-              background: "var(--card-bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 10,
-              padding: 14,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>
-                  Reserved / Hold
-                </span>
-                <span style={{ fontSize: "0.75rem", background: "rgba(239, 68, 68, 0.1)", color: "#dc2626", padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>
-                  − Quarantine
-                </span>
-              </div>
-              <div style={{ fontSize: "1.35rem", fontWeight: 800, marginTop: 4, color: "#dc2626" }}>
-                −{stockData.reservedStock} <small style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--text-muted)" }}>units</small>
-              </div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 2 }}>
-                Pending QA / allocated orders
-              </div>
-            </div>
           </div>
 
           {/* STEP-BY-STEP CALCULATION AUDIT TABLE */}
@@ -288,7 +261,7 @@ export default function ProductStockModal({
               </thead>
               <tbody>
                 {stockData.auditSteps.map((step, idx) => {
-                  const isFinal = step.step === 6;
+                  const isFinal = step.step === 5;
                   const isGross = step.step === 3;
                   return (
                     <tr

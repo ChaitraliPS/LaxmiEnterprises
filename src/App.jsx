@@ -21,7 +21,7 @@ import LoginPage from "./components/LoginPage";
 // Services
 import { getCurrentUser, logoutUser, verifyCurrentSession } from "./services/authService";
 import { erpApi } from "./services/api";
-import { getToday, getFiscalYearFormatted } from "./constants/erpConstants";
+import { getToday, getFiscalYearFormatted, calculateCurrentStock } from "./constants/erpConstants";
 
 export default function App() {
   const [theme, setTheme] = useState(() => {
@@ -188,10 +188,10 @@ export default function App() {
           const pId = String(inv.productId || inv.id || inv.sku);
           existingProductIds.add(pId);
           const p = prodMap.get(pId);
-          const rawStock = Number(p.stock ?? p.currentStock ?? 0);
           const rawOpen = Number(p.openingStock || 0);
           const rawIn = Number(p.inwardStock || 0);
           const rawOut = Number(p.outwardStock || 0);
+          const rawStock = calculateCurrentStock({ opening: rawOpen, inward: rawIn, outward: rawOut });
           return {
             ...inv,
             product: p.name,
@@ -215,10 +215,10 @@ export default function App() {
       (newProducts || []).forEach((p) => {
         const pId = String(p.id || p.productId);
         if (!existingProductIds.has(pId)) {
-          const rawStock = Number(p.stock ?? p.currentStock ?? 0);
           const rawOpen = Number(p.openingStock || 0);
           const rawIn = Number(p.inwardStock || 0);
           const rawOut = Number(p.outwardStock || 0);
+          const rawStock = calculateCurrentStock({ opening: rawOpen, inward: rawIn, outward: rawOut });
           const minAlert = Number(p.minStock ?? 10);
           newEntries.push({
             id: pId,

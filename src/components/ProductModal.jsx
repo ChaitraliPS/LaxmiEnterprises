@@ -9,7 +9,7 @@ import {
   validateUniqueId
 } from "../utils/validators";
 import { FieldError, RequiredStar, ValidationSummary } from "./ValidationFeedback";
-import { PRODUCT_CATEGORIES } from "../constants/erpConstants";
+import { PRODUCT_CATEGORIES, calculateCurrentStock } from "../constants/erpConstants";
 
 export default function ProductModal(props) {
   if (!props.isOpen) return null;
@@ -26,8 +26,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
         ? Number(productToEdit.inwardStock)
         : Number(productToEdit.stock) || 0;
       const outW = Number(productToEdit.outwardStock) || 0;
-      const res = Number(productToEdit.reservedStock) || 0;
-      const calcStock = Math.max(0, (open + inW) - outW - res);
+      const calcStock = calculateCurrentStock({ opening: open, inward: inW, outward: outW });
       const sp = Number(productToEdit.sellingPrice || productToEdit.price || 0);
       const cp = Number(productToEdit.costPrice || productToEdit.purchasePrice || 0);
       const reorder = productToEdit.reorderLevel !== null && productToEdit.reorderLevel !== undefined && productToEdit.reorderLevel !== ""
@@ -50,7 +49,6 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
         openingStock: open,
         inwardStock: inW,
         outwardStock: outW,
-        reservedStock: res,
         stock: calcStock,
       };
     }
@@ -69,7 +67,6 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
       openingStock: 0,
       inwardStock: 0,
       outwardStock: 0,
-      reservedStock: 0,
       stock: 0,
     };
   });
@@ -105,8 +102,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
       const open = Number(updated.openingStock) || 0;
       const inW = Number(updated.inwardStock) || 0;
       const outW = Number(updated.outwardStock) || 0;
-      const res = Number(updated.reservedStock) || 0;
-      updated.stock = Math.max(0, (open + inW) - outW - res);
+      updated.stock = calculateCurrentStock({ opening: open, inward: inW, outward: outW });
       return updated;
     });
     if (errors[field] || errors.stock) {
@@ -367,11 +363,11 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                     </span>
                   </div>
                   <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                    Formula: (Opening + Inward) − Outward − Reserved
+                    Formula: (Opening + Inward) − Outward
                   </span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
                   <div style={{ minWidth: 0 }}>
                     <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600 }}>Opening Base</label>
                     <input
@@ -410,19 +406,6 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                       title="Total outward dispatched / billed sales"
                     />
                   </div>
-
-                  <div style={{ minWidth: 0 }}>
-                    <label style={{ fontSize: "0.75rem", color: "#dc2626", fontWeight: 600 }}>− Reserved Hold</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="form-input"
-                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
-                      value={form.reservedStock}
-                      onChange={(e) => handleStockParamChange("reservedStock", e.target.value)}
-                      title="Allocated orders or quarantine units"
-                    />
-                  </div>
                 </div>
 
                 {/* LIVE SPECIFIC CALCULATION RESULT BAR */}
@@ -443,7 +426,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                       Ledger Movement Balance:
                     </div>
                     <div style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-main)", marginTop: 2 }}>
-                      ({form.openingStock || 0} Open + {form.inwardStock || 0} Inward) − {form.outwardStock || 0} Outward − {form.reservedStock || 0} Reserved
+                      ({form.openingStock || 0} Open + {form.inwardStock || 0} Inward) − {form.outwardStock || 0} Outward
                     </div>
                   </div>
 
