@@ -59,6 +59,43 @@ export const getStockMovements = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Record a stock movement directly (inward / outward)
+ */
+export const recordStockMovement = asyncHandler(async (req, res) => {
+  const { productId, adjustment, quantity, movementType, warehouseLocation, reason, notes, reference } = req.body;
+
+  if (!productId) {
+    throw ApiError.badRequest("productId is required");
+  }
+
+  let delta = 0;
+  if (adjustment !== undefined && !isNaN(Number(adjustment))) {
+    delta = Number(adjustment);
+  } else if (quantity !== undefined && !isNaN(Number(quantity))) {
+    const isOut = String(movementType || "").toLowerCase() === "outward" || String(movementType || "").toUpperCase().includes("OUT");
+    delta = isOut ? -Math.abs(Number(quantity)) : Math.abs(Number(quantity));
+  }
+
+  if (delta === 0) {
+    throw ApiError.badRequest("Adjustment quantity must be a non-zero number (+inward / -outward)");
+  }
+
+  const mType = movementType
+    ? (movementType === "inward" ? "ADJUSTMENT_IN" : movementType === "outward" ? "ADJUSTMENT_OUT" : movementType)
+    : (delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT");
+
+  const result = await applyStockChange(productId, delta, {
+    warehouseLocation,
+    movementType: mType,
+    referenceType: "MANUAL",
+    reference: reference || reason || notes || "Stock Movement Entry",
+    notes: notes || reason || "",
+  });
+
+  return ApiResponse.created(res, result, `Stock movement of ${delta > 0 ? "+" : ""}${delta} recorded successfully`);
+});
+
+/**
  * Adjust stock: +inward / -outward
  */
 export const adjustStock = asyncHandler(async (req, res) => {

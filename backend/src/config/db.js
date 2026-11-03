@@ -138,6 +138,10 @@ export const connectDB = async () => {
   try {
     await sequelize.sync();
     console.log("⚡ Schema base sync complete: all model tables verified.");
+
+    // 6. Ensure Inventory rows exist and initial opening stock is backfilled
+    const { backfillInventory } = await import("../utils/stockSync.js");
+    await backfillInventory();
   } catch (syncErr) {
     console.warn("⚠️ Base sync warning:", syncErr.message);
   }

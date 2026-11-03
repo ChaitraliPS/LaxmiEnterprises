@@ -23,8 +23,9 @@ export const getProducts = asyncHandler(async (req, res) => {
     const json = prod.toJSON();
     const metrics = healthMap.get(prod.productId);
 
-    const balance = metrics ? metrics.currentBalance : 0;
-    const totalIn = metrics ? metrics.totalIn : 0;
+    const fallbackStock = Number(json.stock ?? json.extraData?.stock ?? 0);
+    const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
+    const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
     const totalOut = metrics ? metrics.totalOut : 0;
     const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(prod.costPrice || 0);
 
@@ -77,6 +78,17 @@ export const createProduct = asyncHandler(async (req, res) => {
     : null;
   const warehouseLocation = inputData.warehouseLocation || (canonicalCat === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1");
 
+  const openingQty = Number(inputData.openingStock ?? inputData.stock ?? 0);
+  const extraData = {
+    ...(inputData.extraData || {}),
+    stock: openingQty,
+    openingStock: Number(inputData.openingStock || 0),
+    inwardStock: Number(inputData.inwardStock || openingQty),
+    outwardStock: Number(inputData.outwardStock || 0),
+    reservedStock: Number(inputData.reservedStock || 0),
+    minStock: reorderLevel,
+  };
+
   const product = await Product.create({
     productId: inputData.productId,
     name: inputData.name,
@@ -93,9 +105,23 @@ export const createProduct = asyncHandler(async (req, res) => {
     warehouseLocation,
     description: inputData.description || "",
     isActive: true,
+    extraData,
   });
 
-  const openingQty = Number(inputData.openingStock ?? inputData.stock ?? 0);
+  // Always ensure Inventory table row exists for catalog products
+  let inv = await Inventory.findOne({ where: { productId: product.productId } });
+  if (!inv) {
+    inv = await Inventory.create({
+      productId: product.productId,
+      productName: product.name,
+      category: product.category,
+      unit: product.unitOfMeasure,
+      currentStock: openingQty,
+      minStockAlert: reorderLevel || 10,
+      warehouseLocation,
+    });
+  }
+
   if (openingQty > 0) {
     await applyStockChange(product.productId, openingQty, {
       movementType: "OPENING",
@@ -143,7 +169,35 @@ export const updateProduct = asyncHandler(async (req, res) => {
     body.reorderLevel = body.reorderLevel !== null && body.reorderLevel !== "" ? Number(body.reorderLevel) : null;
   }
 
+  // Handle stock adjustments if passed
+  if (body.stock !== undefined) {
+    const targetStock = Number(body.stock);
+    const balanceInfo = await getStockBalance(id);
+    const delta = targetStock - balanceInfo.balance;
+    if (delta !== 0) {
+      await applyStockChange(id, delta, {
+        movementType: delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT",
+        referenceType: "ADJUSTMENT",
+        reference: "PRODUCT_UPDATE",
+        warehouseLocation: body.warehouseLocation || product.warehouseLocation || "Main Warehouse",
+        notes: `Stock updated via product edit (${delta > 0 ? "+" : ""}${delta})`,
+      });
+    }
+  }
+
   await product.update(body);
+
+  // Keep Inventory row updated
+  const inv = await Inventory.findOne({ where: { productId: id } });
+  if (inv) {
+    await inv.update({
+      productName: product.name,
+      category: product.category,
+      unit: product.unitOfMeasure,
+      warehouseLocation: product.warehouseLocation || inv.warehouseLocation,
+      minStockAlert: product.reorderLevel !== null ? Number(product.reorderLevel) : inv.minStockAlert,
+    });
+  }
 
   const updated = await Product.findOne({ where: { productId: id } });
   return ApiResponse.success(res, updated, "Product updated successfully");

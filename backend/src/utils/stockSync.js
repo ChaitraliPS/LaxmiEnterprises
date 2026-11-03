@@ -75,6 +75,14 @@ export async function applyStockChange(
     currentLedgerBalance += mDir === "IN" ? mQty : -mQty;
   }
 
+  // If no ledger movements recorded yet, use physical inventory or product baseline stock
+  if (movements.length === 0) {
+    const baseline = Number(inv?.currentStock || prod?.extraData?.stock || prod?.extraData?.openingStock || 0);
+    if (baseline > 0) {
+      currentLedgerBalance = baseline;
+    }
+  }
+
   // Block the transaction if stock would become negative
   const resultingBalance = currentLedgerBalance + qty;
   if (resultingBalance < 0) {
@@ -118,6 +126,19 @@ export async function applyStockChange(
   inv.lastUpdated = date || new Date();
   await inv.save({ transaction });
 
+  // Keep Product metadata/extraData in sync
+  if (prod) {
+    const extra = { ...(prod.extraData || {}) };
+    extra.stock = resultingBalance;
+    if (qty > 0) {
+      extra.inwardStock = (Number(extra.inwardStock) || 0) + qty;
+    } else {
+      extra.outwardStock = (Number(extra.outwardStock) || 0) + Math.abs(qty);
+    }
+    prod.extraData = extra;
+    await prod.save({ transaction });
+  }
+
   return {
     movementId: movement.id,
     previousBalance: currentLedgerBalance,
@@ -127,23 +148,50 @@ export async function applyStockChange(
 }
 
 /**
- * Ensure inventory rows exist for all catalog products
+ * Ensure inventory rows exist for all catalog products and backfill initial movements
  */
 export async function backfillInventory() {
-  const products = await Product.findAll();
-  for (const prod of products) {
-    const existing = await Inventory.findOne({ where: { productId: prod.productId } });
-    if (!existing) {
-      await Inventory.create({
-        productId: prod.productId,
-        productName: prod.name,
-        category: prod.category,
-        unit: prod.unitOfMeasure || prod.unit || "Bags",
-        currentStock: 0,
-        minStockAlert: prod.reorderLevel || 10,
-        warehouseLocation: prod.warehouseLocation || (prod.category === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1"),
-      });
+  try {
+    const products = await Product.findAll();
+    for (const prod of products) {
+      const pId = prod.productId;
+      const initialStock = Number(prod.extraData?.stock ?? prod.extraData?.openingStock ?? 0);
+
+      let inv = await Inventory.findOne({ where: { productId: pId } });
+      if (!inv) {
+        inv = await Inventory.create({
+          productId: pId,
+          productName: prod.name,
+          category: prod.category,
+          unit: prod.unitOfMeasure || prod.unit || "Bags",
+          currentStock: initialStock,
+          minStockAlert: prod.reorderLevel || 10,
+          warehouseLocation: prod.warehouseLocation || (prod.category === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1"),
+        });
+      }
+
+      // Check if any movements exist for this product
+      const movementCount = await StockMovement.count({ where: { productId: pId } });
+      const currentStock = Number(inv.currentStock || initialStock || 0);
+
+      if (movementCount === 0 && currentStock > 0) {
+        await StockMovement.create({
+          productId: pId,
+          movementType: "OPENING",
+          quantity: currentStock,
+          direction: "IN",
+          referenceType: "OPENING",
+          referenceId: "INITIAL-STOCK",
+          warehouseLocation: inv.warehouseLocation || prod.warehouseLocation || "Godown Bay A-1",
+          movementDate: prod.createdAt || new Date(),
+          quantityChange: currentStock,
+          notes: `Automatic initial opening stock backfill for ${prod.name}`,
+        });
+        console.log(`⚡ Backfilled opening stock of ${currentStock} for ${prod.name} (${pId})`);
+      }
     }
+  } catch (err) {
+    console.warn("⚠️ backfillInventory warning:", err.message);
   }
 }
 

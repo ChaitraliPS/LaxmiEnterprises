@@ -1,12 +1,12 @@
-import { toInventoryView } from "../utils/stockSync.js";
+import { toInventoryView, applyStockChange } from "../utils/stockSync.js";
 import { Op } from "sequelize";
 import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company, Target, Expense } from "../models/index.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { getStockHealth } from "../services/metrics/stockMetrics.js";
+import { getStockHealth, getStockBalance } from "../services/metrics/stockMetrics.js";
 import { getReceivables } from "../services/metrics/salesMetrics.js";
 import { getVendorPayables } from "../services/metrics/purchaseMetrics.js";
-import { getToday, evaluateStockHealth, canonicalClientType, canonicalVendorType } from "../constants/erpConstants.js";
+import { getToday, evaluateStockHealth, canonicalClientType, canonicalVendorType, canonicalProductCategory } from "../constants/erpConstants.js";
 
 /**
  * Get all ERP data from MySQL database with server-derived metrics
@@ -71,8 +71,11 @@ export const getAllData = asyncHandler(async (req, res) => {
       products: products.map((p) => {
         const json = p.toJSON();
         const metrics = healthMap.get(p.productId);
-        const balance = metrics ? metrics.currentBalance : (p.inventory ? Number(p.inventory.currentStock || 0) : Number(json.stock || 0));
-        const totalIn = metrics ? metrics.totalIn : balance;
+        const invStock = p.inventory ? Number(p.inventory.currentStock || 0) : 0;
+        const jsonStock = Number(json.stock ?? json.extraData?.stock ?? 0);
+        const fallbackStock = invStock || jsonStock || 0;
+        const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
+        const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
         const totalOut = metrics ? metrics.totalOut : 0;
         const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(p.costPrice || 0);
         return {
@@ -95,8 +98,9 @@ export const getAllData = asyncHandler(async (req, res) => {
           const p = prodMap.get(i.productId);
           const metrics = healthMap.get(i.productId);
           const base = toInventoryView(i, p);
-          const balance = metrics ? metrics.currentBalance : Number(i.currentStock || 0);
-          const totalIn = metrics ? metrics.totalIn : balance;
+          const fallbackStock = Number(i.currentStock || 0);
+          const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
+          const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
           const totalOut = metrics ? metrics.totalOut : 0;
           return {
             ...base,
@@ -115,8 +119,9 @@ export const getAllData = asyncHandler(async (req, res) => {
           .filter((p) => !inventory.some((i) => i.productId === p.productId))
           .map((p) => {
             const metrics = healthMap.get(p.productId);
-            const balance = metrics ? metrics.currentBalance : Number(p.currentStock || 0);
-            const totalIn = metrics ? metrics.totalIn : balance;
+            const fallbackStock = Number(p.extraData?.stock ?? p.extraData?.openingStock ?? 0);
+            const balance = metrics ? (metrics.hasMovements ? metrics.currentBalance : (metrics.currentBalance || fallbackStock)) : fallbackStock;
+            const totalIn = metrics ? (metrics.hasMovements ? metrics.totalIn : (metrics.totalIn || balance)) : balance;
             const totalOut = metrics ? metrics.totalOut : 0;
             return {
               productId: p.productId,
@@ -335,7 +340,7 @@ export const syncPurchases = asyncHandler(async (req, res) => {
 });
 
 /**
- * Sync / Save Products to MySQL (Strictly ignores stock columns - stock is ledger-driven)
+ * Sync / Save Products to MySQL (Synchronizes catalog and stock ledger integrity)
  */
 export const syncProducts = asyncHandler(async (req, res) => {
   const list = Array.isArray(req.body) ? req.body : req.body.products || [];
@@ -344,10 +349,21 @@ export const syncProducts = asyncHandler(async (req, res) => {
     const productId = String(item.productId || item.id || "");
     if (!productId) continue;
 
+    const requestedStock = Number(item.stock ?? item.currentStock ?? item.openingStock ?? 0);
+    const extraData = {
+      ...(item.extraData || {}),
+      stock: requestedStock,
+      openingStock: Number(item.openingStock || 0),
+      inwardStock: Number(item.inwardStock || requestedStock),
+      outwardStock: Number(item.outwardStock || 0),
+      reservedStock: Number(item.reservedStock || 0),
+      minStock: item.minStock || item.reorderLevel || 10,
+    };
+
     const productData = {
       productId,
       name: item.name || "Product",
-      category: item.category || "Animal Feed",
+      category: canonicalProductCategory(item.category || "Animal Feed"),
       sku: item.sku || productId,
       hsnCode: item.hsnCode || "",
       unit: item.unit || item.unitOfMeasure || "Bags",
@@ -357,7 +373,9 @@ export const syncProducts = asyncHandler(async (req, res) => {
       sellingPrice: Number(item.sellingPrice || item.price || 0),
       gstRate: Number(item.gstRate || 18),
       reorderLevel: item.reorderLevel !== null && item.reorderLevel !== undefined ? Number(item.reorderLevel) : null,
+      warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
       description: item.description || "",
+      extraData,
     };
 
     const [record, created] = await Product.findOrCreate({
@@ -369,15 +387,15 @@ export const syncProducts = asyncHandler(async (req, res) => {
       await record.update(productData);
     }
 
-    // Keep Inventory catalog metadata in sync WITHOUT modifying currentStock
-    const inv = await Inventory.findOne({ where: { productId } });
+    // Keep Inventory catalog metadata in sync
+    let inv = await Inventory.findOne({ where: { productId } });
     if (!inv) {
-      await Inventory.create({
+      inv = await Inventory.create({
         productId,
         productName: record.name,
         category: record.category,
         unit: record.unit,
-        currentStock: 0,
+        currentStock: requestedStock,
         minStockAlert: Number(item.reorderLevel ?? item.minStockAlert ?? 10),
         warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
       });
@@ -389,6 +407,28 @@ export const syncProducts = asyncHandler(async (req, res) => {
         minStockAlert: Number(item.reorderLevel ?? inv.minStockAlert),
         warehouseLocation: item.warehouseLocation || inv.warehouseLocation,
       });
+    }
+
+    // Sync stock with movements ledger
+    const balanceInfo = await getStockBalance(productId);
+    if (created && requestedStock > 0) {
+      await applyStockChange(productId, requestedStock, {
+        movementType: "OPENING",
+        referenceType: "OPENING",
+        reference: "INITIAL-STOCK",
+        warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
+      });
+    } else if (!created && item.stock !== undefined) {
+      const delta = requestedStock - balanceInfo.balance;
+      if (delta !== 0) {
+        await applyStockChange(productId, delta, {
+          movementType: delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT",
+          referenceType: "ADJUSTMENT",
+          reference: "PRODUCT_UPDATE",
+          warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
+          notes: `Stock updated via product edit (${delta > 0 ? "+" : ""}${delta})`,
+        });
+      }
     }
   }
 

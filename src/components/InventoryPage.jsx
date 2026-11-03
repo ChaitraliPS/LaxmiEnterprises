@@ -16,7 +16,7 @@ import { formatDate } from "../utils/formatters";
 
 export default function InventoryPage({ inventory = [], onSaveInventory, products = [], onSaveProducts, onRefresh }) {
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState("movements");
+  const [viewMode, setViewMode] = useState("balances");
   const [directionFilter, setDirectionFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
@@ -46,12 +46,39 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
     fetchMovements();
   }, []);
 
+  // Ensure products and inventory records are merged so every product is visible in inventory
+  const combinedProducts = useMemo(() => {
+    const list = [...products];
+    const existingIds = new Set(products.map(p => String(p.id || p.productId)));
+    for (const inv of (inventory || [])) {
+      const invId = String(inv.productId || inv.id);
+      if (!existingIds.has(invId)) {
+        list.push({
+          id: invId,
+          productId: invId,
+          name: inv.productName || inv.product || invId,
+          category: inv.category || "General",
+          unit: inv.unit || "Bags",
+          unitOfMeasure: inv.unit || "Bags",
+          stock: inv.stock ?? inv.currentStock ?? 0,
+          currentStock: inv.currentStock ?? inv.stock ?? 0,
+          inwardStock: inv.inwardStock ?? inv.in ?? 0,
+          outwardStock: inv.outwardStock ?? inv.out ?? 0,
+          reorderLevel: inv.reorderLevel ?? inv.minStockAlert,
+          warehouseLocation: inv.warehouseLocation || inv.location || "Main Warehouse",
+          stockStatus: inv.status || "In Stock",
+        });
+      }
+    }
+    return list;
+  }, [products, inventory]);
+
   const unitSummaries = useMemo(() => {
     const inMap = {};
     const outMap = {};
     const balanceMap = {};
 
-    products.forEach(p => {
+    combinedProducts.forEach(p => {
       const u = p.unitOfMeasure || p.unit || "Units";
       const stockIn = Number(p.inwardStock ?? p.in ?? 0);
       const stockOut = Number(p.outwardStock ?? p.out ?? 0);
@@ -67,14 +94,14 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
     const balanceStr = Object.entries(balanceMap).map(([u, q]) => `${q.toLocaleString("en-IN")} ${u}`).join(", ") || "0 Units";
 
     return { inStr, outStr, balanceStr };
-  }, [products]);
+  }, [combinedProducts]);
 
-  const lowCount = useMemo(() => products.filter(p => {
+  const lowCount = useMemo(() => combinedProducts.filter(p => {
     const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
     if (!hasReorder) return false;
     const balance = Number(p.currentStock ?? p.stock ?? 0);
     return balance <= Number(p.reorderLevel);
-  }).length, [products]);
+  }).length, [combinedProducts]);
 
   const filteredMovements = useMemo(() => {
     return movements.filter(m => {
@@ -94,7 +121,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
   }, [movements, directionFilter, search]);
 
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    return combinedProducts.filter(p => {
       const status = p.stockStatus || (
         p.reorderLevel === null || p.reorderLevel === undefined
           ? "Not set"
@@ -110,7 +137,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
       const loc = (p.warehouseLocation || "").toLowerCase();
       return pName.includes(q) || pId.includes(q) || loc.includes(q);
     });
-  }, [products, statusFilter, search]);
+  }, [combinedProducts, statusFilter, search]);
 
   const handleOpenAdd = () => {
     setSelectedProductForModal(null);
@@ -124,7 +151,16 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
 
   const handleStockMovement = async (movementData) => {
     try {
-      await erpApi.createStockMovement(movementData);
+      if (typeof erpApi.createStockMovement === "function") {
+        await erpApi.createStockMovement(movementData);
+      } else {
+        await erpApi.adjustStock(
+          movementData.productId,
+          movementData.adjustment,
+          movementData.warehouseLocation,
+          movementData.reason
+        );
+      }
       showToast(`✓ Stock movement recorded & synchronized.`);
       fetchMovements();
       if (onRefresh) onRefresh();
@@ -609,7 +645,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setSelectedProductForModal(null); }}
         onSave={handleStockMovement}
-        products={products}
+        products={combinedProducts}
         initialProductId={selectedProductForModal}
         showToast={showToast}
       />

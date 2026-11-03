@@ -100,6 +100,7 @@ export const erpApi = {
 
   getInventory: () => apiClient.get("/inventory"),
   getStockMovements: (params) => apiClient.get("/inventory/movements", { params }),
+  createStockMovement: (data) => apiClient.post("/inventory/movements", data),
   updateStock: (productId, data) => apiClient.put(`/inventory/${productId}`, data),
   adjustStock: (productId, adjustment, warehouseLocation, reason) =>
     apiClient.post(`/inventory/${productId}/adjust`, { adjustment, warehouseLocation, reason }),

@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { StockMovement, Product } from "../../models/index.js";
+import { StockMovement, Product, Inventory } from "../../models/index.js";
 import { formatISTDateString } from "./dateRangeHelper.js";
 import { getToday, evaluateStockHealth } from "../../constants/erpConstants.js";
 
@@ -42,6 +42,7 @@ export async function getStockBalance(productId, asOfDate = getToday()) {
     totalIn: Math.round(totalIn * 100) / 100,
     totalOut: Math.round(totalOut * 100) / 100,
     asOfDate: asOfStr,
+    hasMovements: movements.length > 0,
   };
 }
 
