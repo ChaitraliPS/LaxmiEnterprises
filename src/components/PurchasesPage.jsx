@@ -5,9 +5,12 @@ import {
 } from "lucide-react";
 import PurchaseModal from "./PurchaseModal";
 import PurchaseViewModal from "./PurchaseViewModal";
+import MobileRecordCard from "./responsive/MobileRecordCard";
+import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
+import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { erpApi } from "../services/api";
 import { formatIndianCurrency, formatDate } from "../utils/formatters";
-import { getToday, VENDOR_TYPES, VENDOR_TYPE_LIST } from "../constants/erpConstants";
+import { getToday, getFiscalYearFormatted, getFiscalYearOptions, VENDOR_TYPES, VENDOR_TYPE_LIST } from "../constants/erpConstants";
 
 export default function PurchasesPage({
   purchases = [],
@@ -20,11 +23,13 @@ export default function PurchasesPage({
   onRefresh
 }) {
   const today = useMemo(() => getToday(), []);
+  const currentFormattedFY = useMemo(() => getFiscalYearFormatted(today), [today]);
+  const fyOptions = useMemo(() => getFiscalYearOptions(purchases, today), [purchases, today]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [selectedFY, setSelectedFY] = useState("FY 2026-27");
+  const [selectedFY, setSelectedFY] = useState(currentFormattedFY);
 
   // Modals state
   const [modalOpen, setModalOpen] = useState(false);
@@ -61,13 +66,8 @@ export default function PurchasesPage({
   // Indian FY helper for date filtering
   const getPurchaseFY = (pur) => {
     const dStr = pur.purchaseDate || pur.date || (pur.createdAt ? String(pur.createdAt).slice(0, 10) : "");
-    if (!dStr) return "FY 2026-27";
-    const parts = dStr.split("-");
-    if (parts.length < 2) return "FY 2026-27";
-    const y = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    const startY = m >= 4 ? y : y - 1;
-    return `FY ${startY}-${String(startY + 1).slice(-2)}`;
+    if (!dStr) return currentFormattedFY;
+    return getFiscalYearFormatted(dStr);
   };
 
   // Period Purchases
@@ -162,7 +162,7 @@ export default function PurchasesPage({
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginLeft: "auto" }}>
           {/* FY Filter */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <Calendar size={15} style={{ color: "var(--text-muted)" }} />
@@ -172,8 +172,11 @@ export default function PurchasesPage({
               value={selectedFY}
               onChange={(e) => setSelectedFY(e.target.value)}
             >
-              <option value="FY 2026-27">FY 2026-27</option>
-              <option value="FY 2025-26">FY 2025-26</option>
+              {fyOptions.map((opt) => (
+                <option key={opt.value} value={opt.formattedValue}>
+                  {opt.label}
+                </option>
+              ))}
               <option value="All Time">All Time</option>
             </select>
           </div>
@@ -203,12 +206,12 @@ export default function PurchasesPage({
         </div>
       </div>
 
-      {/* KPI CARDS */}
-      <div className="stats-grid" style={{ marginBottom: 20 }}>
+      {/* DUAL-RESPONSIVE KPI GRID: 4-cols on Laptop, 2-cols on Mobile */}
+      <ResponsiveKpiGrid cols={4}>
         {/* KPI 1 */}
         <div className="stat-card">
           <div className="stat-top">
-            <span>Total Inward Purchases ({selectedFY})</span>
+            <span>Total Purchases ({selectedFY})</span>
             <div className="stat-icon" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
               <IndianRupee size={19} />
             </div>
@@ -216,14 +219,14 @@ export default function PurchasesPage({
           <div className="stat-value">{formatIndianCurrency(kpis.grandTotal)}</div>
           <div className="trend positive">
             <TrendingUp size={14} />
-            <span>{kpis.billCount} Procurement Bills Recorded</span>
+            <span>{kpis.billCount} Bills Recorded</span>
           </div>
         </div>
 
         {/* KPI 2 */}
         <div className="stat-card">
           <div className="stat-top">
-            <span>Settled / Paid to Vendors</span>
+            <span>Settled / Paid</span>
             <div className="stat-icon" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}>
               <CheckCircle2 size={19} />
             </div>
@@ -232,7 +235,7 @@ export default function PurchasesPage({
             {formatIndianCurrency(kpis.paidTotal)}
           </div>
           <div className="trend positive">
-            <span>{kpis.grandTotal > 0 ? `${((kpis.paidTotal / kpis.grandTotal) * 100).toFixed(1)}% Settled in Full` : "No billing"}</span>
+            <span>{kpis.grandTotal > 0 ? `${((kpis.paidTotal / kpis.grandTotal) * 100).toFixed(1)}% Settled` : "No billing"}</span>
           </div>
         </div>
 
@@ -254,14 +257,14 @@ export default function PurchasesPage({
             {formatIndianCurrency(kpis.pendingDues)}
           </div>
           <div className="trend" style={{ color: kpis.pendingDues > 0 ? "var(--danger)" : "var(--text-muted)" }}>
-            <span>{kpis.pendingDues > 0 ? `${kpis.overdueCount} bills overdue` : "All vendor dues settled"}</span>
+            <span>{kpis.pendingDues > 0 ? `${kpis.overdueCount} bills overdue` : "All dues settled"}</span>
           </div>
         </div>
 
         {/* KPI 4 */}
         <div className="stat-card">
           <div className="stat-top">
-            <span>Supplier Distribution</span>
+            <span>Suppliers Split</span>
             <div className="stat-icon" style={{ background: "rgba(245, 158, 11, 0.12)", color: "#d97706" }}>
               <Building2 size={19} />
             </div>
@@ -277,7 +280,7 @@ export default function PurchasesPage({
             </div>
           </div>
         </div>
-      </div>
+      </ResponsiveKpiGrid>
 
       {/* MAIN TABLE CARD */}
       <div className="card table-card">
@@ -294,7 +297,7 @@ export default function PurchasesPage({
             flexWrap: "wrap"
           }}
         >
-          <div className="filter-pills-bar">
+          <div className="filter-pills-bar" style={{ overflowX: "auto", maxWidth: "100%" }}>
             <button
               className={`filter-pill ${categoryFilter === "All" ? "active" : ""}`}
               onClick={() => setCategoryFilter("All")}
@@ -305,18 +308,18 @@ export default function PurchasesPage({
               className={`filter-pill ${categoryFilter === VENDOR_TYPES.FEED_MANUFACTURER ? "active" : ""}`}
               onClick={() => setCategoryFilter(VENDOR_TYPES.FEED_MANUFACTURER)}
             >
-              Feed Manufacturers ({categoryCounts[VENDOR_TYPES.FEED_MANUFACTURER]})
+              Feed Mills ({categoryCounts[VENDOR_TYPES.FEED_MANUFACTURER]})
             </button>
             <button
               className={`filter-pill ${categoryFilter === VENDOR_TYPES.DAIRY_PROCESSOR ? "active" : ""}`}
               onClick={() => setCategoryFilter(VENDOR_TYPES.DAIRY_PROCESSOR)}
             >
-              Dairy Processors ({categoryCounts[VENDOR_TYPES.DAIRY_PROCESSOR]})
+              Dairy ({categoryCounts[VENDOR_TYPES.DAIRY_PROCESSOR]})
             </button>
           </div>
 
           {/* Status filter */}
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {["All", "Paid", "Pending", "Overdue"].map((st) => (
               <button
                 key={st}
@@ -331,7 +334,7 @@ export default function PurchasesPage({
         </div>
 
         {/* TOOLBAR */}
-        <div className="table-toolbar">
+        <div className="table-toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
           <div className="local-search">
             <Search size={16} />
             <input
@@ -352,31 +355,149 @@ export default function PurchasesPage({
           </div>
         </div>
 
-        {/* TABLE BODY */}
-        <div className="table-wrap">
-          {filteredPurchases.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon"><ShoppingCart size={28} /></div>
-              <h4>No Purchase Bills Found</h4>
-              <p>No procurement records found for {selectedFY} matching criteria.</p>
-            </div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Bill / PO #</th>
-                  <th>Vendor Master Details</th>
-                  <th>Supplier Category</th>
-                  <th>Inward Line Items</th>
-                  <th>Bill Date</th>
-                  <th style={{ textAlign: "right" }}>Inward Total (₹)</th>
-                  <th style={{ textAlign: "right" }}>Settled (₹)</th>
-                  <th style={{ textAlign: "right" }}>Pending (₹)</th>
-                  <th style={{ textAlign: "center" }}>Status</th>
-                  <th style={{ textAlign: "center" }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+        {/* DUAL-RESPONSIVE: Desktop Table vs Mobile Cards */}
+        {filteredPurchases.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon"><ShoppingCart size={28} /></div>
+            <h4>No Purchase Bills Found</h4>
+            <p>No procurement records found for {selectedFY} matching criteria.</p>
+          </div>
+        ) : (
+          <ResponsiveDataTable
+            hasRecords={filteredPurchases.length > 0}
+            /* DESKTOP TABLE VIEW (Preserved all 10 columns) */
+            desktopView={
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bill / PO #</th>
+                      <th>Vendor Master Details</th>
+                      <th>Supplier Category</th>
+                      <th>Inward Line Items</th>
+                      <th>Bill Date</th>
+                      <th style={{ textAlign: "right" }}>Inward Total (₹)</th>
+                      <th style={{ textAlign: "right" }}>Settled (₹)</th>
+                      <th style={{ textAlign: "right" }}>Pending (₹)</th>
+                      <th style={{ textAlign: "center" }}>Status</th>
+                      <th style={{ textAlign: "center" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPurchases.map((pur) => {
+                      const pId = pur.purchaseId || pur.id;
+                      const vendor = vendorMap.get(pur.vendorId);
+                      const total = Number(pur.grandTotal ?? pur.totalAmount ?? pur.total ?? 0);
+                      const paid = Number(pur.paidAmount ?? 0);
+                      const balance = Number(pur.balanceDue ?? Math.max(0, total - paid));
+                      const status = pur.status || pur.paymentStatus || "Unpaid";
+                      const isSettled = paid >= total && total > 0;
+                      const lines = pur.lines || (Array.isArray(pur.items) ? pur.items : []);
+
+                      return (
+                        <tr key={pId}>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => setViewingPurchase(pur)}
+                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+                            >
+                              <code style={{
+                                color: "var(--primary)",
+                                fontWeight: 700,
+                                background: "rgba(0, 91, 181, 0.08)",
+                                padding: "3px 7px",
+                                borderRadius: 4
+                              }}>
+                                {pId}
+                              </code>
+                            </button>
+                          </td>
+
+                          <td>
+                            <div className="person">
+                              <div className="mini-avatar" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
+                                {(pur.vendorName || "V")[0]}
+                              </div>
+                              <div>
+                                <b>{pur.vendorName || vendor?.name || "Registered Vendor"}</b>
+                                {pur.vendorId && (
+                                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                    ID: {pur.vendorId}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td>
+                            <span style={{ fontSize: "12px", fontWeight: 600 }}>
+                              {pur.category || vendor?.category || VENDOR_TYPES.FEED_MANUFACTURER}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div style={{ fontSize: "12.5px" }}>
+                              {lines.length > 0 ? (
+                                lines.map((l, i) => {
+                                  const prod = productMap.get(l.productId);
+                                  const pName = l.productName || prod?.name || l.description || l.productId;
+                                  const unit = l.unitOfMeasure || prod?.unitOfMeasure || l.unit || "Bags";
+                                  const qty = Number(l.quantity ?? l.qty ?? 0);
+                                  return (
+                                    <div key={i} style={{ color: "var(--text-main)", fontWeight: 500 }}>
+                                      {pName}: <strong>{qty > 0 ? `${qty} ${unit}` : "—"}</strong>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <span style={{ color: "var(--text-muted)" }}>—</span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td style={{ fontSize: "12.5px" }}>{formatDate(pur.purchaseDate || pur.date)}</td>
+
+                          <td className="money" style={{ textAlign: "right" }}>
+                            <b style={{ color: "var(--primary)" }}>{formatIndianCurrency(total)}</b>
+                          </td>
+
+                          <td className="money" style={{ textAlign: "right", color: "#10b981", fontWeight: 600 }}>
+                            {formatIndianCurrency(paid)}
+                          </td>
+
+                          <td className="money" style={{ textAlign: "right", color: balance > 0 ? "var(--danger)" : "var(--text-muted)" }}>
+                            {formatIndianCurrency(balance)}
+                          </td>
+
+                          <td style={{ textAlign: "center" }}>
+                            <span className={`badge ${
+                              isSettled ? "paid" : (status === "Overdue" ? "overdue" : "pending-payment")
+                            }`}>
+                              {isSettled ? "Settled in Full" : status}
+                            </span>
+                          </td>
+
+                          <td style={{ textAlign: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => setViewingPurchase(pur)}
+                              title="View Bill Voucher"
+                              style={{ color: "var(--primary)", background: "none", border: "none", cursor: "pointer" }}
+                            >
+                              <Eye size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+            /* MOBILE RECORD CARDS VIEW */
+            mobileView={
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                 {filteredPurchases.map((pur) => {
                   const pId = pur.purchaseId || pur.id;
                   const vendor = vendorMap.get(pur.vendorId);
@@ -385,111 +506,75 @@ export default function PurchasesPage({
                   const balance = Number(pur.balanceDue ?? Math.max(0, total - paid));
                   const status = pur.status || pur.paymentStatus || "Unpaid";
                   const isSettled = paid >= total && total > 0;
-
-                  // Line items with product name from product master
                   const lines = pur.lines || (Array.isArray(pur.items) ? pur.items : []);
 
                   return (
-                    <tr key={pId}>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => setViewingPurchase(pur)}
-                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
-                        >
-                          <code style={{
-                            color: "var(--primary)",
-                            fontWeight: 700,
-                            background: "rgba(0, 91, 181, 0.08)",
-                            padding: "3px 7px",
-                            borderRadius: 4
-                          }}>
-                            {pId}
-                          </code>
-                        </button>
-                      </td>
-
-                      <td>
-                        <div className="person">
-                          <div className="mini-avatar" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
-                            {(pur.vendorName || "V")[0]}
-                          </div>
-                          <div>
-                            <b>{pur.vendorName || vendor?.name || "Registered Vendor"}</b>
-                            {pur.vendorId && (
-                              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                                ID: {pur.vendorId}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      <td>
-                        <span style={{ fontSize: "12px", fontWeight: 600 }}>
-                          {pur.category || vendor?.category || VENDOR_TYPES.FEED_MANUFACTURER}
+                    <MobileRecordCard
+                      key={pId}
+                      idBadge={pId}
+                      title={pur.vendorName || vendor?.name || "Registered Vendor"}
+                      subtitle={`Bill Date: ${formatDate(pur.purchaseDate || pur.date)}`}
+                      categoryBadge={pur.category || vendor?.category || "Feed Manufacturer"}
+                      statusBadge={
+                        <span className={`badge ${isSettled ? "paid" : (status === "Overdue" ? "overdue" : "pending-payment")}`} style={{ fontSize: 11 }}>
+                          {isSettled ? "Settled" : status}
                         </span>
-                      </td>
-
-                      <td>
-                        <div style={{ fontSize: "12.5px" }}>
-                          {lines.length > 0 ? (
-                            lines.map((l, i) => {
-                              const prod = productMap.get(l.productId);
-                              const pName = l.productName || prod?.name || l.description || l.productId;
-                              const unit = l.unitOfMeasure || prod?.unitOfMeasure || l.unit || "Bags";
-                              const qty = Number(l.quantity ?? l.qty ?? 0);
-                              return (
-                                <div key={i} style={{ color: "var(--text-main)", fontWeight: 500 }}>
-                                  {pName}: <strong>{qty > 0 ? `${qty} ${unit}` : "—"}</strong>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <span style={{ color: "var(--text-muted)" }}>—</span>
+                      }
+                      primaryMetrics={[
+                        { label: "Total Bill", value: formatIndianCurrency(total), isMoney: true },
+                        { label: "Paid", value: formatIndianCurrency(paid), color: "#10b981", isMoney: true },
+                        { label: "Balance", value: formatIndianCurrency(balance), color: balance > 0 ? "var(--danger)" : "var(--text-muted)", isMoney: true },
+                      ]}
+                      expandedDetails={
+                        <div>
+                          {lines.length > 0 && (
+                            <div style={{ marginBottom: 6 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>Line Items:</span>
+                              {lines.map((l, i) => {
+                                const prod = productMap.get(l.productId);
+                                const pName = l.productName || prod?.name || l.description || l.productId;
+                                const unit = l.unitOfMeasure || prod?.unitOfMeasure || l.unit || "Bags";
+                                const qty = Number(l.quantity ?? l.qty ?? 0);
+                                return (
+                                  <div key={i} className="mobile-record-detail-row">
+                                    <span className="mobile-record-detail-label">{pName}</span>
+                                    <span className="mobile-record-detail-val">{qty} {unit}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {pur.vendorId && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Vendor ID</span>
+                              <span className="mobile-record-detail-val" style={{ fontFamily: "monospace" }}>{pur.vendorId}</span>
+                            </div>
+                          )}
+                          {pur.paymentMode && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Payment Mode</span>
+                              <span className="mobile-record-detail-val">{pur.paymentMode}</span>
+                            </div>
                           )}
                         </div>
-                      </td>
-
-                      <td style={{ fontSize: "12.5px" }}>{formatDate(pur.purchaseDate || pur.date)}</td>
-
-                      <td className="money" style={{ textAlign: "right" }}>
-                        <b style={{ color: "var(--primary)" }}>{formatIndianCurrency(total)}</b>
-                      </td>
-
-                      <td className="money" style={{ textAlign: "right", color: "#10b981", fontWeight: 600 }}>
-                        {formatIndianCurrency(paid)}
-                      </td>
-
-                      <td className="money" style={{ textAlign: "right", color: balance > 0 ? "var(--danger)" : "var(--text-muted)" }}>
-                        {formatIndianCurrency(balance)}
-                      </td>
-
-                      <td style={{ textAlign: "center" }}>
-                        <span className={`badge ${
-                          isSettled ? "paid" : (status === "Overdue" ? "overdue" : "pending-payment")
-                        }`}>
-                          {isSettled ? "Settled in Full" : status}
-                        </span>
-                      </td>
-
-                      <td style={{ textAlign: "center" }}>
+                      }
+                      actions={
                         <button
                           type="button"
+                          className="primary"
                           onClick={() => setViewingPurchase(pur)}
-                          title="View Bill Voucher"
-                          style={{ color: "var(--primary)", background: "none", border: "none", cursor: "pointer" }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, width: "100%" }}
                         >
-                          <Eye size={16} />
+                          <Eye size={15} /> View Purchase Voucher
                         </button>
-                      </td>
-                    </tr>
+                      }
+                    />
                   );
                 })}
-              </tbody>
-            </table>
-          )}
-        </div>
+              </div>
+            }
+          />
+        )}
       </div>
 
       {/* VIEW MODAL */}
@@ -512,29 +597,23 @@ export default function PurchasesPage({
         }}
         onSave={async (newPur) => {
           try {
-            if (editingPurchase) {
-              await erpApi.updatePurchase(editingPurchase.purchaseId || editingPurchase.id, {
-                notes: newPur.notes || newPur.remarks,
-                dueDate: newPur.dueDate,
-                vendorInvoiceNo: newPur.vendorInvoiceNo || newPur.billNumber,
-              });
-              notify(`✓ Purchase Bill ${editingPurchase.purchaseId || editingPurchase.id} metadata updated`);
-            } else if (onCreatePurchase) {
+            if (onCreatePurchase) {
               await onCreatePurchase(newPur);
             } else {
               await erpApi.createPurchase(newPur);
             }
+            notify(`✓ Inward purchase recorded & saved to database!`);
             setModalOpen(false);
-            setEditingPurchase(null);
-            if (onRefresh) await onRefresh();
+            if (onRefresh) onRefresh();
           } catch (err) {
-            const msg = err?.response?.data?.message || err.message;
-            notify(`⚠️ ${msg}`);
+            const errMsg = err?.response?.data?.message || err.message;
+            notify(`⚠️ ${errMsg}`);
             throw err;
           }
         }}
         vendors={vendors}
         products={products}
+        nextId={`LE-PUR-2026-${String((purchases?.length || 0) + 1).padStart(3, "0")}`}
         company={company}
         showToast={notify}
       />

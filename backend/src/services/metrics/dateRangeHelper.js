@@ -130,9 +130,16 @@ export function resolveDateRange(range = "fy", asOfDate = getToday()) {
     };
   }
 
-  // Specific FY like "2025-26" or "2026-27"
+  // Specific FY like "2025-26" or "2026-27" or 4-digit start year like "2026" / "2025"
   const fyMatch = r.match(/(\d{4})-(\d{2})/);
-  const targetFY = fyMatch ? `${fyMatch[1]}-${fyMatch[2]}` : currentFY;
+  const fourDigitMatch = r.match(/^(\d{4})$/);
+  let targetFY = currentFY;
+  if (fyMatch) {
+    targetFY = `${fyMatch[1]}-${fyMatch[2]}`;
+  } else if (fourDigitMatch) {
+    const y = parseInt(fourDigitMatch[1], 10);
+    targetFY = `${y}-${String((y + 1) % 100).padStart(2, "0")}`;
+  }
   const startYear = parseInt(targetFY.split("-")[0], 10);
   const sStr = `${startYear}-04-01`;
   const eStr = `${startYear + 1}-03-31`;

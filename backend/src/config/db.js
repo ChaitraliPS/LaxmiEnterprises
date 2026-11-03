@@ -15,6 +15,14 @@ const dbUser = process.env.DB_USER || "root";
 const dbPass = process.env.DB_PASSWORD || "";
 const isSSL = process.env.DB_SSL === "true";
 
+export let dbConnectionState = {
+  connected: false,
+  error: null,
+  database: dbName,
+  host: dbHost,
+  port: dbPort,
+};
+
 export const sequelize = new Sequelize(dbName, dbUser, dbPass, {
   host: dbHost,
   port: dbPort,
@@ -38,6 +46,7 @@ export const sequelize = new Sequelize(dbName, dbUser, dbPass, {
 
 /**
  * Automatically creates the database if it doesn't exist yet on MySQL
+ * Safely handled for shared hosting environments like Hostinger
  */
 const ensureDatabaseExists = async () => {
   try {
@@ -52,14 +61,12 @@ const ensureDatabaseExists = async () => {
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\`;`);
     await connection.end();
   } catch (err) {
-    // If connection/credentials error, let authenticate() report it clearly
+    // Shared hosting user may not have global CREATE DATABASE privilege; ignore and let authenticate proceed
   }
 };
 
 /**
  * Connect to MySQL and automatically synchronize schema changes
- * Whenever you add, rename, or change columns in any model,
- * Sequelize will automatically run ALTER TABLE on the database!
  */
 export const connectDB = async () => {
   try {
@@ -70,37 +77,45 @@ export const connectDB = async () => {
 
     // 2. Authenticate connection
     await sequelize.authenticate();
+    dbConnectionState.connected = true;
+    dbConnectionState.error = null;
     console.log(`✅ MySQL Connected Successfully: ${dbHost}/${dbName}`);
   } catch (error) {
+    dbConnectionState.connected = false;
+    dbConnectionState.error = error.message;
     console.error(`❌ MySQL Connection Error: ${error.message}`);
     console.warn("\n------------------------------------------------------------");
     console.warn("💡 Troubleshooting your MySQL connection:");
-    console.warn("1. Check DB_PASSWORD in backend/.env (your local MySQL root password)");
-    console.warn("2. Verify MySQL80 service is running on your machine");
+    console.warn("1. Check DB_HOST, DB_NAME, DB_USER, DB_PASSWORD in backend/.env");
+    console.warn("2. On Hostinger, verify the database prefix (e.g. u123456789_dbname)");
+    console.warn("3. Ensure DB_SSL is false for Hostinger localhost MySQL");
     console.warn("------------------------------------------------------------\n");
-    if (process.env.NODE_ENV === "production") {
-      process.exit(1);
-    }
-    throw error;
+    return null;
   }
 
   // 3. Dynamically import models to ensure all models are registered
   await import("../models/index.js");
 
-  // 4. Migration-First Approach: Execute migrations and verify schema health
+  // 4. Schema Sync: Ensures all tables and relations exist in the database
+  try {
+    await sequelize.sync();
+    console.log("⚡ Schema base sync complete: all model tables verified.");
+  } catch (syncErr) {
+    console.warn("⚠️ Base sync warning:", syncErr.message);
+  }
+
+  // 5. Migration-First Approach: Execute migrations and verify schema health
   const { runMigrations, verifySchemaHealth } = await import("../migrations/runMigrations.js");
   try {
     await runMigrations();
   } catch (migError) {
-    console.error(`❌ Migration Error during startup: ${migError.message}`);
-    process.exit(1);
+    console.warn(`⚠️ Migration notice during startup: ${migError.message}`);
   }
 
   try {
     await verifySchemaHealth();
   } catch (healthError) {
-    console.error(`❌ Schema Health Error during startup: ${healthError.message}`);
-    process.exit(1);
+    console.warn(`⚠️ Schema health notice during startup: ${healthError.message}`);
   }
 
   return sequelize;

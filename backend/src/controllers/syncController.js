@@ -1,6 +1,6 @@
 import { toInventoryView } from "../utils/stockSync.js";
 import { Op } from "sequelize";
-import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company, Target } from "../models/index.js";
+import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company, Target, Expense } from "../models/index.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { getStockHealth } from "../services/metrics/stockMetrics.js";
@@ -12,7 +12,7 @@ import { getToday, evaluateStockHealth, canonicalClientType, canonicalVendorType
  * Get all ERP data from MySQL database with server-derived metrics
  */
 export const getAllData = asyncHandler(async (req, res) => {
-  const [clients, vendors, products, inventory, purchases, invoices, expoLeads, company, targets, healthData, receivablesData, payablesData] = await Promise.all([
+  const [clients, vendors, products, inventory, purchases, invoices, expoLeads, company, targets, healthData, receivablesData, payablesData, expenses] = await Promise.all([
     Client.findAll({ order: [["createdAt", "DESC"]] }),
     Vendor.findAll({ order: [["createdAt", "DESC"]] }),
     Product.findAll({ include: [{ model: Inventory, as: "inventory" }], order: [["createdAt", "DESC"]] }),
@@ -25,6 +25,7 @@ export const getAllData = asyncHandler(async (req, res) => {
     getStockHealth(getToday()),
     getReceivables(getToday()),
     getVendorPayables(getToday()),
+    Expense.findAll({ order: [["expenseDate", "DESC"], ["createdAt", "DESC"]] }),
   ]);
 
   const prodMap = new Map(products.map((p) => [p.productId, p]));
@@ -140,6 +141,7 @@ export const getAllData = asyncHandler(async (req, res) => {
       expoLeads: expoLeads.map((e) => e.toJSON()),
       company: company ? company.toJSON() : null,
       targets: targets.map((t) => t.toJSON()),
+      expenses: expenses.map((e) => e.toJSON()),
     },
     "All ERP data retrieved from MySQL database"
   );

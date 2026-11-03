@@ -26,6 +26,40 @@ export function getToday() {
   return envDateOverride || getRealISTDateString();
 }
 
+export function getFiscalYear(dateInput = getToday()) {
+  const d = typeof dateInput === "string" ? new Date(`${dateInput.slice(0, 10)}T00:00:00`) : new Date(dateInput);
+  if (isNaN(d.getTime())) return "2026-27";
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1; // 1-12
+  const startYear = month >= 4 ? year : year - 1;
+  const endYearShort = String((startYear + 1) % 100).padStart(2, "0");
+  return `${startYear}-${endYearShort}`;
+}
+
+export function getFiscalYearFormatted(dateInput = getToday()) {
+  return `FY ${getFiscalYear(dateInput)}`;
+}
+
+export function getFiscalYearOptions(dataRecords = [], asOfDate = getToday()) {
+  const currentFY = getFiscalYear(asOfDate);
+  const fySet = new Set([currentFY]);
+
+  for (const item of dataRecords || []) {
+    const dStr = item.invoiceDate || item.purchaseDate || item.date || item.createdAt;
+    if (dStr && typeof dStr === "string" && dStr.length >= 4) {
+      fySet.add(getFiscalYear(dStr));
+    }
+  }
+
+  const sorted = Array.from(fySet).sort().reverse();
+  return sorted.map((fy) => ({
+    value: fy,
+    formattedValue: `FY ${fy}`,
+    isCurrent: fy === currentFY,
+    label: fy === currentFY ? `FY ${fy} (Current)` : `FY ${fy}`,
+  }));
+}
+
 /**
  * @deprecated Use getToday() instead. Preserved strictly as legacy alias for backwards compatibility.
  */
@@ -113,6 +147,22 @@ export const PAYMENT_MODES = {
 };
 
 export const PAYMENT_MODE_LIST = Object.values(PAYMENT_MODES);
+
+// Operating Expense Categories
+export const EXPENSE_CATEGORIES = {
+  RENT: "Rent & Premises",
+  ELECTRICITY_UTILITIES: "Electricity & Utilities",
+  SALARIES_WAGES: "Salaries & Wages",
+  TRANSPORT_FUEL: "Transport & Fuel",
+  PACKAGING: "Packaging & Bags",
+  MAINTENANCE: "Machinery & Maintenance",
+  OFFICE_ADMIN: "Office & Admin",
+  MARKETING: "Marketing & Advertising",
+  TAXES_FEES: "Taxes & Professional Fees",
+  MISCELLANEOUS: "Miscellaneous",
+};
+
+export const EXPENSE_CATEGORY_LIST = Object.values(EXPENSE_CATEGORIES);
 
 /**
  * Low-stock evaluation rule (defined ONCE for both backend and frontend):

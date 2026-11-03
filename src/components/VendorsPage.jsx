@@ -1,11 +1,14 @@
 import React, { useState, useMemo } from "react";
 import {
-  Truck, Plus, Search, Filter, Pencil, Download,
+  Truck, Plus, Search, Pencil, Download,
   Phone, Mail, MapPin, Building2, CreditCard, MessageCircle,
   CheckCircle2, AlertTriangle, X, ShieldCheck, Milk, Tractor, Wheat, Store
 } from "lucide-react";
 import VendorModal from "./VendorModal";
 import ExportMenu from "./ExportMenu";
+import MobileRecordCard from "./responsive/MobileRecordCard";
+import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
+import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { downloadCSV } from "../utils/exportUtils";
 import { erpApi } from "../services/api";
 
@@ -29,7 +32,7 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Auto-generate next vendor ID (e.g. VEN-001)
+  // Auto-generate next vendor ID
   const nextId = useMemo(() => {
     const nums = (vendors || [])
       .map(v => {
@@ -42,10 +45,8 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
     return `VEN-${String(maxNum + 1).padStart(3, "0")}`;
   }, [vendors]);
 
-  // Canonical agribusiness vendor categories
   const categories = ["All", "Feed Manufacturer", "Dairy Processor", "Raw Materials Supplier"];
 
-  // Filtered vendors
   const filtered = useMemo(() => {
     return (vendors || []).filter(v => {
       const vCat = normalizeVendorCategory(v.category);
@@ -74,7 +75,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
     });
   }, [vendors, categoryFilter, search]);
 
-  // Metric stats for canonical vendor categories
   const totalVendors = vendors.length;
   const feedSuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Feed Manufacturer").length;
   const dairySuppliers = vendors.filter(v => normalizeVendorCategory(v.category) === "Dairy Processor").length;
@@ -126,16 +126,8 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
 
   const handleExportCSV = () => {
     const headers = [
-      "Vendor_ID",
-      "Vendor_Name",
-      "Category",
-      "Contact_Person",
-      "Phone",
-      "Email",
-      "GSTIN",
-      "City",
-      "Payment_Terms",
-      "Status"
+      "Vendor_ID", "Vendor_Name", "Category", "Contact_Person",
+      "Phone", "Email", "GSTIN", "City", "Payment_Terms", "Status"
     ];
     const rows = filtered.map(v => [
       v.vendorId || v.id,
@@ -155,7 +147,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
 
   return (
     <div className="page">
-      {/* Toast */}
       {toast && (
         <div className="toast-notification">
           <CheckCircle2 size={18} style={{ color: "var(--success)" }} />
@@ -163,51 +154,56 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
         </div>
       )}
 
-      {/* QUICK STATS CARDS FOR THE 3 AGRIBUSINESS SECTORS */}
-      <div className="module-quick-stats">
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon"><Truck size={20} /></div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Total Suppliers</div>
-            <div style={{ fontSize: "21px", fontWeight: 800 }}>{totalVendors} Vendors</div>
+      {/* QUICK STATS CARDS: 4-cols on Laptop, 2-cols on Mobile */}
+      <ResponsiveKpiGrid cols={4}>
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Total Suppliers</span>
+            <div className="stat-icon" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
+              <Truck size={19} />
+            </div>
           </div>
+          <div className="stat-value">{totalVendors}</div>
+          <div className="trend positive"><span>Active suppliers</span></div>
         </div>
 
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon" style={{ background: "var(--primary-light)", color: "var(--primary)" }}>
-            <Wheat size={20} />
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Feed Manufacturers</span>
+            <div className="stat-icon" style={{ background: "var(--primary-light)", color: "var(--primary)" }}>
+              <Wheat size={19} />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Feed Manufacturers</div>
-            <div style={{ fontSize: "21px", fontWeight: 800 }}>{feedSuppliers} Vendors</div>
-          </div>
+          <div className="stat-value">{feedSuppliers}</div>
+          <div className="trend positive"><span>Agri mills</span></div>
         </div>
 
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon" style={{ background: "rgba(37,99,235,0.12)", color: "#2563eb" }}>
-            <Milk size={20} />
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Dairy Processors</span>
+            <div className="stat-icon" style={{ background: "rgba(37,99,235,0.12)", color: "#2563eb" }}>
+              <Milk size={19} />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Dairy Processors</div>
-            <div style={{ fontSize: "21px", fontWeight: 800, color: "#2563eb" }}>{dairySuppliers} Vendors</div>
-          </div>
+          <div className="stat-value" style={{ color: "#2563eb" }}>{dairySuppliers}</div>
+          <div className="trend positive"><span>Chilling plants</span></div>
         </div>
 
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon" style={{ background: "var(--success-light)", color: "var(--success)" }}>
-            <Tractor size={20} />
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Raw Materials</span>
+            <div className="stat-icon" style={{ background: "var(--success-light)", color: "var(--success)" }}>
+              <Tractor size={19} />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Raw Materials Suppliers</div>
-            <div style={{ fontSize: "21px", fontWeight: 800, color: "var(--success)" }}>{rawSuppliers} Vendors</div>
-          </div>
+          <div className="stat-value" style={{ color: "var(--success)" }}>{rawSuppliers}</div>
+          <div className="trend positive"><span>Farm direct</span></div>
         </div>
-      </div>
+      </ResponsiveKpiGrid>
 
       {/* ACTION BAR */}
       <div className="page-actions" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        {/* Exactly 3 Category Filter Pills */}
-        <div className="filter-pills-bar" style={{ flexWrap: "wrap" }}>
+        <div className="filter-pills-bar" style={{ overflowX: "auto", maxWidth: "100%" }}>
           {categories.map(cat => (
             <button
               key={cat}
@@ -219,7 +215,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
           ))}
         </div>
 
-        {/* Buttons */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginLeft: "auto" }}>
           <ExportMenu
             onExportCSV={handleExportCSV}
@@ -234,7 +229,7 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
 
       {/* TABLE CARD */}
       <div className="card table-card">
-        <div className="table-toolbar">
+        <div className="table-toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
           <div className="local-search">
             <Search size={16} />
             <input
@@ -254,151 +249,229 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
           </span>
         </div>
 
-        <div className="table-wrap">
-          {filtered.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon"><Truck size={28} /></div>
-              <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Vendors Found</h4>
-              <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-                {search ? "No vendors matched your search query." : "Register your raw material suppliers, dairy centers, and farm partners."}
-              </p>
-              <button className="primary" onClick={handleOpenAdd} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <Plus size={15} /> Add First Vendor
-              </button>
-            </div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Vendor ID</th>
-                  <th>Vendor / Trade Name</th>
-                  <th>Procurement Category</th>
-                  <th>Contact Person & Phone</th>
-                  <th>GSTIN</th>
-                  <th>City / District</th>
-                  <th>Payment Terms</th>
-                  <th>Status</th>
-                  <th style={{ textAlign: "center" }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon"><Truck size={28} /></div>
+            <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Vendors Found</h4>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+              {search ? "No vendors matched your search query." : "Register your raw material suppliers, dairy centers, and farm partners."}
+            </p>
+            <button className="primary" onClick={handleOpenAdd} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Plus size={15} /> Add First Vendor
+            </button>
+          </div>
+        ) : (
+          <ResponsiveDataTable
+            hasRecords={filtered.length > 0}
+            /* DESKTOP TABLE VIEW (Preserved all 9 columns) */
+            desktopView={
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Vendor ID</th>
+                      <th>Vendor / Trade Name</th>
+                      <th>Procurement Category</th>
+                      <th>Contact Person & Phone</th>
+                      <th>GSTIN</th>
+                      <th>City / District</th>
+                      <th>Payment Terms</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: "center" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(v => {
+                      const idStr = v.vendorId || v.id;
+                      const isActive = (v.status || "Active") === "Active";
+                      const cleanPhone = (v.phone || v.contact || "").replace(/\D/g, "");
+
+                      return (
+                        <tr key={idStr}>
+                          <td>
+                            <span style={{
+                              fontFamily: "monospace",
+                              fontWeight: 700,
+                              fontSize: "0.82rem",
+                              background: "var(--bg)",
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              border: "1px solid var(--border)",
+                            }}>
+                              {idStr}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div style={{ fontWeight: 700, color: "var(--text-main)", fontSize: "0.88rem" }}>
+                              {v.name}
+                            </div>
+                            {v.companyName && v.companyName !== v.name && (
+                              <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                                {v.companyName}
+                              </div>
+                            )}
+                          </td>
+
+                          <td>
+                            <span style={{
+                              fontSize: "0.78rem",
+                              padding: "2px 8px",
+                              borderRadius: 6,
+                              background: "rgba(0,91,181,0.08)",
+                              color: "var(--primary)",
+                              fontWeight: 600,
+                              display: "inline-block",
+                            }}>
+                              {normalizeVendorCategory(v.category)}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>
+                              {v.contactPerson || "Sales Desk"}
+                            </div>
+                            <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4 }}>
+                              <Phone size={11} /> {v.phone || v.contact || "—"}
+                            </div>
+                          </td>
+
+                          <td>
+                            <span style={{ fontFamily: "monospace", fontSize: "0.78rem", color: v.gstin ? "var(--text-main)" : "var(--text-muted)" }}>
+                              {v.gstin || "Unregistered"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span style={{ fontSize: "0.82rem", display: "flex", alignItems: "center", gap: 4 }}>
+                              <MapPin size={12} style={{ color: "var(--text-muted)" }} />
+                              {v.city || v.village || "Maharashtra"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                              {v.paymentTerms || "Net 15 Days"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span className={`badge ${isActive ? "success" : "neutral"}`}>
+                              <span className="badge-dot" />
+                              {isActive ? "Active" : "Inactive"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div className="row-actions" style={{ justifyContent: "center" }}>
+                              {cleanPhone && (
+                                <a
+                                  href={`https://wa.me/91${cleanPhone.slice(-10)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="Chat on WhatsApp"
+                                  style={{
+                                    color: "#059669",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    padding: 6,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  <MessageCircle size={15} />
+                                </a>
+                              )}
+                              <button
+                                title="Edit Vendor"
+                                onClick={() => handleOpenEdit(v)}
+                                style={{ padding: 6 }}
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+            /* MOBILE RECORD CARDS VIEW */
+            mobileView={
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                 {filtered.map(v => {
                   const idStr = v.vendorId || v.id;
                   const isActive = (v.status || "Active") === "Active";
                   const cleanPhone = (v.phone || v.contact || "").replace(/\D/g, "");
 
                   return (
-                    <tr key={idStr}>
-                      <td>
-                        <span style={{
-                          fontFamily: "monospace",
-                          fontWeight: 700,
-                          fontSize: "0.82rem",
-                          background: "var(--bg)",
-                          padding: "2px 8px",
-                          borderRadius: 4,
-                          border: "1px solid var(--border)",
-                        }}>
-                          {idStr}
-                        </span>
-                      </td>
-
-                      <td>
-                        <div style={{ fontWeight: 700, color: "var(--text-main)", fontSize: "0.88rem" }}>
-                          {v.name}
-                        </div>
-                        {v.companyName && v.companyName !== v.name && (
-                          <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
-                            {v.companyName}
-                          </div>
-                        )}
-                      </td>
-
-                      <td>
-                        <span style={{
-                          fontSize: "0.78rem",
-                          padding: "2px 8px",
-                          borderRadius: 6,
-                          background: "rgba(0,91,181,0.08)",
-                          color: "var(--primary)",
-                          fontWeight: 600,
-                          display: "inline-block",
-                        }}>
-                          {normalizeVendorCategory(v.category)}
-                        </span>
-                      </td>
-
-                      <td>
-                        <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>
-                          {v.contactPerson || "Sales Desk"}
-                        </div>
-                        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4 }}>
-                          <Phone size={11} /> {v.phone || v.contact || "—"}
-                        </div>
-                      </td>
-
-                      <td>
-                        <span style={{ fontFamily: "monospace", fontSize: "0.78rem", color: v.gstin ? "var(--text-main)" : "var(--text-muted)" }}>
-                          {v.gstin || "Unregistered"}
-                        </span>
-                      </td>
-
-                      <td>
-                        <span style={{ fontSize: "0.82rem", display: "flex", alignItems: "center", gap: 4 }}>
-                          <MapPin size={12} style={{ color: "var(--text-muted)" }} />
-                          {v.city || v.village || "Maharashtra"}
-                        </span>
-                      </td>
-
-                      <td>
-                        <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                          {v.paymentTerms || "Net 15 Days"}
-                        </span>
-                      </td>
-
-                      <td>
-                        <span className={`badge ${isActive ? "success" : "neutral"}`}>
-                          <span className="badge-dot" />
+                    <MobileRecordCard
+                      key={idStr}
+                      idBadge={idStr}
+                      title={v.name}
+                      subtitle={v.companyName && v.companyName !== v.name ? v.companyName : (v.city || "Maharashtra")}
+                      categoryBadge={normalizeVendorCategory(v.category)}
+                      statusBadge={
+                        <span className={`badge ${isActive ? "success" : "neutral"}`} style={{ fontSize: 11 }}>
                           {isActive ? "Active" : "Inactive"}
                         </span>
-                      </td>
-
-                      <td>
-                        <div className="row-actions" style={{ justifyContent: "center" }}>
+                      }
+                      primaryMetrics={[
+                        { label: "Contact", value: v.phone || v.contact ? <a href={`tel:${v.phone || v.contact}`} style={{ color: "var(--primary)", textDecoration: "none" }}>{v.phone || v.contact}</a> : "—" },
+                        { label: "Person", value: v.contactPerson || "Sales Desk" },
+                        { label: "Terms", value: v.paymentTerms || "Net 15" },
+                      ]}
+                      expandedDetails={
+                        <div>
+                          {v.gstin && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">GSTIN</span>
+                              <span className="mobile-record-detail-val" style={{ fontFamily: "monospace" }}>{v.gstin}</span>
+                            </div>
+                          )}
+                          {v.email && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Email</span>
+                              <span className="mobile-record-detail-val">{v.email}</span>
+                            </div>
+                          )}
+                          <div className="mobile-record-detail-row">
+                            <span className="mobile-record-detail-label">Location</span>
+                            <span className="mobile-record-detail-val">{v.city || v.village || "Maharashtra"}</span>
+                          </div>
+                        </div>
+                      }
+                      actions={
+                        <>
                           {cleanPhone && (
                             <a
                               href={`https://wa.me/91${cleanPhone.slice(-10)}`}
                               target="_blank"
                               rel="noreferrer"
-                              title="Chat on WhatsApp"
-                              style={{
-                                color: "#059669",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                padding: 6,
-                                borderRadius: 6,
-                              }}
+                              className="outline"
+                              style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#059669" }}
                             >
-                              <MessageCircle size={15} />
+                              <MessageCircle size={15} /> WhatsApp
                             </a>
                           )}
                           <button
-                            title="Edit Vendor"
+                            type="button"
+                            className="primary"
                             onClick={() => handleOpenEdit(v)}
-                            style={{ padding: 6 }}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                           >
-                            <Pencil size={14} />
+                            <Pencil size={14} /> Edit Vendor
                           </button>
-
-                        </div>
-                      </td>
-                    </tr>
+                        </>
+                      }
+                    />
                   );
                 })}
-              </tbody>
-            </table>
-          )}
-        </div>
+              </div>
+            }
+          />
+        )}
       </div>
 
       {/* VENDOR MODAL */}
@@ -411,9 +484,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
         nextId={nextId}
         existingIds={vendors.map(v => v.vendorId || v.id)}
       />
-
-
     </div>
   );
 }
-

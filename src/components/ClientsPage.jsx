@@ -2,12 +2,14 @@ import React, { useState, useMemo } from "react";
 import {
   Users, Plus, Search, Eye, X,
   Milk, Tractor, Wheat, Phone, Mail, MapPin,
-  RotateCcw, CheckCircle2, Calendar
+  RotateCcw, CheckCircle2, Calendar, FileText, ChevronRight
 } from "lucide-react";
 import ClientModal from "./ClientModal";
 import ClientDetailsModal from "./ClientDetailsModal";
 import InvoiceModal from "./InvoiceModal";
 import ExportMenu from "./ExportMenu";
+import MobileRecordCard from "./responsive/MobileRecordCard";
+import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { erpApi } from "../services/api";
 import { downloadCSV } from "../utils/exportUtils";
 import "./ClientsPage.css";
@@ -40,12 +42,13 @@ const typeTheme = (type) => {
 };
 
 export default function ClientsPage({ 
-  clients, 
+  clients = [], 
   onSaveClients, 
   invoices = [], 
   onCreateInvoice,
   products = [],
-  company = {} 
+  company = {},
+  onRefresh,
 }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -65,7 +68,7 @@ export default function ClientsPage({
   const nextId = useMemo(() => {
     const ids = clients
       .map(c => {
-        const match = c.id.match(/\d+/);
+        const match = c.id && c.id.match(/\d+/);
         return match ? parseInt(match[0], 10) : 0;
       })
       .filter(n => !isNaN(n));
@@ -207,8 +210,8 @@ export default function ClientsPage({
       )}
 
       {/* Header: category tabs (left) + primary actions (right) */}
-      <div className="cl-header">
-        <div className="cl-tabs" role="tablist" aria-label="Client category">
+      <div className="cl-header" style={{ flexWrap: "wrap", gap: 12 }}>
+        <div className="cl-tabs" role="tablist" aria-label="Client category" style={{ overflowX: "auto", maxWidth: "100%" }}>
           {CATEGORY_TABS.map(({ value, label, icon: Icon }) => (
             <button
               key={value}
@@ -225,7 +228,7 @@ export default function ClientsPage({
           ))}
         </div>
 
-        <div className="cl-actions">
+        <div className="cl-actions" style={{ flexWrap: "wrap" }}>
           <button
             type="button"
             className="outline"
@@ -252,7 +255,7 @@ export default function ClientsPage({
 
       {/* Main Table Card */}
       <div className="card table-card">
-        <div className="table-toolbar cl-toolbar">
+        <div className="table-toolbar cl-toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
           <div className="local-search">
             <Search size={16} />
             <input
@@ -303,166 +306,273 @@ export default function ClientsPage({
           </span>
         </div>
 
-        <div className="table-wrap">
-          {filtered.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon"><Users size={26} /></div>
-              <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Clients Found</h4>
-              <p style={{ fontSize: 13, marginBottom: 16 }}>
-                {clients.length === 0 
-                  ? "Your client directory currently has 0 records. Add your first client account or refresh from live MySQL database."
-                  : "No client records match your current search query or filter selection."}
-              </p>
-              <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-                {clients.length === 0 && (
-                  <button className="primary" onClick={handleRefreshDb}>
-                    <RotateCcw size={15} /> Refresh Live Database
-                  </button>
-                )}
-                <button className="outline" onClick={() => handleOpenAdd(categoryFilter !== "All" ? categoryFilter : "Animal Feed Shop")}><Plus size={15} /> Add New Client</button>
-              </div>
+        {/* DUAL-EXPERIENCE: Desktop Table vs Mobile Cards */}
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon"><Users size={26} /></div>
+            <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Clients Found</h4>
+            <p style={{ fontSize: 13, marginBottom: 16 }}>
+              {clients.length === 0 
+                ? "Your client directory currently has 0 records. Add your first client account or refresh from live MySQL database."
+                : "No client records match your current search query or filter selection."}
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              {clients.length === 0 && (
+                <button className="primary" onClick={handleRefreshDb}>
+                  <RotateCcw size={15} /> Refresh Live Database
+                </button>
+              )}
+              <button className="outline" onClick={() => handleOpenAdd(categoryFilter !== "All" ? categoryFilter : "Animal Feed Shop")}><Plus size={15} /> Add New Client</button>
             </div>
-          ) : (
-            <table className="cl-table">
-              <colgroup>
-                <col style={{ width: "27%" }} />
-                <col style={{ width: "25%" }} />
-                <col style={{ width: "19%" }} />
-                <col style={{ width: "16%" }} />
-                <col style={{ width: "13%" }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Client</th>
-                  <th>Contact & location</th>
-                  <th>Business details</th>
-                  <th>Billing</th>
-                  <th>Status & actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          </div>
+        ) : (
+          <ResponsiveDataTable
+            hasRecords={filtered.length > 0}
+            /* DESKTOP TABLE VIEW (100% of information and columns retained) */
+            desktopView={
+              <div className="table-wrap">
+                <table className="cl-table">
+                  <colgroup>
+                    <col style={{ width: "27%" }} />
+                    <col style={{ width: "25%" }} />
+                    <col style={{ width: "19%" }} />
+                    <col style={{ width: "16%" }} />
+                    <col style={{ width: "13%" }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Client</th>
+                      <th>Contact & location</th>
+                      <th>Business details</th>
+                      <th>Billing</th>
+                      <th>Status & actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(c => {
+                      const theme = typeTheme(c.clientType);
+                      const due = Number(c.outstanding) || 0;
+                      return (
+                        <tr key={c.id}>
+                          {/* 1. Client identity */}
+                          <td>
+                            <div className="cl-client">
+                              <div className="mini-avatar" style={{ background: theme.bg, color: theme.fg }}>
+                                {c.name ? c.name[0] : "C"}
+                              </div>
+                              <div className="cl-client-main">
+                                <b
+                                  className="cl-name"
+                                  onClick={() => setViewingClient(c)}
+                                  title="View full client profile"
+                                >
+                                  {c.name}
+                                </b>
+                                <div className="cl-meta">
+                                  <code>{c.id}</code>
+                                  <span className={`client-type-badge ${theme.cls}`}>
+                                    {c.clientType === "Dairy" ? <Milk size={11} /> :
+                                     c.clientType === "Farmers" ? <Tractor size={11} /> :
+                                     <Wheat size={11} />}
+                                    {theme.label}
+                                  </span>
+                                </div>
+                                {c.contactPerson && <div className="cl-sub">Prop: {c.contactPerson}</div>}
+                                {c.dob && (
+                                  <div className="cl-sub"><Calendar size={11} /> DOB: {c.dob}</div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 2. Contact + location */}
+                          <td>
+                            <div className="cl-stack">
+                              <a href={`tel:${c.contact}`} className="cl-link">
+                                <Phone size={12} /> {c.contact}
+                              </a>
+                              {c.email && (
+                                <a href={`mailto:${c.email}`} className="cl-link muted">
+                                  <Mail size={12} /> <span className="cl-email">{c.email}</span>
+                                </a>
+                              )}
+                              <div className="cl-link muted">
+                                <MapPin size={12} /> <span>{getLocation(c)}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 3. Business details */}
+                          <td>
+                            {normalizeClientType(c.clientType) === "Feed Shop" && (
+                              <div className="cl-stack small">
+                                {c.productTypes && (
+                                  <div><span className="cl-label">Products</span> {c.productTypes.length > 36 ? `${c.productTypes.slice(0, 36)}...` : c.productTypes}</div>
+                                )}
+                                {c.brands && (
+                                  <div><span className="cl-label">Brands</span> {c.brands.length > 30 ? `${c.brands.slice(0, 30)}...` : c.brands}</div>
+                                )}
+                                {c.numberOfAnimals && (
+                                  <div style={{ color: "#059669", fontWeight: 600 }}>🐾 {c.numberOfAnimals}</div>
+                                )}
+                              </div>
+                            )}
+                            {normalizeClientType(c.clientType) === "Dairy" && (
+                              <div className="cl-stack small">
+                                <div style={{ color: "#0284c7", fontWeight: 700 }}>🥛 {c.numberOfSuppliers ? `${c.numberOfSuppliers} suppliers` : "—"}</div>
+                                <div><span className="cl-label">Milk qty</span> <b>{c.milkQuantity || "—"}</b></div>
+                              </div>
+                            )}
+                            {normalizeClientType(c.clientType) === "Farmer" && (
+                              <div className="cl-stack small">
+                                <div style={{ color: "#d97706", fontWeight: 700 }}>🚜 {c.numberOfAnimals ? `${c.numberOfAnimals} animals` : "—"}</div>
+                                {c.animalDetails && (
+                                  <div className="cl-sub">{c.animalDetails.length > 32 ? `${c.animalDetails.slice(0, 32)}...` : c.animalDetails}</div>
+                                )}
+                              </div>
+                            )}
+                            {!c.clientType && <span className="cl-sub">General account</span>}
+                          </td>
+
+                          {/* 4. Billing */}
+                          <td>
+                            <div className="cl-money">₹{Number(c.revenue || 0).toLocaleString("en-IN")}</div>
+                            <div className="cl-sub">{c.orders || 0} orders • {c.paymentTerms || "Net 30"}</div>
+                            <div className={`cl-due ${due > 0 ? "has-due" : ""}`}>
+                              {due > 0 ? `₹${due.toLocaleString("en-IN")} due` : "No dues"}
+                            </div>
+                          </td>
+
+                          {/* 5. Status + View */}
+                          <td>
+                            <div className="cl-status-actions">
+                              <span className={`badge ${c.status === "Active" ? "success" : "muted"}`}>
+                                <span
+                                  className={`badge-dot ${c.status === "Active" ? "pulse" : ""}`}
+                                  style={{
+                                    background: c.status === "Active" ? "#10b981" : "#94a3b8",
+                                    width: 6, height: 6, borderRadius: "50%",
+                                    display: "inline-block", marginRight: 6
+                                  }}
+                                />
+                                {c.status}
+                              </span>
+                              <div className="row-actions">
+                                <button title={`View full profile of ${c.name}`} onClick={() => setViewingClient(c)} style={{ color: "var(--accent)" }}>
+                                  <Eye size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+            /* MOBILE RECORD CARDS VIEW */
+            mobileView={
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                 {filtered.map(c => {
                   const theme = typeTheme(c.clientType);
                   const due = Number(c.outstanding) || 0;
                   return (
-                    <tr key={c.id}>
-                      {/* 1. Client identity */}
-                      <td>
-                        <div className="cl-client">
-                          <div className="mini-avatar" style={{ background: theme.bg, color: theme.fg }}>
-                            {c.name ? c.name[0] : "C"}
-                          </div>
-                          <div className="cl-client-main">
-                            <b
-                              className="cl-name"
-                              onClick={() => setViewingClient(c)}
-                              title="View full client profile"
-                            >
-                              {c.name}
-                            </b>
-                            <div className="cl-meta">
-                              <code>{c.id}</code>
-                              <span className={`client-type-badge ${theme.cls}`}>
-                                {c.clientType === "Dairy" ? <Milk size={11} /> :
-                                 c.clientType === "Farmers" ? <Tractor size={11} /> :
-                                 <Wheat size={11} />}
-                                {theme.label}
-                              </span>
+                    <MobileRecordCard
+                      key={c.id}
+                      idBadge={c.id}
+                      title={c.name}
+                      subtitle={getLocation(c)}
+                      categoryBadge={
+                        <span style={{ color: theme.fg }}>
+                          {theme.label}
+                        </span>
+                      }
+                      statusBadge={
+                        <span className={`badge ${c.status === "Active" ? "success" : "muted"}`} style={{ fontSize: 11 }}>
+                          {c.status}
+                        </span>
+                      }
+                      primaryMetrics={[
+                        { label: "Contact", value: c.contact ? <a href={`tel:${c.contact}`} style={{ color: "var(--primary)", textDecoration: "none" }}>{c.contact}</a> : "—" },
+                        { label: "Revenue", value: `₹${Number(c.revenue || 0).toLocaleString("en-IN")}`, isMoney: true },
+                        { label: "Due", value: due > 0 ? `₹${due.toLocaleString("en-IN")}` : "No dues", color: due > 0 ? "var(--danger)" : "var(--success)" },
+                      ]}
+                      expandedDetails={
+                        <div>
+                          {c.contactPerson && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Proprietor</span>
+                              <span className="mobile-record-detail-val">{c.contactPerson}</span>
                             </div>
-                            {c.contactPerson && <div className="cl-sub">Prop: {c.contactPerson}</div>}
-                            {c.dob && (
-                              <div className="cl-sub"><Calendar size={11} /> DOB: {c.dob}</div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* 2. Contact + location */}
-                      <td>
-                        <div className="cl-stack">
-                          <a href={`tel:${c.contact}`} className="cl-link">
-                            <Phone size={12} /> {c.contact}
-                          </a>
-                          {c.email && (
-                            <a href={`mailto:${c.email}`} className="cl-link muted">
-                              <Mail size={12} /> <span className="cl-email">{c.email}</span>
-                            </a>
                           )}
-                          <div className="cl-link muted">
-                            <MapPin size={12} /> <span>{getLocation(c)}</span>
+                          {c.email && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Email</span>
+                              <span className="mobile-record-detail-val">{c.email}</span>
+                            </div>
+                          )}
+                          {c.dob && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">DOB</span>
+                              <span className="mobile-record-detail-val">{c.dob}</span>
+                            </div>
+                          )}
+                          {c.gstin && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">GSTIN</span>
+                              <span className="mobile-record-detail-val" style={{ fontFamily: "monospace" }}>{c.gstin}</span>
+                            </div>
+                          )}
+                          <div className="mobile-record-detail-row">
+                            <span className="mobile-record-detail-label">Payment Terms</span>
+                            <span className="mobile-record-detail-val">{c.paymentTerms || "Net 30"}</span>
                           </div>
+                          <div className="mobile-record-detail-row">
+                            <span className="mobile-record-detail-label">Total Orders</span>
+                            <span className="mobile-record-detail-val">{c.orders || 0}</span>
+                          </div>
+                          {c.productTypes && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Products</span>
+                              <span className="mobile-record-detail-val">{c.productTypes}</span>
+                            </div>
+                          )}
+                          {c.milkQuantity && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Milk Volume</span>
+                              <span className="mobile-record-detail-val">{c.milkQuantity}</span>
+                            </div>
+                          )}
                         </div>
-                      </td>
-
-                      {/* 3. Business details (depends on client type) */}
-                      <td>
-                        {normalizeClientType(c.clientType) === "Feed Shop" && (
-                          <div className="cl-stack small">
-                            {c.productTypes && (
-                              <div><span className="cl-label">Products</span> {c.productTypes.length > 36 ? `${c.productTypes.slice(0, 36)}...` : c.productTypes}</div>
-                            )}
-                            {c.brands && (
-                              <div><span className="cl-label">Brands</span> {c.brands.length > 30 ? `${c.brands.slice(0, 30)}...` : c.brands}</div>
-                            )}
-                            {c.numberOfAnimals && (
-                              <div style={{ color: "#059669", fontWeight: 600 }}>🐾 {c.numberOfAnimals}</div>
-                            )}
-                          </div>
-                        )}
-                        {normalizeClientType(c.clientType) === "Dairy" && (
-                          <div className="cl-stack small">
-                            <div style={{ color: "#0284c7", fontWeight: 700 }}>🥛 {c.numberOfSuppliers ? `${c.numberOfSuppliers} suppliers` : "—"}</div>
-                            <div><span className="cl-label">Milk qty</span> <b>{c.milkQuantity || "—"}</b></div>
-                          </div>
-                        )}
-                        {normalizeClientType(c.clientType) === "Farmer" && (
-                          <div className="cl-stack small">
-                            <div style={{ color: "#d97706", fontWeight: 700 }}>🚜 {c.numberOfAnimals ? `${c.numberOfAnimals} animals` : "—"}</div>
-                            {c.animalDetails && (
-                              <div className="cl-sub">{c.animalDetails.length > 32 ? `${c.animalDetails.slice(0, 32)}...` : c.animalDetails}</div>
-                            )}
-                          </div>
-                        )}
-                        {!c.clientType && <span className="cl-sub">General account</span>}
-                      </td>
-
-                      {/* 4. Billing */}
-                      <td>
-                        <div className="cl-money">₹{Number(c.revenue || 0).toLocaleString("en-IN")}</div>
-                        <div className="cl-sub">{c.orders || 0} orders • {c.paymentTerms || "Net 30"}</div>
-                        <div className={`cl-due ${due > 0 ? "has-due" : ""}`}>
-                          {due > 0 ? `₹${due.toLocaleString("en-IN")} due` : "No dues"}
-                        </div>
-                      </td>
-
-                      {/* 5. Status + View only */}
-                      <td>
-                        <div className="cl-status-actions">
-                          <span className={`badge ${c.status === "Active" ? "success" : "muted"}`}>
-                            <span
-                              className={`badge-dot ${c.status === "Active" ? "pulse" : ""}`}
-                              style={{
-                                background: c.status === "Active" ? "#10b981" : "#94a3b8",
-                                width: 6, height: 6, borderRadius: "50%",
-                                display: "inline-block", marginRight: 6
-                              }}
-                            />
-                            {c.status}
-                          </span>
-                          <div className="row-actions">
-                            <button title={`View full profile of ${c.name}`} onClick={() => setViewingClient(c)} style={{ color: "var(--accent)" }}>
-                              <Eye size={14} />
-                            </button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
+                      }
+                      actions={
+                        <>
+                          <button
+                            type="button"
+                            className="outline"
+                            onClick={() => setViewingClient(c)}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                          >
+                            <Eye size={14} /> Profile
+                          </button>
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={() => setInvoiceForClient(c)}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                          >
+                            <FileText size={14} /> Invoice
+                          </button>
+                        </>
+                      }
+                    />
                   );
                 })}
-              </tbody>
-            </table>
-          )}
-        </div>
+              </div>
+            }
+          />
+        )}
       </div>
 
       <ClientModal
@@ -481,10 +591,7 @@ export default function ClientsPage({
         client={viewingClient}
         onEdit={(c) => { setViewingClient(null); handleOpenEdit(c); }}
         onCreateInvoice={(c) => { setViewingClient(null); setInvoiceForClient(c); }}
-
       />
-
-
 
       {invoiceForClient && (
         <InvoiceModal

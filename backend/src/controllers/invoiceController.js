@@ -137,27 +137,60 @@ export const createInvoice = asyncHandler(async (req, res) => {
       throw ApiError.badRequest("Invoice must contain at least one line item.");
     }
 
+    // Merge duplicate lines for the same productId server-side
+    const mergedLinesMap = new Map();
+    for (const rawLine of rawLines) {
+      const prodId = rawLine.productId || rawLine.id;
+      if (!prodId) throw ApiError.badRequest("Product ID is required for each invoice line.");
+      const qty = Number(rawLine.quantity ?? rawLine.qty ?? 0);
+      const discount = Number(rawLine.discount || 0);
+
+      if (mergedLinesMap.has(prodId)) {
+        const existing = mergedLinesMap.get(prodId);
+        existing.quantity += qty;
+        existing.discount += discount;
+      } else {
+        mergedLinesMap.set(prodId, { ...rawLine, productId: prodId, quantity: qty, discount });
+      }
+    }
+    const normalizedLines = Array.from(mergedLinesMap.values());
+
     let calculatedTaxable = 0;
     let calculatedGst = 0;
     let calculatedTotalCost = 0;
     const validatedLines = [];
     const cachedItemsArray = [];
 
-    for (const line of rawLines) {
-      const prodId = line.productId || line.id;
-      const qty = Number(line.quantity ?? line.qty ?? 0);
-      if (!prodId) throw ApiError.badRequest("Product ID is required for each invoice line.");
-      if (qty <= 0) throw ApiError.badRequest(`Quantity must be greater than 0 for product ${prodId}.`);
+    for (const line of normalizedLines) {
+      const prodId = line.productId;
+      const qty = Number(line.quantity);
+      if (isNaN(qty) || !isFinite(qty) || qty <= 0) {
+        throw ApiError.badRequest(`Quantity must be a valid positive number for product ${prodId}. Received: ${line.quantity}`);
+      }
 
       const prod = await Product.findOne({ where: { productId: prodId }, transaction: t });
       if (!prod) {
         throw ApiError.badRequest(`Product "${prodId}" does not exist in the product master.`);
       }
 
+      const rawPrice = line.unitPrice ?? line.rate ?? line.price ?? prod.sellingPrice;
+      const unitPrice = Number(rawPrice);
+      if (isNaN(unitPrice) || !isFinite(unitPrice) || unitPrice < 0) {
+        throw ApiError.badRequest(`Unit price must be a valid non-negative number for product "${prod.name}" (${prodId}). Received: ${rawPrice}`);
+      }
+
+      const rawDiscount = line.discount || 0;
+      const discount = Number(rawDiscount);
+      if (isNaN(discount) || !isFinite(discount) || discount < 0) {
+        throw ApiError.badRequest(`Discount cannot be negative for product "${prod.name}" (${prodId}). Received: ${rawDiscount}`);
+      }
+      const lineGross = Math.round(unitPrice * qty * 100) / 100;
+      if (discount > lineGross + 0.005) {
+        throw ApiError.badRequest(`Discount (₹${discount}) cannot exceed line total (₹${lineGross}) for product "${prod.name}" (${prodId}).`);
+      }
+
       // Do not trust client-sent calculations: use Product master price and GST rate
-      const unitPrice = Number(line.unitPrice ?? line.rate ?? line.price ?? prod.sellingPrice);
-      const discount = Number(line.discount || 0);
-      const taxable = Math.max(0, Math.round(((unitPrice * qty) - discount) * 100) / 100);
+      const taxable = Math.max(0, Math.round((lineGross - discount) * 100) / 100);
       const gstRate = Number(prod.gstRate || 0);
       const gstAmt = Math.round(taxable * (gstRate / 100) * 100) / 100;
       const lineTotal = Math.round((taxable + gstAmt) * 100) / 100;
@@ -197,15 +230,33 @@ export const createInvoice = asyncHandler(async (req, res) => {
 
     const calculatedGrandTotal = Math.round((calculatedTaxable + calculatedGst) * 100) / 100;
 
-    // 3. Generate sequential invoice number server-side with sequence row lock
-    let invoiceNumber = inputData.invoiceNumber;
-    if (!invoiceNumber || (await Invoice.findOne({ where: { invoiceNumber }, transaction: t }))) {
-      invoiceNumber = await generateInvoiceNumber(t, businessDateStr);
-    }
+    // 3. Generate sequential invoice number server-side with sequence row lock (ignore client-sent numbers)
+    const invoiceNumber = await generateInvoiceNumber(t, businessDateStr);
 
-    // Payment if submitted together
-    const paidAmount = Number(inputData.paidAmount || 0);
-    const balanceDue = Math.max(0, calculatedGrandTotal - paidAmount);
+    // Validate payment if submitted together
+    let paidAmount = 0;
+    if (inputData.paidAmount !== undefined && inputData.paidAmount !== null && inputData.paidAmount !== "") {
+      paidAmount = Number(inputData.paidAmount);
+      if (isNaN(paidAmount) || !isFinite(paidAmount) || paidAmount < 0) {
+        throw ApiError.badRequest(`Paid amount must be a valid non-negative number. Received: ${inputData.paidAmount}`);
+      }
+      if (paidAmount > calculatedGrandTotal + 0.005) {
+        throw ApiError.badRequest(
+          `Initial payment amount (₹${paidAmount}) exceeds invoice grand total (₹${calculatedGrandTotal}). Overpayment is not allowed.`
+        );
+      }
+    }
+    paidAmount = Math.round(paidAmount * 100) / 100;
+    const balanceDue = Math.round(Math.max(0, calculatedGrandTotal - paidAmount) * 100) / 100;
+
+    if (paidAmount > 0) {
+      const payMode = inputData.paymentMode;
+      if (!payMode || !VALID_PAYMENT_MODES.some((m) => m.toLowerCase() === String(payMode).trim().toLowerCase())) {
+        throw ApiError.badRequest(
+          `Valid paymentMode is required when recording an initial payment (${VALID_PAYMENT_MODES.join(", ")}). Received: ${payMode || "none"}`
+        );
+      }
+    }
 
     const status = deriveTransactionStatus({
       grandTotal: calculatedGrandTotal,
@@ -439,7 +490,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
     }
 
     const currentBalance = Number(invoice.balanceDue ?? Math.max(0, Number(invoice.grandTotal || 0) - Number(invoice.paidAmount || 0)));
-    if (amount > currentBalance) {
+    if (amount > currentBalance + 0.005) {
       throw ApiError.badRequest(`Payment amount (₹${amount}) exceeds remaining balance due (₹${currentBalance})`);
     }
 
@@ -511,23 +562,27 @@ export const recordPayment = asyncHandler(async (req, res) => {
  */
 export const deleteInvoice = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const invoice = await Invoice.findOne({
-    where: {
-      [Op.or]: [{ invoiceNumber: id }, ...(isNaN(id) ? [] : [{ id: Number(id) }])],
-    },
-    include: [{ model: InvoiceLine, as: "lines" }, { model: Payment, as: "payments" }],
-  });
-
-  if (!invoice) {
-    throw ApiError.notFound(`Invoice not found with identifier: ${id}`);
-  }
-  if (invoice.isCancelled) {
-    return ApiResponse.success(res, invoice, "Invoice is already cancelled");
-  }
-
   const t = await sequelize.transaction();
 
   try {
+    const invoice = await Invoice.findOne({
+      where: {
+        [Op.or]: [{ invoiceNumber: id }, ...(isNaN(id) ? [] : [{ id: Number(id) }])],
+      },
+      include: [{ model: InvoiceLine, as: "lines" }, { model: Payment, as: "payments" }],
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+
+    if (!invoice) {
+      await t.rollback();
+      throw ApiError.notFound(`Invoice not found with identifier: ${id}`);
+    }
+    if (invoice.isCancelled) {
+      await t.commit();
+      return ApiResponse.success(res, invoice, "Invoice is already cancelled");
+    }
+
     // 1. Reverse stock movements for each line item (RETURN / reversal)
     for (const line of invoice.lines || []) {
       await applyStockChange(line.productId, line.quantity, {
@@ -556,7 +611,7 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
 
     // 4. Reverse Client totals
     if (invoice.clientId) {
-      const client = await Client.findOne({ where: { clientId: invoice.clientId }, transaction: t });
+      const client = await Client.findOne({ where: { clientId: invoice.clientId }, transaction: t, lock: t.LOCK.UPDATE });
       if (client) {
         client.orders = Math.max(0, Number(client.orders || 0) - 1);
         client.revenue = Math.max(0, Number(client.revenue || 0) - Number(invoice.grandTotal || 0));

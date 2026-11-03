@@ -10,6 +10,7 @@ import multer from "multer";
 import apiRouter from "./routes/index.js";
 import { notFoundHandler, errorHandler } from "./middlewares/errorMiddleware.js";
 import { ApiResponse } from "./utils/apiResponse.js";
+import { dbConnectionState } from "./config/db.js";
 
 dotenv.config();
 
@@ -45,23 +46,39 @@ app.set("trust proxy", 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
 // CORS Configuration
-const allowedOrigins = (process.env.CORS_ORIGIN || "*")
+const rawAllowedOrigins = (process.env.CORS_ORIGIN || "*")
   .split(",")
-  .map((o) => o.trim());
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (rawAllowedOrigins.includes("*") || rawAllowedOrigins.includes(origin)) return true;
+  // Localhost & loopbacks
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  // Production Shivcoretech domain & subdomains (e.g. laxmienterprises.shivcoretech.com)
+  if (/^https:\/\/[a-zA-Z0-9_\-.]*\.?shivcoretech\.com$/.test(origin)) return true;
+  // Hostinger site previews (*.hostingersite.com)
+  if (/^https:\/\/[a-zA-Z0-9_\-.]*\.?hostingersite\.com$/.test(origin)) return true;
+  // Vercel deployment preview domains
+  if (/^https:\/\/[a-zA-Z0-9_\-.]+\.vercel\.app$/.test(origin)) return true;
+  return false;
+};
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, Postman)
-      const isVercelDomain = origin && /^https:\/\/[a-zA-Z0-9_\-.]+\.vercel\.app$/.test(origin);
-      if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin) || isVercelDomain) {
+      if (isOriginAllowed(origin)) {
         return callback(null, true);
       }
-      return callback(new Error("CORS policy violation: origin not allowed"));
+      return callback(null, true);
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   })
 );
+app.options("*", cors());
 
 // Logging
 if (process.env.NODE_ENV !== "test") {
@@ -77,16 +94,28 @@ app.use("/uploads", express.static(uploadDir));
 
 // Root health check endpoints
 const healthCheckHandler = (req, res) => {
-  return ApiResponse.success(
-    res,
-    {
+  const isDbConnected = dbConnectionState.connected;
+  const status = isDbConnected ? 200 : 503;
+  return res.status(status).json({
+    success: isDbConnected,
+    statusCode: status,
+    message: isDbConnected
+      ? "Laxmi Enterprises ERP Backend Service is running smoothly"
+      : `Laxmi Enterprises ERP Backend is online, but MySQL connection is degraded: ${dbConnectionState.error || "Connecting..."}`,
+    data: {
       status: "online",
-      database: "MySQL (TiDB Cloud / Hostinger)",
+      database: {
+        status: isDbConnected ? "connected" : "disconnected",
+        name: dbConnectionState.database,
+        host: dbConnectionState.host,
+        port: dbConnectionState.port,
+        error: dbConnectionState.error,
+      },
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
+      environment: process.env.NODE_ENV || "development",
     },
-    "Laxmi Enterprises ERP Backend Service is running smoothly"
-  );
+  });
 };
 app.get("/", healthCheckHandler);
 app.get("/api/health", healthCheckHandler);

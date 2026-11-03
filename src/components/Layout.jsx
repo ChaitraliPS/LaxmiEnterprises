@@ -1,17 +1,29 @@
 import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, Users, Truck, ShoppingCart, MessageCircle, Receipt,
-  IndianRupee, Package, Boxes, ShieldCheck, X, Menu, Database,
-  Search, Bell, LogOut, RefreshCw
+  Menu, Search, Bell, LogOut, RefreshCw
 } from "lucide-react";
 import ThemeSelector from "./ThemeSelector";
 import { erpApi } from "../services/api";
+import DesktopSidebar from "./responsive/DesktopSidebar";
+import MobileBottomNavigation from "./responsive/MobileBottomNavigation";
+import MobileMoreMenu from "./responsive/MobileMoreMenu";
 
-export default function Layout({ children, currentTheme, onSelectTheme, adminProfile, currentUser, onLogout, onRefreshAll }) {
+export default function Layout({
+  children,
+  currentTheme,
+  onSelectTheme,
+  adminProfile,
+  currentUser,
+  onLogout,
+  onRefreshAll
+}) {
   const [isRefreshingGlobal, setIsRefreshingGlobal] = useState(false);
   const [isDbOnline, setIsDbOnline] = useState(true);
   const [alertCount, setAlertCount] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const location = useLocation();
 
   useEffect(() => {
     let mounted = true;
@@ -37,15 +49,13 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
       setTimeout(() => setIsRefreshingGlobal(false), 500);
     }
   };
-  const [open, setOpen] = useState(false);
-  const location = useLocation();
 
   const titles = {
     "/": ["Enterprise Dashboard", "Live operations, revenue intelligence and stock alerts"],
     "/clients": ["Client Directory", "Enterprise accounts, real-time client management, orders and billing"],
     "/vendors": ["Vendor Directory", "Suppliers, farmers procurement partners, trade accounts & payables"],
     "/purchases": ["Purchase & Inward Procurement", "Animal feed stocks inward, raw milk procurement & farm direct receipts"],
-    "/expo": ["Expo Leads & WhatsApp Broadcasting", "Stall visitors registry (Name, Village, Mobile & Remark) with 1-click bulk WhatsApp campaigns"],
+    "/expo": ["Expo Leads & WhatsApp Broadcasting", "Stall visitors registry with 1-click bulk WhatsApp campaigns"],
     "/invoices": ["Sales", "Commercial GST tax invoices, billing ledger & PDF download"],
     "/revenue": ["Revenue Intelligence", "Track financial milestones, invoicing and gross earnings"],
     "/products": ["Product Catalogue", "Manage supplies, pricing tiers, stock levels & safety thresholds"],
@@ -56,153 +66,38 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
   };
   const [title, subtitle] = titles[location.pathname] || titles["/"];
 
-  const coreNav = [
-    { to: "/", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/clients", label: "Clients", icon: Users },
-    { to: "/vendors", label: "Vendors", icon: Truck },
-    { to: "/purchases", label: "Purchases", icon: ShoppingCart },
-    { to: "/expo", label: "Expo Leads", icon: MessageCircle },
-  ];
-
-  const financialNav = [
-    { to: "/invoices", label: "Sales", icon: Receipt },
-    { to: "/revenue", label: "Revenue", icon: IndianRupee },
-    { to: "/products", label: "Products", icon: Package },
-    { to: "/inventory", label: "Inventory", icon: Boxes },
-  ];
-
-  const enterpriseNav = [
-    { to: "/workspace", label: "Admin Workspace", icon: ShieldCheck }
-  ];
-
   return (
     <div className="app-shell">
-      {/* SIDEBAR NAVIGATION */}
-      <aside className={`sidebar ${open ? "sidebar-open" : ""}`}>
-        {/* BRAND HEADER WITH OFFICIAL LOGO */}
-        <div className="brand">
-          <div className="brand-logo-container">
-            <img 
-              src="/logo.png" 
-              alt="Laxmi Enterprises Official Logo" 
-              className="brand-logo-img" 
-            />
-          </div>
-          <div className="brand-info">
-            <strong className="brand-title">LAXMI</strong>
-            <span className="brand-subtitle">ENTERPRISES</span>
-          </div>
-          <button className="mobile-close" onClick={() => setOpen(false)} aria-label="Close menu">
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* NAVIGATION ITEMS */}
-        <nav className="sidebar-nav" aria-label="Main Navigation">
-          <div className="nav-section-title">CORE OPERATIONS</div>
-          {coreNav.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              onClick={() => setOpen(false)}
-              className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-
-          <div className="nav-section-title" style={{ marginTop: 10 }}>FINANCIALS & INVENTORY</div>
-          {financialNav.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              onClick={() => setOpen(false)}
-              className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-
-          <div className="nav-section-title" style={{ marginTop: 10 }}>ENTERPRISE & WORKSPACE</div>
-          {enterpriseNav.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              onClick={() => setOpen(false)}
-              className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-
-          {/* SYSTEM STATUS PILL */}
-          <div className="sidebar-status-card">
-            <span className="sidebar-status-dot" style={{ background: isDbOnline ? "#10b981" : "#ef4444" }} />
-            <div className="sidebar-status-text">
-              <strong>Enterprise ERP Online</strong>
-              <small>{isDbOnline ? "MySQL Synced & Protected" : "Reconnecting to MySQL..."}</small>
-            </div>
-          </div>
-        </nav>
-
-        {/* SIDEBAR FOOTER - CLICKABLE ADMIN WORKSPACE SHORTCUT WITH LOGOUT */}
-        <div className="sidebar-footer-wrapper">
-          <NavLink
-            to="/workspace"
-            className="sidebar-footer-link"
-            title="Open Admin Workspace"
-            onClick={() => setOpen(false)}
-          >
-            <div className="sidebar-footer">
-              <div className="profile-avatar">
-                <ShieldCheck size={18} />
-              </div>
-              <div className="sidebar-footer-info">
-                <b className="sidebar-footer-name">
-                  {currentUser?.name || adminProfile?.name || "Admin"}
-                </b>
-                <small className="sidebar-footer-role">
-                  {currentUser?.role || adminProfile?.role || "Administrator"}
-                </small>
-              </div>
-            </div>
-          </NavLink>
-          <button
-            type="button"
-            className="icon-btn sidebar-logout-btn"
-            onClick={onLogout}
-            title="Log Out & Switch User"
-            aria-label="Log Out & Switch User"
-          >
-            <LogOut size={16} />
-          </button>
-        </div>
-      </aside>
-
-      {open && <div className="overlay" onClick={() => setOpen(false)} />}
+      {/* DESKTOP & TABLET SIDEBAR */}
+      <DesktopSidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        isDbOnline={isDbOnline}
+        currentUser={currentUser}
+        adminProfile={adminProfile}
+        onLogout={onLogout}
+      />
 
       {/* MAIN VIEWPORT */}
       <main className="main">
+        {/* RESPONSIVE TOPBAR */}
         <header className="topbar">
-          <button className="menu-btn" onClick={() => setOpen(true)} aria-label="Open sidebar">
+          <button
+            type="button"
+            className="menu-btn"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Toggle navigation drawer"
+          >
             <Menu size={20} />
           </button>
+
           <div className="heading">
             <h1>{title}</h1>
             <p>{subtitle}</p>
           </div>
-          
-          <div className="top-actions">
-            {/* Live MySQL Database Status Indicator */}
-            
 
-            {/* Color Palette Switcher */}
+          <div className="top-actions">
+            {/* Global live database refresh button */}
             {onRefreshAll && (
               <button
                 type="button"
@@ -210,30 +105,60 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
                 onClick={handleGlobalRefresh}
                 title="Sync & refresh all data with database"
                 style={{ cursor: "pointer" }}
+                aria-label="Refresh live data"
               >
-                <RefreshCw size={17} style={{ animation: isRefreshingGlobal ? "spin 1s linear infinite" : "none" }} />
+                <RefreshCw
+                  size={17}
+                  style={{ animation: isRefreshingGlobal ? "spin 1s linear infinite" : "none" }}
+                />
               </button>
             )}
+
+            {/* Color Palette Switcher */}
             <ThemeSelector currentTheme={currentTheme} onSelectTheme={onSelectTheme} />
 
+            {/* Desktop-only Search Box */}
             <div className="search-box">
               <Search size={16} />
               <input placeholder="Search records, SKUs..." />
             </div>
 
-            <button className="icon-btn" title={alertCount > 0 ? `${alertCount} active alerts` : "No new notifications"}>
+            {/* Alerts Notification Bell */}
+            <button
+              type="button"
+              className="icon-btn"
+              title={alertCount > 0 ? `${alertCount} active alerts` : "No new notifications"}
+              aria-label="System notifications"
+            >
               <Bell size={18} />
-              {alertCount > 0 && <span style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: "var(--danger)" }} />}
+              {alertCount > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 6,
+                    right: 6,
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: "var(--danger)"
+                  }}
+                />
+              )}
             </button>
 
-            {/* Topbar User Avatar Links to Workspace */}
+            {/* Topbar User Avatar Shortcut */}
             <NavLink
               to="/workspace"
               className="profile-avatar"
               style={{ width: 36, height: 36, fontSize: 13, textDecoration: "none", cursor: "pointer" }}
               title={`Logged in as ${currentUser?.name || adminProfile?.name || "Admin"}`}
             >
-              {(currentUser?.name || adminProfile?.name || "LE").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+              {(currentUser?.name || adminProfile?.name || "LE")
+                .split(" ")
+                .map((w) => w[0])
+                .join("")
+                .slice(0, 2)
+                .toUpperCase()}
             </NavLink>
 
             {/* Topbar Log Out Button */}
@@ -243,43 +168,34 @@ export default function Layout({ children, currentTheme, onSelectTheme, adminPro
               onClick={onLogout}
               title="Log Out of Portal"
               style={{ color: "var(--danger)" }}
+              aria-label="Log Out"
             >
               <LogOut size={17} />
             </button>
           </div>
         </header>
 
-        <section className="content">{children}</section>
+        {/* PAGE CONTENT CONTAINER */}
+        <section className="content">
+          {children}
+        </section>
       </main>
 
-      {/* MOBILE BOTTOM NAVIGATION DOCK */}
-      <nav className="mobile-bottom-nav" aria-label="Mobile Navigation">
-        <NavLink to="/" end className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}>
-          <LayoutDashboard size={20} />
-          <span>Home</span>
-        </NavLink>
-        <NavLink to="/clients" className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}>
-          <Users size={20} />
-          <span>Clients</span>
-        </NavLink>
-        <NavLink to="/purchases" className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}>
-          <ShoppingCart size={20} />
-          <span>Procure</span>
-        </NavLink>
-        <NavLink to="/invoices" className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}>
-          <Receipt size={20} />
-          <span>Sales</span>
-        </NavLink>
-        <button
-          type="button"
-          className="mobile-bottom-item"
-          onClick={() => setOpen(true)}
-          aria-label="Open full menu"
-        >
-          <Menu size={20} />
-          <span>Menu</span>
-        </button>
-      </nav>
+      {/* MOBILE BOTTOM NAVIGATION DOCK (Visible only on mobile <= 600px) */}
+      <MobileBottomNavigation onOpenMore={() => setMoreMenuOpen(true)} />
+
+      {/* MOBILE MORE MENU BOTTOM SHEET */}
+      <MobileMoreMenu
+        isOpen={moreMenuOpen}
+        onClose={() => setMoreMenuOpen(false)}
+        currentTheme={currentTheme}
+        onSelectTheme={onSelectTheme}
+        onRefreshAll={onRefreshAll}
+        currentUser={currentUser}
+        adminProfile={adminProfile}
+        onLogout={onLogout}
+        isDbOnline={isDbOnline}
+      />
     </div>
   );
 }

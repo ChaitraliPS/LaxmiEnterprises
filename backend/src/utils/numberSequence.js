@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { Sequence, Invoice, Purchase, Payment, VendorPayment } from "../models/index.js";
+import { Sequence, Invoice, Purchase, Payment, VendorPayment, Expense } from "../models/index.js";
 import { getFiscalYear } from "../services/metrics/dateRangeHelper.js";
 import { getToday } from "../constants/erpConstants.js";
 
@@ -57,6 +57,16 @@ async function getNextSequenceValue(type, fiscalYear, prefix, transaction) {
         const num = parseInt(String(r.paymentNumber).replace(prefix, ""), 10);
         if (!isNaN(num) && num > currentMax) currentMax = num;
       }
+    } else if (type === "EXPENSE") {
+      const records = await Expense.findAll({
+        where: { expenseNumber: { [Op.like]: `${prefix}%` } },
+        attributes: ["expenseNumber"],
+        transaction,
+      });
+      for (const r of records) {
+        const num = parseInt(String(r.expenseNumber).replace(prefix, ""), 10);
+        if (!isNaN(num) && num > currentMax) currentMax = num;
+      }
     }
 
     try {
@@ -104,5 +114,12 @@ export async function generateVendorPaymentNumber(transaction = null, asOfDate =
   const fy = getFiscalYear(asOfDate);
   const prefix = `LE-VPAY-${fy}-`;
   const nextNum = await getNextSequenceValue("VENDOR_PAYMENT", fy, prefix, transaction);
+  return `${prefix}${String(nextNum).padStart(4, "0")}`;
+}
+
+export async function generateExpenseNumber(transaction = null, asOfDate = getToday()) {
+  const fy = getFiscalYear(asOfDate);
+  const prefix = `LE-EXP-${fy}-`;
+  const nextNum = await getNextSequenceValue("EXPENSE", fy, prefix, transaction);
   return `${prefix}${String(nextNum).padStart(4, "0")}`;
 }

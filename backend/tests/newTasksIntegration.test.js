@@ -555,4 +555,236 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
       assert.match(res.data.message, /permanently disabled/i);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // TASK 8: INITIAL PAYMENT & LINE VALIDATION AT CREATION
+  // -------------------------------------------------------------------------
+  describe("Task 8: Initial Payment, Line Validation & Sequential Enforcement", () => {
+    it("createInvoice should reject overpayment, negative paidAmount, and invalid paymentMode", async () => {
+      // Ensure product PR-001 has temporary stock
+      const tempMovement = await StockMovement.create({
+        productId: "PR-001",
+        quantity: 50,
+        direction: "IN",
+        movementType: "ADJUSTMENT_IN",
+        referenceType: "TEST",
+        referenceId: "TEST-INIT-VAL",
+        movementDate: new Date(),
+        warehouseLocation: "Main Warehouse - Bay 01",
+      });
+
+      try {
+        // 1. Overpayment: paidAmount > grandTotal
+        {
+          const { req, res, next } = mockReqRes({
+            clientId: "CL-001",
+            invoiceDate: "2026-11-01",
+            paidAmount: 99999, // Exceeds grand total
+            paymentMode: "UPI",
+            items: [{ productId: "PR-001", quantity: 1 }],
+          });
+          await createInvoice(req, res, next);
+          assert.strictEqual(res.statusCode, 400);
+          assert.match(res.data.message, /exceeds invoice grand total/i);
+        }
+
+        // 2. Negative paidAmount
+        {
+          const { req, res, next } = mockReqRes({
+            clientId: "CL-001",
+            invoiceDate: "2026-11-01",
+            paidAmount: -500,
+            paymentMode: "UPI",
+            items: [{ productId: "PR-001", quantity: 1 }],
+          });
+          await createInvoice(req, res, next);
+          assert.strictEqual(res.statusCode, 400);
+          assert.match(res.data.message, /valid non-negative number/i);
+        }
+
+        // 3. Missing or invalid paymentMode when paidAmount > 0
+        {
+          const { req, res, next } = mockReqRes({
+            clientId: "CL-001",
+            invoiceDate: "2026-11-01",
+            paidAmount: 500,
+            paymentMode: "Cryptocurrency", // Invalid mode
+            items: [{ productId: "PR-001", quantity: 1 }],
+          });
+          await createInvoice(req, res, next);
+          assert.strictEqual(res.statusCode, 400);
+          assert.match(res.data.message, /valid paymentMode is required/i);
+        }
+      } finally {
+        await tempMovement.destroy();
+      }
+    });
+
+    it("createInvoice should reject negative discounts, excessive discounts, and negative unit prices", async () => {
+      const tempMovement = await StockMovement.create({
+        productId: "PR-001",
+        quantity: 50,
+        direction: "IN",
+        movementType: "ADJUSTMENT_IN",
+        referenceType: "TEST",
+        referenceId: "TEST-INIT-VAL2",
+        movementDate: new Date(),
+        warehouseLocation: "Main Warehouse - Bay 01",
+      });
+
+      try {
+        // 1. Negative discount
+        {
+          const { req, res, next } = mockReqRes({
+            clientId: "CL-001",
+            invoiceDate: "2026-11-01",
+            items: [{ productId: "PR-001", quantity: 1, discount: -100 }],
+          });
+          await createInvoice(req, res, next);
+          assert.strictEqual(res.statusCode, 400);
+          assert.match(res.data.message, /discount cannot be negative/i);
+        }
+
+        // 2. Excessive discount exceeding line total
+        {
+          const { req, res, next } = mockReqRes({
+            clientId: "CL-001",
+            invoiceDate: "2026-11-01",
+            items: [{ productId: "PR-001", quantity: 1, unitPrice: 500, discount: 1000 }],
+          });
+          await createInvoice(req, res, next);
+          assert.strictEqual(res.statusCode, 400);
+          assert.match(res.data.message, /cannot exceed line total/i);
+        }
+
+        // 3. Negative unit price
+        {
+          const { req, res, next } = mockReqRes({
+            clientId: "CL-001",
+            invoiceDate: "2026-11-01",
+            items: [{ productId: "PR-001", quantity: 1, unitPrice: -50 }],
+          });
+          await createInvoice(req, res, next);
+          assert.strictEqual(res.statusCode, 400);
+          assert.match(res.data.message, /unit price must be a valid non-negative number/i);
+        }
+      } finally {
+        await tempMovement.destroy();
+      }
+    });
+
+    it("createInvoice should merge duplicate lines and enforce sequential invoiceNumber", async () => {
+      const tempMovement = await StockMovement.create({
+        productId: "PR-001",
+        quantity: 50,
+        direction: "IN",
+        movementType: "ADJUSTMENT_IN",
+        referenceType: "TEST",
+        referenceId: "TEST-INIT-VAL3",
+        movementDate: new Date(),
+        warehouseLocation: "Main Warehouse - Bay 01",
+      });
+
+      let created = null;
+      try {
+        const { req, res, next } = mockReqRes({
+          clientId: "CL-001",
+          invoiceNumber: "CLIENT-ATTEMPTED-OVERRIDE", // Must be ignored
+          invoiceDate: "2026-11-01",
+          items: [
+            { productId: "PR-001", quantity: 2, discount: 50 },
+            { productId: "PR-001", quantity: 3, discount: 50 }, // Duplicate product line
+          ],
+        });
+
+        await createInvoice(req, res, next);
+        assert.strictEqual(res.statusCode, 201);
+        created = res.data.data;
+
+        // 1. invoiceNumber must follow server format and ignore client override
+        assert.notStrictEqual(created.invoiceNumber, "CLIENT-ATTEMPTED-OVERRIDE");
+        assert.match(created.invoiceNumber, /^LE-INV-/);
+
+        // 2. Lines must be merged into 1 line with quantity = 5 (2 + 3)
+        const lines = await InvoiceLine.findAll({ where: { invoiceId: created.invoiceNumber } });
+        assert.strictEqual(lines.length, 1);
+        assert.strictEqual(Number(lines[0].quantity), 5);
+      } finally {
+        await tempMovement.destroy();
+        if (created) {
+          await InvoiceLine.destroy({ where: { invoiceId: created.invoiceNumber } });
+          await StockMovement.destroy({ where: { referenceId: created.invoiceNumber } });
+          await Invoice.destroy({ where: { invoiceNumber: created.invoiceNumber } });
+          await Client.update({ orders: 0, revenue: 0, outstanding: 0, outstandingBalance: 0 }, { where: { clientId: "CL-001" } });
+        }
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // TASK 9: CANCEL ROW-LOCK CONCURRENCY SAFETY
+  // -------------------------------------------------------------------------
+  describe("Task 9: Cancel Row-Lock Concurrency Safety", () => {
+    it("parallel cancel calls on an invoice should be idempotent and not reverse stock twice", async () => {
+      // 1. Create a temporary invoice
+      const t = await sequelize.transaction();
+      const num = await generateInvoiceNumber(t);
+      const inv = await Invoice.create(
+        {
+          invoiceNumber: num,
+          clientId: "CL-001",
+          grandTotal: 1000,
+          balanceDue: 1000,
+          paidAmount: 0,
+          taxableTotal: 950,
+          dueDate: "2026-12-01",
+          isCancelled: false,
+          status: "Unpaid",
+        },
+        { transaction: t }
+      );
+      await InvoiceLine.create(
+        {
+          invoiceId: num,
+          productId: "PR-001",
+          quantity: 2,
+          unitPrice: 475,
+          taxableAmount: 950,
+          gstRate: 5,
+          gstAmount: 47.5,
+          lineTotal: 997.5,
+        },
+        { transaction: t }
+      );
+      await t.commit();
+
+      try {
+        // Fire 5 concurrent cancel requests
+        const cancelPromises = Array.from({ length: 5 }).map(async () => {
+          const { req, res, next } = mockReqRes({}, { id: inv.invoiceNumber });
+          await deleteInvoice(req, res, next);
+          return res.statusCode;
+        });
+
+        const statusCodes = await Promise.all(cancelPromises);
+        // All should succeed (200 OK)
+        for (const code of statusCodes) {
+          assert.strictEqual(code, 200);
+        }
+
+        // Verify RETURN stock movements were created exactly once (not 5 times)
+        const returnMovements = await StockMovement.findAll({
+          where: { reference: `Cancelled ${inv.invoiceNumber}` },
+        });
+        assert.strictEqual(returnMovements.length, 1, "Duplicate stock reversal movements detected!");
+      } finally {
+        await StockMovement.destroy({ where: { reference: `Cancelled ${inv.invoiceNumber}` } });
+        await InvoiceLine.destroy({ where: { invoiceId: inv.invoiceNumber } });
+        await Invoice.destroy({ where: { invoiceNumber: inv.invoiceNumber } });
+        await Inventory.update({ currentStock: 0 }, { where: { productId: "PR-001" } });
+        await Product.update({ currentStock: 0 }, { where: { productId: "PR-001" } });
+        await Client.update({ orders: 0, revenue: 0, outstanding: 0, outstandingBalance: 0 }, { where: { clientId: "CL-001" } });
+      }
+    });
+  });
 });

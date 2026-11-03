@@ -16,6 +16,7 @@ import { PurchaseLine } from "./PurchaseLine.js";
 import { VendorPayment } from "./VendorPayment.js";
 import { Sequence } from "./Sequence.js";
 import { SchemaMigration } from "./SchemaMigration.js";
+import { Expense } from "./Expense.js";
 
 // Client <-> Invoice
 Client.hasMany(Invoice, {
@@ -196,4 +197,5 @@ export {
   VendorPayment,
   Sequence,
   SchemaMigration,
+  Expense,
 };

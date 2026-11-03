@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import {
-  TrendingUp, TrendingDown, AlertTriangle, Users, IndianRupee, Package, Boxes, RotateCcw
+  TrendingUp, TrendingDown, AlertTriangle, Users, IndianRupee, Package, Boxes, RotateCcw, ChevronRight
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
-  Tooltip, PieChart, Pie, Cell
+  AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, PieChart, Pie, Cell
 } from "recharts";
 import { formatIndianCurrency, formatPercent, getFiscalYearLabel } from "../utils/formatters";
+import { getToday, getFiscalYearFormatted } from "../constants/erpConstants";
 import { erpApi } from "../services/api";
+import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
+import ResponsiveChartContainer from "./responsive/ResponsiveChartContainer";
 
 export function StatCard({
   title,
@@ -18,6 +20,7 @@ export function StatCard({
   icon: Icon,
   fallbackBadge = null,
   trendType = null,
+  subtitle = null,
   loading = false,
 }) {
   const hasComparison = change !== null && change !== undefined && change !== "";
@@ -38,7 +41,6 @@ export function StatCard({
     ? "trend negative"
     : "trend neutral";
 
-  // If no comparison exists, never return "0% as a fallback"
   const displayBadge = fallbackBadge || (comparisonLabel ? `No prior data (${comparisonLabel})` : "No prior data");
 
   return (
@@ -63,6 +65,11 @@ export function StatCard({
           </>
         )}
       </div>
+      {subtitle && (
+        <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px", lineHeight: 1.3 }}>
+          {subtitle}
+        </div>
+      )}
     </div>
   );
 }
@@ -161,7 +168,7 @@ export default function Dashboard({
     <div className="page">
       {/* Top Banner Actions */}
       <div className="page-actions" style={{ flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-        <span className="date-pill">{data?.fiscalYear || `FY 2026-27 (01/04/2026 – 31/03/2027) • Corporate Overview`}</span>
+        <span className="date-pill">{data?.fiscalYear || `${getFiscalYearFormatted(getToday())} • Corporate Overview`}</span>
         <button
           type="button"
           className="outline"
@@ -173,8 +180,8 @@ export default function Dashboard({
         </button>
       </div>
 
-      {/* KPI METRICS */}
-      <div className="stats-grid">
+      {/* DUAL-RESPONSIVE KPI METRICS GRID: 4 columns on Laptop, 2 columns on Mobile */}
+      <ResponsiveKpiGrid cols={4}>
         <StatCard
           title="Total Clients"
           value={clientCountVal}
@@ -207,9 +214,9 @@ export default function Dashboard({
           icon={Boxes}
           loading={loading}
         />
-      </div>
+      </ResponsiveKpiGrid>
 
-      {/* CHARTS GRID */}
+      {/* CHARTS GRID: Side-by-side on Laptop, Stacked on Mobile */}
       <div className="dashboard-grid">
         <div className="card chart-card">
           <div className="card-head">
@@ -245,8 +252,8 @@ export default function Dashboard({
                 No sales recorded for selected period
               </div>
             )}
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={trajectory}>
+            <ResponsiveChartContainer height={300} mobileHeight={220}>
+              <AreaChart data={trajectory} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="brandRevGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.32} />
@@ -255,11 +262,11 @@ export default function Dashboard({
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
-                <XAxis dataKey="month" stroke="var(--text-muted)" fontSize={12} />
+                <XAxis dataKey="month" stroke="var(--text-muted)" fontSize={11} />
                 <YAxis
                   stroke="var(--text-muted)"
                   tickFormatter={(v) => formatIndianCurrency(v, { compact: true })}
-                  fontSize={12}
+                  fontSize={11}
                   allowDecimals={false}
                   domain={[0, "auto"]}
                 />
@@ -280,11 +287,11 @@ export default function Dashboard({
                   fill="url(#brandRevGrad)"
                 />
               </AreaChart>
-            </ResponsiveContainer>
+            </ResponsiveChartContainer>
           </div>
         </div>
 
-        {/* DONUT CHART */}
+        {/* INVENTORY HEALTH DONUT */}
         <div className="card">
           <div className="card-head">
             <div>
@@ -293,7 +300,7 @@ export default function Dashboard({
             </div>
           </div>
           <div className="donut">
-            <ResponsiveContainer width="100%" height={195}>
+            <ResponsiveChartContainer height={195} mobileHeight={180}>
               <PieChart>
                 <Pie
                   data={totalProdCount > 0 ? [
@@ -301,8 +308,8 @@ export default function Dashboard({
                     { name: "Low Stock", value: lowStockCount, color: "var(--warning)" },
                     { name: "Not set", value: notSetCount, color: "var(--text-muted)" }
                   ].filter(d => d.value > 0) : [{ name: "No Products", value: 1, color: "var(--border)" }]}
-                  innerRadius={55}
-                  outerRadius={78}
+                  innerRadius={50}
+                  outerRadius={75}
                   paddingAngle={totalProdCount > 0 ? 4 : 0}
                   dataKey="value"
                 >
@@ -326,7 +333,7 @@ export default function Dashboard({
                   />
                 )}
               </PieChart>
-            </ResponsiveContainer>
+            </ResponsiveChartContainer>
             <div className="donut-center">
               <b>{totalProdCount}</b>
               <small>Products</small>
@@ -349,8 +356,9 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* LOWER DATA SECTION */}
+      {/* LOWER DATA SECTION: Dual-Experience Tables vs Cards */}
       <div className="bottom-grid">
+        {/* Key Enterprise Accounts */}
         <div className="card">
           <div className="card-head">
             <div>
@@ -359,41 +367,82 @@ export default function Dashboard({
             </div>
             <NavLink to="/clients" className="view-link">View all</NavLink>
           </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Client Name</th>
-                  <th>Total Orders</th>
-                  <th>Revenue (Gross)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {keyAccounts.length === 0 ? (
+
+          {/* Desktop & Tablet Table (Preserved 100% of information) */}
+          <div className="desktop-table-container">
+            <div className="table-wrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: 20 }}>
-                      No client accounts registered.
-                    </td>
+                    <th>Client Name</th>
+                    <th>Total Orders</th>
+                    <th>Revenue (Gross)</th>
                   </tr>
-                ) : (
-                  keyAccounts.map((c) => (
-                    <tr key={c.id}>
-                      <td>
-                        <div className="person">
-                          <div className="mini-avatar">{c.name ? c.name[0] : "C"}</div>
-                          <b>{c.name}</b>
-                        </div>
+                </thead>
+                <tbody>
+                  {keyAccounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: 20 }}>
+                        No client accounts registered.
                       </td>
-                      <td>{c.orders}</td>
-                      <td className="money">{c.revenue}</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    keyAccounts.map((c) => (
+                      <tr key={c.id}>
+                        <td>
+                          <div className="person">
+                            <div className="mini-avatar">{c.name ? c.name[0] : "C"}</div>
+                            <b>{c.name}</b>
+                          </div>
+                        </td>
+                        <td>{c.orders}</td>
+                        <td className="money">{c.revenue}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile Account Cards */}
+          <div className="mobile-card-container">
+            {keyAccounts.length === 0 ? (
+              <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "16px 0", fontSize: 13 }}>
+                No client accounts registered.
+              </div>
+            ) : (
+              keyAccounts.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 12px",
+                    background: "var(--bg)",
+                    borderRadius: 10,
+                    border: "1px solid var(--border-subtle)",
+                    gap: 10
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                    <div className="mini-avatar" style={{ flexShrink: 0 }}>{c.name ? c.name[0] : "C"}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <b style={{ fontSize: 13, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</b>
+                      <small style={{ color: "var(--text-muted)", fontSize: 11 }}>{c.orders}</small>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div className="money" style={{ fontWeight: 700, fontSize: 13 }}>{c.revenue}</div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
+        {/* Stock Replenishment Triggers */}
         <div className="card">
           <div className="card-head">
             <div>
@@ -411,15 +460,15 @@ export default function Dashboard({
               stockTriggers.map((p) => {
                 const uom = p.unitOfMeasure || p.unit || "Units";
                 return (
-                  <div className="alert-row" key={p.id || p.productId}>
-                    <div className="alert-icon">
+                  <div className="alert-row" key={p.id || p.productId} style={{ flexWrap: "wrap", gap: 8 }}>
+                    <div className="alert-icon" style={{ flexShrink: 0 }}>
                       <AlertTriangle size={16} />
                     </div>
-                    <div>
+                    <div style={{ flex: 1, minWidth: 140 }}>
                       <b>{p.name}</b>
                       <small>{p.stock ?? p.currentStock ?? 0} {uom} available (Threshold: {p.reorderLevel} {uom})</small>
                     </div>
-                    <span className="badge warning">Restock</span>
+                    <span className="badge warning" style={{ flexShrink: 0 }}>Restock</span>
                   </div>
                 );
               })

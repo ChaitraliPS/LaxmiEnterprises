@@ -20,6 +20,7 @@ import LoginPage from "./components/LoginPage";
 // Services
 import { getCurrentUser, logoutUser, verifyCurrentSession } from "./services/authService";
 import { erpApi } from "./services/api";
+import { getToday, getFiscalYearFormatted } from "./constants/erpConstants";
 
 export default function App() {
   const [theme, setTheme] = useState(() => {
@@ -317,7 +318,7 @@ export default function App() {
       phone: "+91 98765 43210",
       address: "Shop No. 12, Commercial Complex, Near Industrial Estate, Pune - 411038, Maharashtra, India",
       currency: "INR (₹)",
-      financialYear: "FY 2026-27"
+      financialYear: getFiscalYearFormatted(getToday())
     };
   });
 

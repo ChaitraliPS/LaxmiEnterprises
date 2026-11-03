@@ -5,14 +5,17 @@ import {
   TrendingUp, ShoppingCart, Coins
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
+  AreaChart, Area, CartesianGrid, XAxis, YAxis,
   Tooltip, PieChart, Pie, Cell
 } from "recharts";
 import InvoiceModal from "./InvoiceModal";
 import InvoiceViewModal from "./InvoiceViewModal";
 import { StatCard } from "./Dashboard";
+import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
+import ResponsiveChartContainer from "./responsive/ResponsiveChartContainer";
 import { formatIndianCurrency, formatPercent } from "../utils/formatters";
 import { erpApi } from "../services/api";
+import { getToday, getFiscalYear, getFiscalYearOptions } from "../constants/erpConstants";
 
 const CATEGORY_COLORS = {
   "Animal Feed": "var(--primary)",
@@ -24,9 +27,12 @@ export default function Revenue({
   invoices = [],
   onCreateInvoice,
   products = [],
-  company = {}
+  company = {},
+  onRefresh,
 }) {
-  const [selectedFY, setSelectedFY] = useState("2026-27");
+  const currentFY = React.useMemo(() => getFiscalYear(getToday()), []);
+  const fyOptions = React.useMemo(() => getFiscalYearOptions(invoices, getToday()), [invoices]);
+  const [selectedFY, setSelectedFY] = useState(currentFY);
   const [loading, setLoading] = useState(true);
   const [summaryData, setSummaryData] = useState(null);
   const [quarterlyData, setQuarterlyData] = useState([]);
@@ -110,8 +116,11 @@ export default function Revenue({
             onChange={(e) => setSelectedFY(e.target.value)}
             style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", fontWeight: 600, fontSize: "13px" }}
           >
-            <option value="2026-27">FY 2026-27 (Current)</option>
-            <option value="2025-26">FY 2025-26</option>
+            {fyOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
           </select>
 
           <button 
@@ -130,9 +139,9 @@ export default function Revenue({
         </div>
       </div>
 
-      {/* 5 Primary Metric Cards */}
-      <div className="stats-grid" style={{ marginBottom: 22, gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
-        {/* 1. Gross Turnover (Taxable revenue, excluding GST) */}
+      {/* DUAL-RESPONSIVE KPI METRIC CARDS: 4-5 cols on Laptop, 2 cols on Mobile */}
+      <ResponsiveKpiGrid cols={4}>
+        {/* 1. Gross Turnover */}
         <StatCard 
           title={`Taxable Revenue (${summaryData?.periodLabel || selectedFY})`} 
           value={formatIndianCurrency(summaryData?.taxableRevenue ?? 0)} 
@@ -147,7 +156,7 @@ export default function Revenue({
         <StatCard 
           title="Gross Profit" 
           value={formatIndianCurrency(summaryData?.grossProfit ?? 0)} 
-          change={summaryData?.grossMarginPct !== null && summaryData?.grossMarginPct !== undefined ? `${summaryData.grossMarginPct}% Gross Margin` : null} 
+          change={summaryData?.grossMarginPct !== null && summaryData?.grossMarginPct !== undefined ? `${summaryData.grossMarginPct}% Margin` : null} 
           comparisonLabel=""
           trendType={summaryData?.grossMarginPct !== null ? "positive" : "neutral"}
           fallbackBadge="No prior margin"
@@ -178,21 +187,10 @@ export default function Revenue({
           fallbackBadge="0 Pending"
           loading={loading}
         />
+      </ResponsiveKpiGrid>
 
-        {/* 5. Average Ticket Size */}
-        <StatCard 
-          title="Average Ticket Size" 
-          value={formatIndianCurrency(summaryData?.averageTicket ?? 0)} 
-          change={summaryData?.avgTicketComparison?.changePct ?? null} 
-          comparisonLabel={summaryData?.avgTicketComparison?.label || "vs prev quarter"}
-          fallbackBadge="No prior data"
-          icon={ShoppingCart} 
-          loading={loading}
-        />
-      </div>
-
-      {/* Quarterly Targets & Milestone Grid */}
-      <div className="quarter-grid">
+      {/* Quarterly Targets & Milestone Grid: 4 columns on Laptop, 2 on Tablet/Mobile */}
+      <div className="quarter-grid" style={{ marginBottom: 20 }}>
         {quarterlyData.map((q, idx) => {
           const badgeStyle = getQuarterBadgeStyle(q.status);
           return (
@@ -222,17 +220,17 @@ export default function Revenue({
         })}
       </div>
 
-      {/* Dual Interactive Charts */}
+      {/* Dual Interactive Charts: Side-by-side on Laptop, Stacked on Mobile */}
       <div className="revenue-split-grid">
         {/* Left: Monthly Invoiced vs Realized Cash Flow */}
         <div className="card chart-card">
-          <div className="card-head" style={{ padding: "18px 20px" }}>
+          <div className="card-head" style={{ padding: "16px 18px" }}>
             <div>
               <h3>12-Month Invoiced vs Realized Cash Flow</h3>
               <p>Comparative monthly billing inflow and bank collection trajectory</p>
             </div>
           </div>
-          <div className="chart" style={{ padding: "10px 16px 20px 8px", position: "relative" }}>
+          <div className="chart" style={{ padding: "10px 14px 20px 4px", position: "relative" }}>
             {isCashFlowEmpty && (
               <div
                 style={{
@@ -251,8 +249,8 @@ export default function Revenue({
                 No cash flow records for FY {selectedFY}
               </div>
             )}
-            <ResponsiveContainer width="100%" height={320}>
-              <AreaChart data={cashFlowData}>
+            <ResponsiveChartContainer height={300} mobileHeight={220}>
+              <AreaChart data={cashFlowData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="invoicedGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4} />
@@ -284,8 +282,8 @@ export default function Revenue({
                 <Area type="monotone" dataKey="grossInvoiced" stroke="var(--primary)" strokeWidth={2.5} fillOpacity={1} fill="url(#invoicedGrad)" />
                 <Area type="monotone" dataKey="turnover" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#collectedGrad)" />
               </AreaChart>
-            </ResponsiveContainer>
-            <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: "12px", color: "var(--text-muted)", marginTop: 6 }}>
+            </ResponsiveChartContainer>
+            <div style={{ display: "flex", justifyContent: "center", gap: 20, fontSize: "12px", color: "var(--text-muted)", marginTop: 6, flexWrap: "wrap" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--primary)" }} /> Gross Invoiced
               </span>
@@ -298,27 +296,27 @@ export default function Revenue({
 
         {/* Right: Category Distribution Donut */}
         <div className="card chart-card">
-          <div className="card-head" style={{ padding: "18px 20px" }}>
+          <div className="card-head" style={{ padding: "16px 18px" }}>
             <div>
               <h3>Turnover by Category</h3>
               <p>Canonical product lines (Animal Feed vs Dairy)</p>
             </div>
           </div>
-          <div style={{ padding: "10px 20px 20px 20px", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 280, justifyContent: "center" }}>
+          <div style={{ padding: "10px 16px 20px 16px", display: "flex", flexDirection: "column", alignItems: "center", minHeight: 280, justifyContent: "center" }}>
             {categoryData.length === 0 ? (
               <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 13, padding: "40px 0" }}>
                 No categorized sales recorded for FY {selectedFY}.
               </div>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={190}>
+                <ResponsiveChartContainer height={190} mobileHeight={175}>
                   <PieChart>
                     <Pie
                       data={categoryData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={55}
-                      outerRadius={80}
+                      innerRadius={50}
+                      outerRadius={75}
                       paddingAngle={4}
                       dataKey="value"
                     >
@@ -339,7 +337,7 @@ export default function Revenue({
                       }}
                     />
                   </PieChart>
-                </ResponsiveContainer>
+                </ResponsiveChartContainer>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", marginTop: 12 }}>
                   {categoryData.map((entry, idx) => (
                     <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12.5px" }}>

@@ -7,20 +7,22 @@ import {
 import InventoryModal from "./InventoryModal";
 import InventoryViewDrawer from "./InventoryViewDrawer";
 import ExportMenu from "./ExportMenu";
+import MobileRecordCard from "./responsive/MobileRecordCard";
+import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
+import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { downloadCSV } from "../utils/exportUtils";
 import { erpApi } from "../services/api";
 import { formatDate } from "../utils/formatters";
 
 export default function InventoryPage({ inventory = [], onSaveInventory, products = [], onSaveProducts, onRefresh }) {
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState("movements"); // "movements" (default) or "balances"
-  const [directionFilter, setDirectionFilter] = useState("All"); // All, IN, OUT
+  const [viewMode, setViewMode] = useState("movements");
+  const [directionFilter, setDirectionFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [viewingInventory, setViewingInventory] = useState(null);
   const [selectedProductForModal, setSelectedProductForModal] = useState(null);
   const [toast, setToast] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [movements, setMovements] = useState([]);
 
   const showToast = (msg) => {
@@ -39,19 +41,16 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
     }
   };
 
-  // Automatically sync fresh stock telemetry on page mount
   useEffect(() => {
     if (onRefresh) onRefresh();
     fetchMovements();
   }, []);
 
-  // Per-unit stock aggregations: Do not add quantities of different units into one mixed total
   const unitSummaries = useMemo(() => {
     const inMap = {};
     const outMap = {};
     const balanceMap = {};
 
-    // Base from products
     products.forEach(p => {
       const u = p.unitOfMeasure || p.unit || "Units";
       const stockIn = Number(p.inwardStock ?? p.in ?? 0);
@@ -70,7 +69,6 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
     return { inStr, outStr, balanceStr };
   }, [products]);
 
-  // Low stock count: Only products where reorderLevel is set and balance <= reorderLevel
   const lowCount = useMemo(() => products.filter(p => {
     const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
     if (!hasReorder) return false;
@@ -78,7 +76,6 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
     return balance <= Number(p.reorderLevel);
   }).length, [products]);
 
-  // Filtered movements for the ledger table
   const filteredMovements = useMemo(() => {
     return movements.filter(m => {
       const dir = (m.direction || "IN").toUpperCase();
@@ -96,7 +93,6 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
     });
   }, [movements, directionFilter, search]);
 
-  // Filtered product balances for the balances view
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const status = p.stockStatus || (
@@ -121,64 +117,64 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
     setModalOpen(true);
   };
 
-  const handleOpenMovement = (prodId) => {
-    setSelectedProductForModal(prodId);
+  const handleOpenMovement = (productId) => {
+    setSelectedProductForModal(productId);
     setModalOpen(true);
   };
 
   const handleStockMovement = async (movementData) => {
-    const { productId, productName, adjustment, movementType, quantity, warehouseLocation, reason } = movementData;
-    setLoading(true);
     try {
-      await erpApi.adjustStock(productId, adjustment, warehouseLocation, reason);
-      if (onRefresh) await onRefresh();
-      await fetchMovements();
-      showToast(`✓ Stock ${movementType === "inward" ? "increased" : "decreased"} by ${quantity} for ${productName}`);
+      await erpApi.createStockMovement(movementData);
+      showToast(`✓ Stock movement recorded & synchronized.`);
+      fetchMovements();
+      if (onRefresh) onRefresh();
       setModalOpen(false);
+      setSelectedProductForModal(null);
     } catch (err) {
-      console.warn("Stock adjust failed:", err.message);
-      showToast(`⚠️ Stock update failed: ${err.message}`);
-    } finally {
-      setLoading(false);
+      showToast(`⚠️ Movement error: ${err.message}`);
     }
   };
 
   const handleExportCSV = () => {
     if (viewMode === "movements") {
-      const headers = ["Entry_ID", "Movement_Date", "Product_ID", "Product_Name", "Movement_Type", "Direction", "Quantity", "Unit", "Warehouse_Bay", "Reference_ID", "Created_By"];
+      const headers = ["Entry_ID", "Date", "Product_ID", "Product_Name", "Movement_Type", "Direction", "Quantity", "Unit", "Location", "Reference", "Created_By"];
       const rows = filteredMovements.map(m => [
-        `"${m.entryId || `MOV-${m.id}`}"`,
-        `"${formatDate(m.movementDate)}"`,
-        `"${m.productId}"`,
-        `"${m.productName || m.product?.name || ''}"`,
-        `"${m.movementType || ''}"`,
-        `"${m.direction || 'IN'}"`,
+        m.entryId || `MOV-${m.id}`,
+        m.movementDate,
+        m.productId,
+        m.productName || m.product?.name,
+        m.movementType,
+        m.direction,
         m.quantity,
-        `"${m.unit || 'Bags'}"`,
-        `"${m.warehouseLocation || ''}"`,
-        `"${m.referenceId || ''}"`,
-        `"${m.createdBy || 'System'}"`
+        m.unit || m.product?.unitOfMeasure,
+        m.warehouseLocation || "Main Warehouse",
+        m.referenceId || "",
+        m.createdBy || "System"
       ]);
-      downloadCSV(`laxmi_enterprises_stock_movements_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+      downloadCSV("Inventory_Movements_Laxmi_Enterprises", headers, rows);
     } else {
-      const headers = ["Product_ID", "Product_Name", "Unit", "Inward_Received", "Outward_Dispatched", "Current_Balance", "Warehouse_Bay", "Reorder_Level", "Status"];
+      const headers = ["Product_ID", "Product_Name", "Category", "Inward", "Outward", "Balance_Available", "Unit", "Reorder_Level", "Warehouse_Bay", "Status"];
       const rows = filteredProducts.map(p => {
         const uom = p.unitOfMeasure || p.unit || "Units";
+        const stockIn = Number(p.inwardStock ?? p.in ?? 0);
+        const stockOut = Number(p.outwardStock ?? p.out ?? 0);
+        const balance = Number(p.currentStock ?? p.stock ?? (stockIn - stockOut));
         return [
-          `"${p.id || p.productId}"`,
-          `"${p.name}"`,
-          `"${uom}"`,
-          p.inwardStock ?? p.in ?? 0,
-          p.outwardStock ?? p.out ?? 0,
-          p.currentStock ?? p.stock ?? 0,
-          `"${p.warehouseLocation || 'Godown Bay A-1'}"`,
-          p.reorderLevel !== null && p.reorderLevel !== undefined ? p.reorderLevel : "Not set",
-          `"${p.stockStatus || 'In Stock'}"`
+          p.id || p.productId,
+          p.name,
+          p.category,
+          stockIn,
+          stockOut,
+          balance,
+          uom,
+          p.reorderLevel || "Not set",
+          p.warehouseLocation || "Bay 1",
+          p.stockStatus || "In Stock"
         ];
       });
-      downloadCSV(`laxmi_enterprises_stock_balances_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+      downloadCSV("Inventory_Balances_Laxmi_Enterprises", headers, rows);
     }
-    showToast("✓ Exported stock ledger report.");
+    showToast("✓ Exported Inventory Data to CSV!");
   };
 
   return (
@@ -190,46 +186,52 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
         </div>
       )}
 
-      {/* Summary KPI Cards: Per-unit totals, never mixed units into one number */}
-      <div className="module-quick-stats">
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon"><Boxes size={20} /></div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Total Inward (Received)</div>
-            <div style={{ fontSize: "17px", fontWeight: 800 }}>{unitSummaries.inStr}</div>
+      {/* QUICK STATS CARDS: 4-cols on Laptop, 2-cols on Mobile */}
+      <ResponsiveKpiGrid cols={4}>
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Inward Receipts</span>
+            <div className="stat-icon" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}>
+              <TrendingUp size={19} />
+            </div>
           </div>
+          <div className="stat-value" style={{ fontSize: "16px", lineHeight: "1.3", color: "#10b981" }}>{unitSummaries.inStr}</div>
+          <div className="trend positive"><span>Total received goods</span></div>
         </div>
 
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon" style={{ background: "var(--primary-light)", color: "var(--primary)" }}>
-            <ShoppingCart size={20} />
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Outward Dispatches</span>
+            <div className="stat-icon" style={{ background: "rgba(239, 68, 68, 0.12)", color: "var(--danger)" }}>
+              <TrendingDown size={19} />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Total Outward (Dispatched)</div>
-            <div style={{ fontSize: "17px", fontWeight: 800 }}>{unitSummaries.outStr}</div>
-          </div>
+          <div className="stat-value" style={{ fontSize: "16px", lineHeight: "1.3", color: "var(--danger)" }}>{unitSummaries.outStr}</div>
+          <div className="trend negative"><span>Fulfilled sales</span></div>
         </div>
 
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon" style={{ background: "var(--success-light)", color: "var(--success)" }}>
-            <Warehouse size={20} />
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Warehouse Net Balance</span>
+            <div className="stat-icon" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
+              <Warehouse size={19} />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Active Storage Balance</div>
-            <div style={{ fontSize: "17px", fontWeight: 800, color: "var(--success)" }}>{unitSummaries.balanceStr}</div>
-          </div>
+          <div className="stat-value" style={{ fontSize: "16px", lineHeight: "1.3" }}>{unitSummaries.balanceStr}</div>
+          <div className="trend positive"><span>In-stock available</span></div>
         </div>
 
-        <div className="client-stat-pill">
-          <div className="client-stat-pill-icon" style={{ background: lowCount > 0 ? "var(--warning-light)" : "var(--primary-light)", color: lowCount > 0 ? "var(--warning)" : "var(--primary)" }}>
-            <AlertTriangle size={20} />
+        <div className="stat-card">
+          <div className="stat-top">
+            <span>Low Stock Alerts</span>
+            <div className="stat-icon" style={{ background: lowCount > 0 ? "var(--warning-light)" : "var(--primary-light)", color: lowCount > 0 ? "var(--warning)" : "var(--primary)" }}>
+              <AlertTriangle size={19} />
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: "11.5px", color: "var(--text-muted)", fontWeight: 600 }}>Low / Critical Stock</div>
-            <div style={{ fontSize: "21px", fontWeight: 800, color: lowCount > 0 ? "var(--warning)" : "var(--text-main)" }}>{lowCount} SKUs</div>
-          </div>
+          <div className="stat-value" style={{ color: lowCount > 0 ? "var(--warning)" : "var(--text-main)" }}>{lowCount} SKUs</div>
+          <div className={`trend ${lowCount > 0 ? "negative" : "positive"}`}><span>{lowCount > 0 ? "Restock required" : "Thresholds safe"}</span></div>
         </div>
-      </div>
+      </ResponsiveKpiGrid>
 
       {/* Action Header & Mode Toggle */}
       <div className="page-actions" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
@@ -251,7 +253,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
         </div>
 
         {viewMode === "movements" ? (
-          <div className="filter-pills-bar">
+          <div className="filter-pills-bar" style={{ overflowX: "auto", maxWidth: "100%" }}>
             {["All", "IN", "OUT"].map(dir => (
               <button
                 key={dir}
@@ -263,7 +265,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
             ))}
           </div>
         ) : (
-          <div className="filter-pills-bar">
+          <div className="filter-pills-bar" style={{ overflowX: "auto", maxWidth: "100%" }}>
             {["All", "In Stock", "Low Stock", "Out of Stock", "Not set"].map(st => (
               <button
                 key={st}
@@ -283,7 +285,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
             onExportCSV={handleExportCSV}
             showToast={showToast}
           />
-          <button className="primary" onClick={handleOpenAdd}>
+          <button className="primary" onClick={handleOpenAdd} style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <Plus size={16} /> Record Movement
           </button>
         </div>
@@ -291,7 +293,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
 
       {/* Main Table Card */}
       <div className="card table-card">
-        <div className="table-toolbar">
+        <div className="table-toolbar" style={{ flexWrap: "wrap", gap: 10 }}>
           <div className="local-search">
             <Search size={16} />
             <input
@@ -311,114 +313,235 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
           </div>
           <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 600 }}>
             {viewMode === "movements" 
-              ? `Showing ${filteredMovements.length} of ${movements.length} movement ledger entries`
+              ? `Showing ${filteredMovements.length} of ${movements.length} movement entries`
               : `Showing ${filteredProducts.length} of ${products.length} products`
             }
           </span>
         </div>
 
-        <div className="table-wrap">
-          {viewMode === "movements" ? (
-            filteredMovements.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon"><Boxes size={26} /></div>
-                <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Movements Found</h4>
-                <p style={{ fontSize: 13, marginBottom: 16 }}>No stock movements match your search query or filter.</p>
-                <button className="primary" onClick={handleOpenAdd}><Plus size={15} /> Record Movement</button>
-              </div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Entry ID</th>
-                    <th>Date</th>
-                    <th>Product Item</th>
-                    <th>Movement Type</th>
-                    <th>Direction</th>
-                    <th>Quantity</th>
-                    <th>Warehouse Bay</th>
-                    <th>Reference</th>
-                    <th>Created By</th>
-                  </tr>
-                </thead>
-                <tbody>
+        {/* DUAL-RESPONSIVE: Desktop Table vs Mobile Cards */}
+        {viewMode === "movements" ? (
+          filteredMovements.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon"><Boxes size={26} /></div>
+              <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Movements Found</h4>
+              <p style={{ fontSize: 13, marginBottom: 16 }}>No stock movements match your search query or filter.</p>
+              <button className="primary" onClick={handleOpenAdd}><Plus size={15} /> Record Movement</button>
+            </div>
+          ) : (
+            <ResponsiveDataTable
+              hasRecords={filteredMovements.length > 0}
+              /* DESKTOP MOVEMENTS TABLE */
+              desktopView={
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Entry ID</th>
+                        <th>Date</th>
+                        <th>Product Item</th>
+                        <th>Movement Type</th>
+                        <th>Direction</th>
+                        <th>Quantity</th>
+                        <th>Warehouse Bay</th>
+                        <th>Reference</th>
+                        <th>Created By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredMovements.map(m => {
+                        const isDirIn = (m.direction || "IN").toUpperCase() === "IN";
+                        const uom = m.unit || m.product?.unitOfMeasure || "Bags";
+                        return (
+                          <tr key={m.id}>
+                            <td>
+                              <code style={{
+                                color: "var(--primary)",
+                                fontWeight: 700,
+                                background: "rgba(0, 91, 181, 0.08)",
+                                padding: "3px 7px",
+                                borderRadius: 4
+                              }}>
+                                {m.entryId || `MOV-${String(m.id).padStart(5, "0")}`}
+                              </code>
+                            </td>
+                            <td>{formatDate(m.movementDate)}</td>
+                            <td>
+                              <b>{m.productName || m.product?.name || m.productId}</b>
+                              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                <code>{m.productId}</code>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="badge muted" style={{ fontSize: "11px" }}>
+                                {m.movementType}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={`badge ${isDirIn ? "success" : "danger"}`}>
+                                {isDirIn ? "+ IN" : "− OUT"}
+                              </span>
+                            </td>
+                            <td style={{ fontWeight: 800, color: isDirIn ? "var(--success)" : "var(--danger)" }}>
+                              {isDirIn ? "+" : "−"}{m.quantity} {uom}
+                            </td>
+                            <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                <Warehouse size={12} style={{ color: "var(--accent)" }} /> {m.warehouseLocation || "Godown Bay A-1"}
+                              </span>
+                            </td>
+                            <td>
+                              <code style={{ fontSize: "11px" }}>{m.referenceId || m.referenceType || "—"}</code>
+                            </td>
+                            <td style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                              {m.createdBy || "System"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              }
+              /* MOBILE MOVEMENTS CARDS */
+              mobileView={
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                   {filteredMovements.map(m => {
                     const isDirIn = (m.direction || "IN").toUpperCase() === "IN";
                     const uom = m.unit || m.product?.unitOfMeasure || "Bags";
+                    const entryId = m.entryId || `MOV-${String(m.id).padStart(5, "0")}`;
+
                     return (
-                      <tr key={m.id}>
-                        <td>
-                          <code style={{
-                            color: "var(--primary)",
-                            fontWeight: 700,
-                            background: "rgba(0, 91, 181, 0.08)",
-                            padding: "3px 7px",
-                            borderRadius: 4
-                          }}>
-                            {m.entryId || `MOV-${String(m.id).padStart(5, "0")}`}
-                          </code>
-                        </td>
-                        <td>{formatDate(m.movementDate)}</td>
-                        <td>
-                          <b>{m.productName || m.product?.name || m.productId}</b>
-                          <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                            <code>{m.productId}</code>
-                          </div>
-                        </td>
-                        <td>
-                          <span className="badge muted" style={{ fontSize: "11px" }}>
-                            {m.movementType}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`badge ${isDirIn ? "success" : "danger"}`}>
+                      <MobileRecordCard
+                        key={m.id}
+                        idBadge={entryId}
+                        title={m.productName || m.product?.name || m.productId}
+                        subtitle={`Date: ${formatDate(m.movementDate)}`}
+                        categoryBadge={m.movementType}
+                        statusBadge={
+                          <span className={`badge ${isDirIn ? "success" : "danger"}`} style={{ fontSize: 11 }}>
                             {isDirIn ? "+ IN" : "− OUT"}
                           </span>
-                        </td>
-                        <td style={{ fontWeight: 800, color: isDirIn ? "var(--success)" : "var(--danger)" }}>
-                          {isDirIn ? "+" : "−"}{m.quantity} {uom}
-                        </td>
-                        <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                            <Warehouse size={12} style={{ color: "var(--accent)" }} /> {m.warehouseLocation || "Godown Bay A-1"}
-                          </span>
-                        </td>
-                        <td>
-                          <code style={{ fontSize: "11px" }}>{m.referenceId || m.referenceType || "—"}</code>
-                        </td>
-                        <td style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                          {m.createdBy || "System"}
-                        </td>
-                      </tr>
+                        }
+                        primaryMetrics={[
+                          { label: "Quantity", value: `${isDirIn ? "+" : "−"}${m.quantity} ${uom}`, color: isDirIn ? "var(--success)" : "var(--danger)" },
+                          { label: "Location", value: m.warehouseLocation || "Bay A-1" },
+                          { label: "Ref", value: m.referenceId || "Direct" },
+                        ]}
+                        expandedDetails={
+                          <div>
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Product SKU</span>
+                              <span className="mobile-record-detail-val" style={{ fontFamily: "monospace" }}>{m.productId}</span>
+                            </div>
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Created By</span>
+                              <span className="mobile-record-detail-val">{m.createdBy || "System"}</span>
+                            </div>
+                          </div>
+                        }
+                      />
                     );
                   })}
-                </tbody>
-              </table>
-            )
+                </div>
+              }
+            />
+          )
+        ) : (
+          filteredProducts.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon"><Boxes size={26} /></div>
+              <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Products Found</h4>
+              <p style={{ fontSize: 13, marginBottom: 16 }}>No product stock entries match your search query or filter.</p>
+              <button className="primary" onClick={handleOpenAdd}><Plus size={15} /> Record Movement</button>
+            </div>
           ) : (
-            filteredProducts.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon"><Boxes size={26} /></div>
-                <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Products Found</h4>
-                <p style={{ fontSize: 13, marginBottom: 16 }}>No product stock entries match your search query or filter.</p>
-                <button className="primary" onClick={handleOpenAdd}><Plus size={15} /> Record Movement</button>
-              </div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Product ID</th>
-                    <th>Product Item</th>
-                    <th>Inward (+)</th>
-                    <th>Outward (−)</th>
-                    <th>Balance Units</th>
-                    <th>Warehouse Bay</th>
-                    <th>Reorder Level</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <ResponsiveDataTable
+              hasRecords={filteredProducts.length > 0}
+              /* DESKTOP BALANCES TABLE */
+              desktopView={
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Product ID</th>
+                        <th>Product Item</th>
+                        <th>Inward (+)</th>
+                        <th>Outward (−)</th>
+                        <th>Balance Units</th>
+                        <th>Warehouse Bay</th>
+                        <th>Reorder Level</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredProducts.map(p => {
+                        const uom = p.unitOfMeasure || p.unit || "Units";
+                        const stockIn = Number(p.inwardStock ?? p.in ?? 0);
+                        const stockOut = Number(p.outwardStock ?? p.out ?? 0);
+                        const balance = Number(p.currentStock ?? p.stock ?? (stockIn - stockOut));
+                        const hasReorder = p.reorderLevel !== null && p.reorderLevel !== undefined && p.reorderLevel !== "";
+                        const reorderNum = hasReorder ? Number(p.reorderLevel) : null;
+                        const isOut = hasReorder && balance <= 0;
+                        const isLow = hasReorder && balance > 0 && balance <= reorderNum;
+                        const isNotSet = !hasReorder;
+                        const statusText = isNotSet ? "Not set" : isOut ? "Out of Stock" : isLow ? "Low Stock" : "In Stock";
+
+                        return (
+                          <tr key={p.id || p.productId}>
+                            <td><code>{p.id || p.productId}</code></td>
+                            <td><b>{p.name}</b></td>
+                            <td style={{ color: "var(--success)", fontWeight: 700 }}>+{stockIn} {uom}</td>
+                            <td style={{ color: "var(--text-muted)", fontWeight: 600 }}>−{stockOut} {uom}</td>
+                            <td>
+                              <b style={{ color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--text-main)" }}>
+                                {balance} {uom}
+                              </b>
+                            </td>
+                            <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                <Warehouse size={12} style={{ color: "var(--accent)" }} /> {p.warehouseLocation || (p.category === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1")}
+                              </span>
+                            </td>
+                            <td>{hasReorder ? `${reorderNum} ${uom}` : <span style={{ color: "var(--text-muted)" }}>Not set</span>}</td>
+                            <td>
+                              <span className={`badge ${isNotSet ? "muted" : isOut ? "danger" : isLow ? "warning" : "success"}`}>
+                                <span
+                                  className={`badge-dot ${!isNotSet && !isOut && !isLow ? "pulse" : ""}`}
+                                  style={{
+                                    background: isNotSet ? "#94a3b8" : isOut ? "#ef4444" : isLow ? "#f59e0b" : "#10b981",
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: "50%",
+                                    display: "inline-block",
+                                    marginRight: 6
+                                  }}
+                                />
+                                {statusText}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="row-actions">
+                                <button
+                                  title="Record Stock Movement"
+                                  onClick={() => handleOpenMovement(p.id || p.productId)}
+                                  style={{ color: "var(--primary)" }}
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              }
+              /* MOBILE BALANCES CARDS */
+              mobileView={
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                   {filteredProducts.map(p => {
                     const uom = p.unitOfMeasure || p.unit || "Units";
                     const stockIn = Number(p.inwardStock ?? p.in ?? 0);
@@ -430,59 +553,55 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                     const isLow = hasReorder && balance > 0 && balance <= reorderNum;
                     const isNotSet = !hasReorder;
                     const statusText = isNotSet ? "Not set" : isOut ? "Out of Stock" : isLow ? "Low Stock" : "In Stock";
+                    const pId = p.id || p.productId;
 
                     return (
-                      <tr key={p.id || p.productId}>
-                        <td><code>{p.id || p.productId}</code></td>
-                        <td><b>{p.name}</b></td>
-                        <td style={{ color: "var(--success)", fontWeight: 700 }}>+{stockIn} {uom}</td>
-                        <td style={{ color: "var(--text-muted)", fontWeight: 600 }}>−{stockOut} {uom}</td>
-                        <td>
-                          <b style={{ color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--text-main)" }}>
-                            {balance} {uom}
-                          </b>
-                        </td>
-                        <td style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                            <Warehouse size={12} style={{ color: "var(--accent)" }} /> {p.warehouseLocation || (p.category === "Dairy" ? "Cold Silo Tank 1" : "Godown Bay A-1")}
-                          </span>
-                        </td>
-                        <td>{hasReorder ? `${reorderNum} ${uom}` : <span style={{ color: "var(--text-muted)" }}>Not set</span>}</td>
-                        <td>
-                          <span className={`badge ${isNotSet ? "muted" : isOut ? "danger" : isLow ? "warning" : "success"}`}>
-                            <span
-                              className={`badge-dot ${!isNotSet && !isOut && !isLow ? "pulse" : ""}`}
-                              style={{
-                                background: isNotSet ? "#94a3b8" : isOut ? "#ef4444" : isLow ? "#f59e0b" : "#10b981",
-                                width: 6,
-                                height: 6,
-                                borderRadius: "50%",
-                                display: "inline-block",
-                                marginRight: 6
-                              }}
-                            />
+                      <MobileRecordCard
+                        key={pId}
+                        idBadge={pId}
+                        title={p.name}
+                        subtitle={p.warehouseLocation || "Godown Bay A-1"}
+                        categoryBadge={p.category || "General"}
+                        statusBadge={
+                          <span className={`badge ${isNotSet ? "muted" : isOut ? "danger" : isLow ? "warning" : "success"}`} style={{ fontSize: 11 }}>
                             {statusText}
                           </span>
-                        </td>
-                        <td>
-                          <div className="row-actions">
-                            <button
-                              title="Record Stock Movement"
-                              onClick={() => handleOpenMovement(p.id || p.productId)}
-                              style={{ color: "var(--primary)" }}
-                            >
-                              <Pencil size={14} />
-                            </button>
+                        }
+                        primaryMetrics={[
+                          { label: "Available Balance", value: `${balance} ${uom}`, color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--primary)" },
+                          { label: "Inward (+)", value: `+${stockIn} ${uom}`, color: "var(--success)" },
+                          { label: "Outward (−)", value: `−${stockOut} ${uom}`, color: "var(--text-muted)" },
+                        ]}
+                        expandedDetails={
+                          <div>
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Reorder Threshold</span>
+                              <span className="mobile-record-detail-val">{hasReorder ? `${reorderNum} ${uom}` : "Not set"}</span>
+                            </div>
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Location</span>
+                              <span className="mobile-record-detail-val">{p.warehouseLocation || "Godown Bay A-1"}</span>
+                            </div>
                           </div>
-                        </td>
-                      </tr>
+                        }
+                        actions={
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={() => handleOpenMovement(pId)}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6, width: "100%" }}
+                          >
+                            <Pencil size={14} /> Adjust / Move Stock
+                          </button>
+                        }
+                      />
                     );
                   })}
-                </tbody>
-              </table>
-            )
-          )}
-        </div>
+                </div>
+              }
+            />
+          )
+        )}
       </div>
 
       <InventoryModal
@@ -494,7 +613,6 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
         initialProductId={selectedProductForModal}
         showToast={showToast}
       />
-
     </div>
   );
 }

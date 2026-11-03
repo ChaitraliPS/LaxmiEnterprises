@@ -117,23 +117,46 @@ export const createPurchase = asyncHandler(async (req, res) => {
     const vendorContact = vendor.phone || inputData.vendorContact || "";
 
     // 2. Validate line items and calculate server-side totals
+    // Merge duplicate lines for the same productId server-side
+    const mergedLinesMap = new Map();
+    for (const rawLine of rawLines) {
+      const prodId = rawLine.productId || rawLine.id;
+      if (!prodId) throw ApiError.badRequest("Each purchase line must have a valid productId.");
+      const qty = Number(rawLine.quantity ?? rawLine.inwardQty ?? rawLine.qty ?? 0);
+      const unitCost = Number(rawLine.unitCost ?? rawLine.rate ?? rawLine.costPrice);
+
+      if (mergedLinesMap.has(prodId)) {
+        const existing = mergedLinesMap.get(prodId);
+        existing.quantity += qty;
+      } else {
+        mergedLinesMap.set(prodId, { ...rawLine, productId: prodId, quantity: qty, unitCost });
+      }
+    }
+    const normalizedLines = Array.from(mergedLinesMap.values());
+
     let calculatedTaxable = 0;
     let calculatedGst = 0;
     const validatedLines = [];
     const cachedItemsArray = [];
 
-    for (const line of rawLines) {
-      const prodId = line.productId || line.id;
-      const qty = Number(line.quantity ?? line.inwardQty ?? line.qty ?? 0);
-      if (!prodId) throw ApiError.badRequest("Each purchase line must have a valid productId.");
-      if (qty <= 0) throw ApiError.badRequest(`Quantity must be greater than 0 for product ${prodId}.`);
+    for (const line of normalizedLines) {
+      const prodId = line.productId;
+      const qty = Number(line.quantity);
+      if (isNaN(qty) || !isFinite(qty) || qty <= 0) {
+        throw ApiError.badRequest(`Quantity must be a valid positive number for product ${prodId}. Received: ${line.quantity}`);
+      }
 
       const prod = await Product.findOne({ where: { productId: prodId }, transaction: t });
       if (!prod) {
         throw ApiError.badRequest(`Product "${prodId}" does not exist in the product master.`);
       }
 
-      const unitCost = Number(line.unitCost ?? line.rate ?? line.costPrice ?? prod.costPrice);
+      const rawUnitCost = line.unitCost !== undefined && !isNaN(line.unitCost) ? line.unitCost : prod.costPrice;
+      const unitCost = Number(rawUnitCost);
+      if (isNaN(unitCost) || !isFinite(unitCost) || unitCost < 0) {
+        throw ApiError.badRequest(`Unit cost must be a valid non-negative number for product "${prod.name}" (${prodId}). Received: ${rawUnitCost}`);
+      }
+
       const taxable = Math.round(unitCost * qty * 100) / 100;
       const gstRate = Number(prod.gstRate !== undefined ? prod.gstRate : (line.gstRate || 0));
       const gstAmt = Math.round(taxable * (gstRate / 100) * 100) / 100;
@@ -189,10 +212,34 @@ export const createPurchase = asyncHandler(async (req, res) => {
 
     // Server calculates grandTotal (client cannot submit an arbitrary total)
     const serverCalculatedGrandTotal = Math.round((calculatedTaxable + calculatedGst) * 100) / 100;
-    const purchaseId = inputData.purchaseId || (await generatePurchaseNumber(t, businessDateStr));
 
-    const paidAmount = Number(inputData.paidAmount || 0);
-    const balanceDue = Math.max(0, serverCalculatedGrandTotal - paidAmount);
+    // Server generates sequential purchaseId (client-sent identifiers are ignored)
+    const purchaseId = await generatePurchaseNumber(t, businessDateStr);
+
+    // Validate payment if submitted together
+    let paidAmount = 0;
+    if (inputData.paidAmount !== undefined && inputData.paidAmount !== null && inputData.paidAmount !== "") {
+      paidAmount = Number(inputData.paidAmount);
+      if (isNaN(paidAmount) || !isFinite(paidAmount) || paidAmount < 0) {
+        throw ApiError.badRequest(`Paid amount must be a valid non-negative number. Received: ${inputData.paidAmount}`);
+      }
+      if (paidAmount > serverCalculatedGrandTotal + 0.005) {
+        throw ApiError.badRequest(
+          `Initial vendor payment amount (₹${paidAmount}) exceeds purchase grand total (₹${serverCalculatedGrandTotal}). Overpayment is not allowed.`
+        );
+      }
+    }
+    paidAmount = Math.round(paidAmount * 100) / 100;
+    const balanceDue = Math.round(Math.max(0, serverCalculatedGrandTotal - paidAmount) * 100) / 100;
+
+    if (paidAmount > 0) {
+      const payMode = inputData.paymentMode || inputData.paymentMethod;
+      if (!payMode || !VALID_VENDOR_PAYMENT_MODES.some((m) => m.toLowerCase() === String(payMode).trim().toLowerCase())) {
+        throw ApiError.badRequest(
+          `Valid paymentMode is required when recording an initial vendor payment (${VALID_VENDOR_PAYMENT_MODES.join(", ")}). Received: ${payMode || "none"}`
+        );
+      }
+    }
 
     const status = deriveTransactionStatus({
       grandTotal: serverCalculatedGrandTotal,
@@ -394,7 +441,7 @@ export const recordVendorPayment = asyncHandler(async (req, res) => {
     }
 
     const currentBalance = Number(purchase.balanceDue ?? Math.max(0, Number(purchase.grandTotal || 0) - Number(purchase.paidAmount || 0)));
-    if (amount > currentBalance) {
+    if (amount > currentBalance + 0.005) {
       throw ApiError.badRequest(`Payment amount (₹${amount}) exceeds remaining balance due (₹${currentBalance})`);
     }
 
@@ -464,23 +511,27 @@ export const recordVendorPayment = asyncHandler(async (req, res) => {
  */
 export const deletePurchase = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const purchase = await Purchase.findOne({
-    where: {
-      [Op.or]: [{ purchaseId: id }, ...(isNaN(id) ? [] : [{ id: Number(id) }])],
-    },
-    include: [{ model: PurchaseLine, as: "lines" }, { model: VendorPayment, as: "vendorPayments" }],
-  });
-
-  if (!purchase) {
-    throw ApiError.notFound(`Purchase not found with identifier: ${id}`);
-  }
-  if (purchase.isCancelled) {
-    return ApiResponse.success(res, purchase, "Purchase bill is already cancelled");
-  }
-
   const t = await sequelize.transaction();
 
   try {
+    const purchase = await Purchase.findOne({
+      where: {
+        [Op.or]: [{ purchaseId: id }, ...(isNaN(id) ? [] : [{ id: Number(id) }])],
+      },
+      include: [{ model: PurchaseLine, as: "lines" }, { model: VendorPayment, as: "vendorPayments" }],
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+
+    if (!purchase) {
+      await t.rollback();
+      throw ApiError.notFound(`Purchase not found with identifier: ${id}`);
+    }
+    if (purchase.isCancelled) {
+      await t.commit();
+      return ApiResponse.success(res, purchase, "Purchase bill is already cancelled");
+    }
+
     // 1. Reverse stock movements (ADJUSTMENT_OUT / reversal)
     for (const line of purchase.lines || []) {
       await applyStockChange(line.productId, -line.quantity, {
@@ -509,7 +560,7 @@ export const deletePurchase = asyncHandler(async (req, res) => {
 
     // 4. Reverse Vendor totals
     if (purchase.vendorId) {
-      const vendor = await Vendor.findOne({ where: { vendorId: purchase.vendorId }, transaction: t });
+      const vendor = await Vendor.findOne({ where: { vendorId: purchase.vendorId }, transaction: t, lock: t.LOCK.UPDATE });
       if (vendor) {
         vendor.totalOrders = Math.max(0, Number(vendor.totalOrders || 0) - 1);
         vendor.totalPurchases = Math.max(0, Number(vendor.totalPurchases || 0) - Number(purchase.grandTotal || 0));

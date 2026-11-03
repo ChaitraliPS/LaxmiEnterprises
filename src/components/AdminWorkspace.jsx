@@ -15,6 +15,7 @@ import {
 import { FieldError, RequiredStar, ValidationSummary } from "./ValidationFeedback";
 import { erpApi } from "../services/api";
 import { saveAuthSession } from "../services/authService";
+import { getToday, getFiscalYear, getFiscalYearFormatted } from "../constants/erpConstants";
 
 export default function AdminWorkspace({ 
   adminProfile = {}, 
@@ -61,7 +62,16 @@ export default function AdminWorkspace({
   const [dbStatus, setDbStatus] = useState("Checking...");
 
   // Fiscal Targets State
-  const [targetFy, setTargetFy] = useState("FY 2026-27");
+  const currentFormattedFY = React.useMemo(() => getFiscalYearFormatted(getToday()), []);
+  const [targetFy, setTargetFy] = useState(currentFormattedFY);
+  const targetFyOptions = React.useMemo(() => {
+    const curYear = parseInt(getFiscalYear(getToday()).slice(0, 4), 10);
+    return [
+      { value: `FY ${curYear - 1}-${String(curYear).slice(-2)}`, label: `FY ${curYear - 1}-${String(curYear).slice(-2)} (Previous)` },
+      { value: `FY ${curYear}-${String(curYear + 1).slice(-2)}`, label: `FY ${curYear}-${String(curYear + 1).slice(-2)} (Current)` },
+      { value: `FY ${curYear + 1}-${String(curYear + 2).slice(-2)}`, label: `FY ${curYear + 1}-${String(curYear + 2).slice(-2)} (Future)` },
+    ];
+  }, []);
   const [targetsList, setTargetsList] = useState([]);
   const [quarterlyProgress, setQuarterlyProgress] = useState([]);
   const [isLoadingTargets, setIsLoadingTargets] = useState(false);
@@ -737,55 +747,97 @@ export default function AdminWorkspace({
             </div>
           </div>
 
-          {/* Team Roster Table */}
-          <div className="table-wrap" style={{ border: "1px solid var(--border)", borderRadius: 10, marginBottom: 24 }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Team Member</th>
-                  <th>Email Address</th>
-                  <th>Assigned Role</th>
-                  <th>Designation</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teamMembers.length === 0 ? (
+          {/* Team Roster: Dual-Responsive Desktop Table vs Mobile Cards */}
+          <div className="desktop-table-container" style={{ marginBottom: 24 }}>
+            <div className="table-wrap" style={{ border: "1px solid var(--border)", borderRadius: 10 }}>
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: 24, color: "var(--text-muted)" }}>
-                      {isLoadingUsers ? "Loading users from MySQL..." : "No additional team members registered."}
-                    </td>
+                    <th>Team Member</th>
+                    <th>Email Address</th>
+                    <th>Assigned Role</th>
+                    <th>Designation</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                   </tr>
-                ) : (
-                  teamMembers.map((tm) => (
-                    <tr key={tm.id}>
-                      <td>
-                        <div className="person">
-                          <div className="mini-avatar">{tm.name ? tm.name[0] : "U"}</div>
-                          <b>{tm.name}</b>
-                        </div>
-                      </td>
-                      <td>{tm.email}</td>
-                      <td>
-                        <span className="role-tag">
-                          <ShieldCheck size={12} /> {tm.role}
-                        </span>
-                      </td>
-                      <td>{tm.designation || "Staff"}</td>
-                      <td>
-                        <span className="badge success">{tm.isActive ? "Active" : "Disabled"}</span>
-                      </td>
-                      <td>
-                        <div className="row-actions">
-<span style={{ fontSize: 11, color: "var(--text-muted)" }}>Protected</span>
-                        </div>
+                </thead>
+                <tbody>
+                  {teamMembers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: "center", padding: 24, color: "var(--text-muted)" }}>
+                        {isLoadingUsers ? "Loading users from MySQL..." : "No additional team members registered."}
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    teamMembers.map((tm) => (
+                      <tr key={tm.id}>
+                        <td>
+                          <div className="person">
+                            <div className="mini-avatar">{tm.name ? tm.name[0] : "U"}</div>
+                            <b>{tm.name}</b>
+                          </div>
+                        </td>
+                        <td>{tm.email}</td>
+                        <td>
+                          <span className="role-tag">
+                            <ShieldCheck size={12} /> {tm.role}
+                          </span>
+                        </td>
+                        <td>{tm.designation || "Staff"}</td>
+                        <td>
+                          <span className="badge success">{tm.isActive ? "Active" : "Disabled"}</span>
+                        </td>
+                        <td>
+                          <div className="row-actions">
+                            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Protected</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile Team Member Cards */}
+          <div className="mobile-card-container" style={{ marginBottom: 24, gap: 10 }}>
+            {teamMembers.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 18, color: "var(--text-muted)", fontSize: 13, background: "var(--bg)", borderRadius: 10 }}>
+                {isLoadingUsers ? "Loading users from MySQL..." : "No additional team members registered."}
+              </div>
+            ) : (
+              teamMembers.map((tm) => (
+                <div
+                  key={tm.id}
+                  style={{
+                    background: "var(--card-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 12,
+                    padding: 12,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                    boxShadow: "var(--shadow-sm)"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div className="mini-avatar">{tm.name ? tm.name[0] : "U"}</div>
+                      <div>
+                        <strong style={{ fontSize: 14 }}>{tm.name}</strong>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{tm.designation || "Staff"}</div>
+                      </div>
+                    </div>
+                    <span className="badge success" style={{ fontSize: 11 }}>{tm.isActive ? "Active" : "Disabled"}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, background: "var(--bg)", padding: "6px 10px", borderRadius: 8 }}>
+                    <span style={{ color: "var(--text-muted)" }}>Email: {tm.email}</span>
+                    <span className="role-tag" style={{ fontSize: 11 }}><ShieldCheck size={11} /> {tm.role}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
@@ -876,9 +928,11 @@ export default function AdminWorkspace({
                 value={targetFy}
                 onChange={(e) => setTargetFy(e.target.value)}
               >
-                <option value="FY 2026-27">FY 2026-27 (Current)</option>
-                <option value="FY 2025-26">FY 2025-26 (Previous)</option>
-                <option value="FY 2027-28">FY 2027-28 (Future)</option>
+                {targetFyOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <button
                 type="button"

@@ -1,14 +1,17 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   Users, Plus, Search, MessageCircle, MapPin, CheckCircle2, Send,
-  Building2, Wheat, Milk, Tractor, Eye, X, Phone
+  Building2, Wheat, Milk, Tractor, Eye, X, Phone, Calendar
 } from "lucide-react";
 import ExpoLeadModal from "./ExpoLeadModal";
 import ExpoLeadViewModal from "./ExpoLeadViewModal";
 import WhatsAppBulkModal from "./WhatsAppBulkModal";
+import MobileRecordCard from "./responsive/MobileRecordCard";
+import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
+import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { createExpoLead, updateExpoLead } from "../services/expoApi";
 
-// Field-name fallbacks (DB / API may use different keys)
+// Field-name fallbacks
 const getMobile = (l) => l.mobile || l.mobileNumber || l.phone || l.contact || "";
 const getRemark = (l) => l.remark || l.note || l.notes || "";
 const getDate = (l) => l.date || l.visitDate || l.createdAt || "";
@@ -37,12 +40,10 @@ export default function ExpoPage({
 }) {
   const [leads, setLeads] = useState(expoLeads || []);
 
-  // Keep local list in sync with what the parent loads from the server
   useEffect(() => {
     setLeads(expoLeads || []);
   }, [expoLeads]);
 
-  // Load fresh data once when the page opens
   useEffect(() => {
     if (onRefresh) onRefresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,11 +95,9 @@ export default function ExpoPage({
     });
   }, [leads, sectorFilter, eventFilter, search]);
 
-  // Handlers
   const handleOpenAdd = () => { setEditingLead(null); setLeadModalOpen(true); };
   const handleOpenEdit = (lead) => { setEditingLead(lead); setLeadModalOpen(true); };
 
-  // Throws on failure so the modal stays open and shows the error
   const handleSaveLead = async (data) => {
     if (editingLead) {
       const updated = await updateExpoLead(editingLead.id, data);
@@ -125,7 +124,6 @@ export default function ExpoPage({
     }
   };
 
-  // Called by the bulk sender after it logs sent messages to the database
   const handleBroadcastLogged = (updatedLeads = []) => {
     if (updatedLeads.length) {
       const byId = new Map(updatedLeads.map((l) => [l.id, l]));
@@ -150,10 +148,7 @@ export default function ExpoPage({
   const hasFilters = sectorFilter !== "All" || eventFilter !== "All" || search.trim() !== "";
 
   return (
-    <div
-      className="page"
-      style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", overflowX: "hidden" }}
-    >
+    <div className="page" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflowX: "hidden" }}>
       {/* HEADER */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0, flex: "1 1 280px" }}>
@@ -161,32 +156,41 @@ export default function ExpoPage({
             <span style={{ width: 28, height: 28, borderRadius: 8, background: "#25D366", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <MessageCircle size={17} />
             </span>
-            Expo Visitors
+            Expo Visitors & WhatsApp Broadcast
           </h2>
           <p style={{ margin: 0, fontSize: "0.84rem", color: "var(--text-muted)" }}>
-            Agri expo visitor registry with WhatsApp follow-up campaigns
+            Agri expo visitor registry with 1-click WhatsApp follow-up campaigns
           </p>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" className="primary" onClick={() => setWhatsAppModalOpen(true)}
-            style={{ background: "#25D366", borderColor: "#25D366", color: "#fff", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => setWhatsAppModalOpen(true)}
+            style={{ background: "#25D366", borderColor: "#25D366", color: "#fff", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+          >
             <Send size={15} /> WhatsApp Bulk
           </button>
-          <button type="button" className="primary" onClick={handleOpenAdd}
-            style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+          <button
+            type="button"
+            className="primary"
+            onClick={handleOpenAdd}
+            style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+          >
             <Plus size={16} /> Add Visitor
           </button>
         </div>
       </div>
 
-      {/* KPI CARDS */}
-      <div className="stats-grid"
-        style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 16, marginBottom: 20 }}>
+      {/* DUAL-RESPONSIVE KPI GRID: 4-cols on Laptop, 2-cols on Mobile */}
+      <ResponsiveKpiGrid cols={4}>
         <div className="stat-card">
           <div className="stat-top">
             <span>Total Visitors</span>
-            <div className="stat-icon" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}><Users size={19} /></div>
+            <div className="stat-icon" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
+              <Users size={19} />
+            </div>
           </div>
           <div className="stat-value">{leads.length}</div>
           <div className="trend positive"><span>Registered at stall</span></div>
@@ -195,7 +199,9 @@ export default function ExpoPage({
         <div className="stat-card">
           <div className="stat-top">
             <span>Villages Covered</span>
-            <div className="stat-icon" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}><MapPin size={19} /></div>
+            <div className="stat-icon" style={{ background: "rgba(16, 185, 129, 0.12)", color: "#10b981" }}>
+              <MapPin size={19} />
+            </div>
           </div>
           <div className="stat-value" style={{ color: "#10b981" }}>{uniqueVillagesCount}</div>
           <div className="trend positive"><span>Rural outreach</span></div>
@@ -204,7 +210,9 @@ export default function ExpoPage({
         <div className="stat-card">
           <div className="stat-top">
             <span>WhatsApp Follow-ups</span>
-            <div className="stat-icon" style={{ background: "rgba(37, 211, 102, 0.15)", color: "#128C7E" }}><MessageCircle size={19} /></div>
+            <div className="stat-icon" style={{ background: "rgba(37, 211, 102, 0.15)", color: "#128C7E" }}>
+              <MessageCircle size={19} />
+            </div>
           </div>
           <div className="stat-value" style={{ color: "#128C7E" }}>{followedUpCount}</div>
           <div className="trend positive">
@@ -215,11 +223,13 @@ export default function ExpoPage({
         <div className="stat-card">
           <div className="stat-top">
             <span>Sectors Profiled</span>
-            <div className="stat-icon" style={{ background: "rgba(245, 158, 11, 0.12)", color: "#d97706" }}><Building2 size={19} /></div>
+            <div className="stat-icon" style={{ background: "rgba(245, 158, 11, 0.12)", color: "#d97706" }}>
+              <Building2 size={19} />
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
             <div>
-              <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>Feed Shop</small>
+              <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>Feed</small>
               <strong style={{ fontSize: "1.1rem", color: "#059669" }}>{count("Animal Feed Shop")}</strong>
             </div>
             <div style={{ borderLeft: "1px solid var(--border)", paddingLeft: 10 }}>
@@ -227,17 +237,17 @@ export default function ExpoPage({
               <strong style={{ fontSize: "1.1rem", color: "#0284c7" }}>{count("Dairy")}</strong>
             </div>
             <div style={{ borderLeft: "1px solid var(--border)", paddingLeft: 10 }}>
-              <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>Farmers</small>
+              <small style={{ fontSize: "0.72rem", color: "var(--text-muted)", display: "block" }}>Farmer</small>
               <strong style={{ fontSize: "1.1rem", color: "#d97706" }}>{count("Farmers")}</strong>
             </div>
           </div>
         </div>
-      </div>
+      </ResponsiveKpiGrid>
 
       {/* TABLE CARD */}
       <div className="card table-card" style={{ maxWidth: "100%", overflow: "hidden" }}>
         <div className="card-head" style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div className="filter-pills-bar" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div className="filter-pills-bar" style={{ display: "flex", gap: 8, flexWrap: "wrap", overflowX: "auto", maxWidth: "100%" }}>
             <button className={`filter-pill ${sectorFilter === "All" ? "active" : ""}`} onClick={() => setSectorFilter("All")}>
               All ({leads.length})
             </button>
@@ -263,24 +273,34 @@ export default function ExpoPage({
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && (
-              <button type="button" onClick={() => setSearch("")}
+              <button
+                type="button"
+                onClick={() => setSearch("")}
                 style={{ border: "none", background: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
-                title="Clear search">
+                title="Clear search"
+              >
                 <X size={14} />
               </button>
             )}
           </div>
 
-          <select className="form-select" style={{ maxWidth: 240, fontSize: "0.82rem", padding: "8px 10px" }}
-            value={eventFilter} onChange={(e) => setEventFilter(e.target.value)}>
+          <select
+            className="form-select"
+            style={{ maxWidth: 240, fontSize: "0.82rem", padding: "8px 10px" }}
+            value={eventFilter}
+            onChange={(e) => setEventFilter(e.target.value)}
+          >
             {availableEvents.map((ev) => (
               <option key={ev} value={ev}>{ev === "All" ? "All exhibitions" : ev}</option>
             ))}
           </select>
 
           {hasFilters && (
-            <button type="button" onClick={() => { setSearch(""); setSectorFilter("All"); setEventFilter("All"); }}
-              style={{ border: "none", background: "transparent", color: "var(--danger)", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <button
+              type="button"
+              onClick={() => { setSearch(""); setSectorFilter("All"); setEventFilter("All"); }}
+              style={{ border: "none", background: "transparent", color: "var(--danger)", fontSize: "0.8rem", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+            >
               <X size={13} /> Clear filters
             </button>
           )}
@@ -297,150 +317,235 @@ export default function ExpoPage({
               <CheckCircle2 size={16} /> {selectedLeadIds.size} selected
             </span>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" className="primary" onClick={() => setWhatsAppModalOpen(true)}
-                style={{ background: "#25D366", borderColor: "#25D366", fontSize: "0.8rem", padding: "5px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setWhatsAppModalOpen(true)}
+                style={{ background: "#25D366", borderColor: "#25D366", fontSize: "0.8rem", padding: "5px 12px", display: "flex", alignItems: "center", gap: 5 }}
+              >
                 <Send size={14} /> Send WhatsApp to selected
               </button>
-              <button type="button" className="outline" onClick={() => setSelectedLeadIds(new Set())}
-                style={{ fontSize: "0.8rem", padding: "5px 10px" }}>
+              <button
+                type="button"
+                className="outline"
+                onClick={() => setSelectedLeadIds(new Set())}
+                style={{ fontSize: "0.8rem", padding: "5px 10px" }}
+              >
                 Clear
               </button>
             </div>
           </div>
         )}
 
-        {/* TABLE */}
-        <div className="table-wrap" style={{ width: "100%", overflowX: "auto" }}>
-          {filteredLeads.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon"><MessageCircle size={26} style={{ color: "#25D366" }} /></div>
-              <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Expo Visitors Found</h4>
-              <p style={{ fontSize: 13, marginBottom: 16 }}>
-                {leads.length === 0
-                  ? "No expo visitors recorded yet."
-                  : "No visitors match your current search or filters."}
-              </p>
-              <button type="button" className="primary" onClick={handleOpenAdd} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <Plus size={15} /> Add Visitor
-              </button>
-            </div>
-          ) : (
-            <table style={{ width: "100%", tableLayout: "auto" }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 40, textAlign: "center" }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0}
-                      onChange={toggleSelectAll}
-                    />
-                  </th>
-                  <th>Visitor</th>
-                  <th>Location & Contact</th>
-                  <th>Inquiry Note</th>
-                  <th>Event</th>
-                  <th style={{ textAlign: "center" }}>Status</th>
-                  <th style={{ textAlign: "center", width: 70 }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
+        {/* DUAL-RESPONSIVE: Desktop Table vs Mobile Cards */}
+        {filteredLeads.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon"><MessageCircle size={26} style={{ color: "#25D366" }} /></div>
+            <h4 style={{ fontSize: 16, color: "var(--text-main)", marginBottom: 6 }}>No Expo Visitors Found</h4>
+            <p style={{ fontSize: 13, marginBottom: 16 }}>
+              {leads.length === 0
+                ? "No expo visitors recorded yet."
+                : "No visitors match your current search or filters."}
+            </p>
+            <button type="button" className="primary" onClick={handleOpenAdd} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Plus size={15} /> Add Visitor
+            </button>
+          </div>
+        ) : (
+          <ResponsiveDataTable
+            hasRecords={filteredLeads.length > 0}
+            /* DESKTOP TABLE VIEW */
+            desktopView={
+              <div className="table-wrap">
+                <table style={{ width: "100%", tableLayout: "auto" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 40, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedLeadIds.size === filteredLeads.length && filteredLeads.length > 0}
+                          onChange={toggleSelectAll}
+                        />
+                      </th>
+                      <th>Visitor</th>
+                      <th>Location & Contact</th>
+                      <th>Inquiry Note</th>
+                      <th>Event</th>
+                      <th style={{ textAlign: "center" }}>Status</th>
+                      <th style={{ textAlign: "center", width: 70 }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLeads.map((lead) => {
+                      const t = theme(lead.category);
+                      const isSelected = selectedLeadIds.has(lead.id);
+                      const mobile = getMobile(lead);
+                      const remark = getRemark(lead);
+                      const place = [lead.taluka, lead.district].filter(Boolean).join(", ");
+
+                      return (
+                        <tr
+                          key={lead.id}
+                          style={{
+                            background: isSelected ? "rgba(37, 211, 102, 0.04)" : "transparent",
+                            cursor: "pointer"
+                          }}
+                          onClick={() => setViewingLead(lead)}
+                        >
+                          <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleSelectLead(lead.id)} />
+                          </td>
+
+                          <td>
+                            <div className="person">
+                              <div className="mini-avatar" style={{ background: t.bg, color: t.fg }}>
+                                {(lead.name || "V")[0].toUpperCase()}
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <b
+                                  style={{ color: "var(--text-main)", fontSize: 13, cursor: "pointer" }}
+                                  onClick={() => setViewingLead(lead)}
+                                  title="View visitor details"
+                                >
+                                  {lead.name}
+                                </b>
+                                <div style={{ marginTop: 3 }}>
+                                  <span className={`client-type-badge ${t.cls}`} style={{ whiteSpace: "nowrap" }}>
+                                    <t.Icon size={11} /> {t.label}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td>
+                            <div style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 600, color: "var(--text-main)" }}>
+                                <MapPin size={12} style={{ color: "var(--primary)", flexShrink: 0 }} />
+                                <span>{lead.village || "—"}</span>
+                              </div>
+                              {place && (
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", paddingLeft: 17 }}>{place}</div>
+                              )}
+                              <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2, fontSize: 11.5, color: "var(--text-muted)" }}>
+                                <Phone size={11} style={{ flexShrink: 0 }} /> <span>{mobile || "—"}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td style={{ maxWidth: 260 }}>
+                            <div style={{
+                              fontSize: 12, lineHeight: 1.4, color: remark ? "var(--text-main)" : "var(--text-muted)",
+                              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"
+                            }} title={remark}>
+                              {remark || "No note added"}
+                            </div>
+                          </td>
+
+                          <td style={{ fontSize: 12 }}>
+                            <div style={{ fontWeight: 600, color: "var(--text-main)" }}>{lead.expoName || "—"}</div>
+                            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{fmtDate(getDate(lead))}</div>
+                          </td>
+
+                          <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                            <span className={`badge ${statusClass(lead.status)}`}>{lead.status || "New Lead"}</span>
+                          </td>
+
+                          <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                            <div className="row-actions" style={{ justifyContent: "center" }}>
+                              <button
+                                type="button"
+                                title={`View ${lead.name}`}
+                                onClick={() => setViewingLead(lead)}
+                                style={{ color: "var(--accent)", cursor: "pointer" }}
+                              >
+                                <Eye size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            }
+            /* MOBILE RECORD CARDS VIEW */
+            mobileView={
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                 {filteredLeads.map((lead) => {
                   const t = theme(lead.category);
-                  const isSelected = selectedLeadIds.has(lead.id);
                   const mobile = getMobile(lead);
                   const remark = getRemark(lead);
-                  const place = [lead.taluka, lead.district].filter(Boolean).join(", ");
+                  const cleanPhone = mobile.replace(/\D/g, "");
 
                   return (
-                    <tr
+                    <MobileRecordCard
                       key={lead.id}
-                      style={{
-                        background: isSelected ? "rgba(37, 211, 102, 0.04)" : "transparent",
-                        cursor: "pointer"
-                      }}
-                      onClick={() => setViewingLead(lead)}
-                    >
-                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelectLead(lead.id)} />
-                      </td>
-
-                      {/* Visitor */}
-                      <td>
-                        <div className="person">
-                          <div className="mini-avatar" style={{ background: t.bg, color: t.fg }}>
-                            {(lead.name || "V")[0].toUpperCase()}
-                          </div>
-                          <div style={{ minWidth: 0 }}>
-                            <b style={{ color: "var(--text-main)", fontSize: 13, cursor: "pointer" }}
-                              onClick={() => setViewingLead(lead)} title="View visitor details">
-                              {lead.name}
-                            </b>
-                            <div style={{ marginTop: 3 }}>
-                              <span className={`client-type-badge ${t.cls}`} style={{ whiteSpace: "nowrap" }}>
-                                <t.Icon size={11} /> {t.label}
-                              </span>
+                      idBadge={lead.id}
+                      title={lead.name}
+                      subtitle={[lead.village, lead.taluka, lead.district].filter(Boolean).join(", ")}
+                      categoryBadge={
+                        <span style={{ color: t.fg, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <t.Icon size={12} /> {t.label}
+                        </span>
+                      }
+                      statusBadge={
+                        <span className={`badge ${statusClass(lead.status)}`} style={{ fontSize: 11 }}>
+                          {lead.status || "New Lead"}
+                        </span>
+                      }
+                      primaryMetrics={[
+                        { label: "Mobile", value: mobile ? <a href={`tel:${mobile}`} style={{ color: "var(--primary)", textDecoration: "none" }}>{mobile}</a> : "—" },
+                        { label: "Event", value: lead.expoName || "Expo" },
+                        { label: "Date", value: fmtDate(getDate(lead)) },
+                      ]}
+                      expandedDetails={
+                        <div>
+                          {remark && (
+                            <div style={{ marginBottom: 6 }}>
+                              <span className="mobile-record-detail-label">Inquiry Remark:</span>
+                              <div style={{ fontSize: 12, marginTop: 2, color: "var(--text-main)" }}>{remark}</div>
                             </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Location + contact */}
-                      <td>
-                        <div style={{ fontSize: 12.5, lineHeight: 1.45 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 600, color: "var(--text-main)" }}>
-                            <MapPin size={12} style={{ color: "var(--primary)", flexShrink: 0 }} />
-                            <span>{lead.village || "—"}</span>
-                          </div>
-                          {place && (
-                            <div style={{ fontSize: 11, color: "var(--text-muted)", paddingLeft: 17 }}>{place}</div>
                           )}
-                          <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2, fontSize: 11.5, color: "var(--text-muted)" }}>
-                            <Phone size={11} style={{ flexShrink: 0 }} /> <span>{mobile || "—"}</span>
-                          </div>
+                          {lead.cattleCount && (
+                            <div className="mobile-record-detail-row">
+                              <span className="mobile-record-detail-label">Cattle Count</span>
+                              <span className="mobile-record-detail-val">{lead.cattleCount} Animals</span>
+                            </div>
+                          )}
                         </div>
-                      </td>
-
-                      {/* Note */}
-                      <td style={{ maxWidth: 260 }}>
-                        <div style={{
-                          fontSize: 12, lineHeight: 1.4, color: remark ? "var(--text-main)" : "var(--text-muted)",
-                          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden"
-                        }} title={remark}>
-                          {remark || "No note added"}
-                        </div>
-                      </td>
-
-                      {/* Event */}
-                      <td style={{ fontSize: 12 }}>
-                        <div style={{ fontWeight: 600, color: "var(--text-main)" }}>{lead.expoName || "—"}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{fmtDate(getDate(lead))}</div>
-                      </td>
-
-                      {/* Status */}
-                      <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                        <span className={`badge ${statusClass(lead.status)}`}>{lead.status || "New Lead"}</span>
-                      </td>
-
-                      {/* Action: view only */}
-                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                        <div className="row-actions" style={{ justifyContent: "center" }}>
+                      }
+                      actions={
+                        <>
+                          {cleanPhone && (
+                            <a
+                              href={`https://wa.me/91${cleanPhone.slice(-10)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="outline"
+                              style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#25D366" }}
+                            >
+                              <MessageCircle size={15} /> WhatsApp
+                            </a>
+                          )}
                           <button
                             type="button"
-                            title={`View ${lead.name}`}
+                            className="primary"
                             onClick={() => setViewingLead(lead)}
-                            style={{ color: "var(--accent)", cursor: "pointer" }}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                           >
-                            <Eye size={14} />
+                            <Eye size={14} /> View Lead
                           </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </>
+                      }
+                    />
                   );
                 })}
-              </tbody>
-            </table>
-          )}
-        </div>
+              </div>
+            }
+          />
+        )}
       </div>
 
       {/* MODALS */}

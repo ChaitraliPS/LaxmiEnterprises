@@ -1,24 +1,30 @@
 import app from "./app.js";
 import { connectDB, sequelize } from "./config/db.js";
 
-const PORT = Number(process.env.PORT) || 5000;
+// Hostinger / CloudLinux Phusion Passenger may supply a numeric port, string port, or Unix domain socket
+const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
-  // Connect to MySQL
-  await connectDB();
-
+  // 1. Bind and start HTTP server immediately so Hostinger's reverse proxy does not return 503
   const server = app.listen(PORT, () => {
     console.log(`
 =============================================================
   🏢 LAXMI ENTERPRISES ERP - BACKEND API SERVER
-  🚀 Status: Running on http://localhost:${PORT}
-  📡 API Base: http://localhost:${PORT}/api/v1
-  🩺 Health: http://localhost:${PORT}/api/health
+  🚀 Status: Running on PORT/Socket: ${PORT}
+  📡 API Base: /api/v1
+  🩺 Health Check: /health or /api/health
   🛢️ Database: MySQL (Hostinger Ready)
   ⚙️ Environment: ${process.env.NODE_ENV || "development"}
 =============================================================
     `);
   });
+
+  // 2. Connect to MySQL without crashing the Node process if database is initializing or pending
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error("⚠️ Initial MySQL connection warning (server remains online for health/diagnostics):", err.message);
+  }
 
   // Graceful shutdown handling
   const shutdown = async (signal) => {

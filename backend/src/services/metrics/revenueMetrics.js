@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { Invoice, InvoiceLine, Target, Product } from "../../models/index.js";
+import { Invoice, InvoiceLine, Target, Product, Expense } from "../../models/index.js";
 import { resolveDateRange, getFiscalYear, formatISTDateString } from "./dateRangeHelper.js";
 import { getSalesSummary } from "./salesMetrics.js";
 import { getToday, PRODUCT_CATEGORIES, TARGET_STATUSES } from "../../constants/erpConstants.js";
@@ -53,20 +53,71 @@ export async function getRevenueSummary(range = "fy", asOfDate = getToday()) {
     monthlyMap[ym].grossInvoiced += grand;
     monthlyMap[ym].totalCost += cost;
     monthlyMap[ym].invoiceCount += 1;
+    monthlyMap[ym].expenses = monthlyMap[ym].expenses || 0;
   }
 
+  // Aggregate expenses for the same period
+  const expenseWhere = {};
+  if (!isAllTime) {
+    expenseWhere.expenseDate = { [Op.between]: [startDate, endDate] };
+  }
+  const expenses = await Expense.findAll({
+    where: expenseWhere,
+    attributes: ["amount", "expenseDate", "category"],
+  });
+
+  let totalExpenses = 0;
+  for (const exp of expenses) {
+    const amt = Number(exp.amount || 0);
+    totalExpenses += amt;
+    const ym = exp.expenseDate ? String(exp.expenseDate).slice(0, 7) : "";
+    if (ym) {
+      if (!monthlyMap[ym]) {
+        const [y, m] = ym.split("-").map(Number);
+        const mName = new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en-US", { month: "short" });
+        monthlyMap[ym] = {
+          month: ym,
+          monthName: `${mName} ${y}`,
+          turnover: 0,
+          gstCollected: 0,
+          grossInvoiced: 0,
+          totalCost: 0,
+          invoiceCount: 0,
+          expenses: 0,
+        };
+      }
+      monthlyMap[ym].expenses = (monthlyMap[ym].expenses || 0) + amt;
+    }
+  }
+
+  const profitAfterExpense = summary.grossProfit - totalExpenses;
+  const netMarginPct = summary.taxableRevenue > 0
+    ? Math.round(((profitAfterExpense / summary.taxableRevenue) * 100) * 10) / 10
+    : null;
+
   const monthlyTrend = Object.values(monthlyMap).map((m) => {
+    const expensesAmt = m.expenses || 0;
     const gp = m.turnover - m.totalCost;
     const gm = m.turnover > 0 ? (gp / m.turnover) * 100 : null;
+    const pae = gp - expensesAmt;
+    const netM = m.turnover > 0 ? (pae / m.turnover) * 100 : null;
     return {
       ...m,
+      expenses: expensesAmt,
       grossProfit: gp,
       grossMarginPct: gm !== null ? Math.round(gm * 10) / 10 : null,
+      profitAfterExpense: pae,
+      netMarginPct: netM !== null ? Math.round(netM * 10) / 10 : null,
     };
   });
 
   return {
     ...summary,
+    totalExpenses,
+    profitAfterExpense,
+    profitAfterExpenses: profitAfterExpense,
+    netMarginPct,
+    expenseCount: expenses.length,
     monthlyTrend,
   };
 }

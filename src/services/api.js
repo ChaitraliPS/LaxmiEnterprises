@@ -130,6 +130,13 @@ export const erpApi = {
   get12MonthCashFlow: (params) => apiClient.get("/revenue/cash-flow", { params }),
   getCategoryTurnover: (params) => apiClient.get("/revenue/categories", { params }),
 
+  // Expenses Management
+  getExpenses: (params) => apiClient.get("/expenses", { params }),
+  getExpenseSummary: (params) => apiClient.get("/expenses/summary", { params }),
+  createExpense: (data) => apiClient.post("/expenses", data),
+  updateExpense: (id, data) => apiClient.put(`/expenses/${id}`, data),
+  deleteExpense: (id) => apiClient.delete(`/expenses/${id}`),
+
   // Consistency Check (Admin Workspace)
   getConsistencyReport: (params) => apiClient.get("/admin/consistency-check", { params }),
 

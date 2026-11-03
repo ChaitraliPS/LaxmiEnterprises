@@ -33,6 +33,11 @@ export async function getRevenueSummary({ referenceDate = getToday(), fiscalYear
     grossInvoiced: revenueData.grossInvoiced,
     grossMarginPct,
     grossProfit: revenueData.grossProfit,
+    totalExpenses: revenueData.totalExpenses ?? 0,
+    profitAfterExpense: revenueData.profitAfterExpense ?? revenueData.grossProfit,
+    profitAfterExpenses: revenueData.profitAfterExpense ?? revenueData.grossProfit,
+    netMarginPct: revenueData.netMarginPct,
+    expenseCount: revenueData.expenseCount ?? 0,
     realizedPct: revenueData.realizedPct,
     averageTicket: revenueData.averageTicket,
     yoyComparison: {
