@@ -4,25 +4,47 @@
  */
 
 /**
- * Single source of truth stock equation:
- * Current Stock = Opening Stock + Inward Received - Outward Dispatched
+ * Single source of truth stock rule:
+ * New Stock = Current Stock + Inward Received - Outward Dispatched
+ * - Inward: add the quantity to the product's current stock.
+ * - Outward: subtract the quantity from the product's current stock.
+ * Stock must never go negative.
  *
  * @param {Object} params
- * @param {number|string} [params.opening] - Opening Stock
- * @param {number|string} [params.openingStock] - Opening Stock alias
- * @param {number|string} [params.inward] - Inward Received
+ * @param {number|string} [params.currentStock] - Current Stock in inventory
+ * @param {number|string} [params.current] - Current Stock alias
+ * @param {number|string} [params.stock] - Current Stock alias
+ * @param {number|string} [params.inward] - Inward Received quantity
  * @param {number|string} [params.inwardStock] - Inward Received alias
  * @param {number|string} [params.in] - Inward Received alias
- * @param {number|string} [params.outward] - Outward Dispatched
+ * @param {number|string} [params.outward] - Outward Dispatched quantity
  * @param {number|string} [params.outwardStock] - Outward Dispatched alias
  * @param {number|string} [params.out] - Outward Dispatched alias
- * @returns {number} Opening + Inward - Outward
+ * @returns {number} New Current Stock (non-negative)
  */
-export function calculateCurrentStock(params = {}) {
-  const opening = Number(params?.opening ?? params?.openingStock ?? 0) || 0;
+export function calculateNewStock(params = {}) {
+  const current = Number(params?.currentStock ?? params?.current ?? params?.stock ?? params?.opening ?? params?.openingStock ?? 0) || 0;
   const inward = Number(params?.inward ?? params?.inwardStock ?? params?.in ?? 0) || 0;
   const outward = Number(params?.outward ?? params?.outwardStock ?? params?.out ?? 0) || 0;
-  return opening + inward - outward;
+  return Math.max(0, current + inward - outward);
+}
+
+export function calculateCurrentStock(params = {}) {
+  return calculateNewStock(params);
+}
+
+/**
+ * Single source of truth stock availability rule:
+ * "Is stock available?" = inventory current_stock > 0 (and for cart/orders, requested quantity <= current_stock).
+ *
+ * @param {number|string} currentStock - Stored inventory current stock
+ * @param {number|string} [requestedQty=1] - Requested quantity to purchase/dispatch
+ * @returns {boolean} True if stock is available
+ */
+export function isStockAvailable(currentStock, requestedQty = 1) {
+  const stock = Number(currentStock || 0);
+  const qty = Number(requestedQty || 1);
+  return stock > 0 && stock >= qty;
 }
 
 // Real IST Date string (YYYY-MM-DD)
@@ -129,14 +151,16 @@ export const STOCK_DIRECTIONS = {
   OUT: "OUT",
 };
 
-// Stock Movement Types
+// Stock Movement Types (History & Audit Log only)
 export const STOCK_MOVEMENT_TYPES = {
-  OPENING: "OPENING",
+  INWARD: "INWARD",
+  OUTWARD: "OUTWARD",
   PURCHASE_IN: "PURCHASE_IN",
   SALE_OUT: "SALE_OUT",
   ADJUSTMENT_IN: "ADJUSTMENT_IN",
   ADJUSTMENT_OUT: "ADJUSTMENT_OUT",
   RETURN: "RETURN",
+  OPENING: "OPENING", // Legacy only
 };
 
 export const STOCK_MOVEMENT_TYPE_LIST = Object.values(STOCK_MOVEMENT_TYPES);

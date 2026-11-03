@@ -44,20 +44,14 @@ export default function InventoryModal({
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Derive selected product details
+  // Derive selected product details (Inventory currentStock is the SINGLE source of truth)
   const selectedProduct = products.find(p => String(p.id) === String(form.productId)) || null;
   const currentStock = selectedProduct
-    ? (selectedProduct.openingStock !== undefined || selectedProduct.inwardStock !== undefined || selectedProduct.outwardStock !== undefined
-        ? calculateCurrentStock({
-            opening: selectedProduct.openingStock,
-            inward: selectedProduct.inwardStock ?? selectedProduct.in,
-            outward: selectedProduct.outwardStock ?? selectedProduct.out,
-          })
-        : Number(selectedProduct.stock ?? selectedProduct.currentStock ?? 0))
+    ? Math.max(0, Number(selectedProduct.currentStock ?? selectedProduct.stock ?? 0))
     : 0;
   const afterAdjustment = form.movementType === "inward"
     ? currentStock + (Number(form.quantity) || 0)
-    : calculateCurrentStock({ opening: currentStock, inward: 0, outward: Number(form.quantity) || 0 });
+    : Math.max(0, currentStock - (Number(form.quantity) || 0));
 
   const handleProductChange = (prodId) => {
     const p = products.find(pr => String(pr.id) === String(prodId));
@@ -344,7 +338,7 @@ export default function InventoryModal({
                   className="form-input"
                   value={form.reason}
                   onChange={e => handleFieldChange("reason", e.target.value)}
-                  placeholder={isOutward ? "e.g. Dispatched to client / Damaged goods" : "e.g. Purchase from supplier / Opening stock"}
+                  placeholder={isOutward ? "e.g. Dispatched to client / Damaged goods" : "e.g. Purchase from supplier / Goods receipt"}
                 />
               </div>
             </div>

@@ -2,12 +2,14 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   Receipt, Download, Plus, Search, X,
   CheckCircle2, AlertTriangle, TrendingUp, IndianRupee, Clock,
-  Eye, RefreshCw, Printer, ShieldCheck, Filter, ArrowUpRight, ChevronDown, FileText, Calendar
+  Eye, RefreshCw, Printer, ShieldCheck, Filter, ArrowUpRight, ChevronDown, FileText, Calendar,
+  CreditCard, Edit3
 } from "lucide-react";
 import { generateInvoicePDF } from "../services/pdfService";
 import { erpApi } from "../services/api";
 import InvoiceViewModal from "./InvoiceViewModal";
 import InvoiceModal from "./InvoiceModal";
+import RecordPaymentModal from "./RecordPaymentModal";
 import MobileRecordCard from "./responsive/MobileRecordCard";
 import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
 import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
@@ -16,6 +18,7 @@ import { getToday, getFiscalYearFormatted, getFiscalYearOptions } from "../const
 
 export default function InvoicesPage({
   invoices = [],
+  collections = [],
   onCreateInvoice,
   clients = [],
   products = [],
@@ -32,6 +35,8 @@ export default function InvoicesPage({
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [paymentInvoice, setPaymentInvoice] = useState(null);
+  const [viewTab, setViewTab] = useState("invoices"); // "invoices" | "collections"
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editInvoice, setEditInvoice] = useState(null);
   const [localToast, setLocalToast] = useState(null);
@@ -69,6 +74,14 @@ export default function InvoicesPage({
     return invoices.filter(inv => getInvoiceFY(inv) === selectedFY);
   }, [invoices, selectedFY]);
 
+  const periodCollections = useMemo(() => {
+    return (collections || []).filter((c) => {
+      if (c.status === "Cancelled") return false;
+      const cDate = c.paymentDate ? String(c.paymentDate).slice(0, 10) : "";
+      return !cDate || getInvoiceFY({ date: cDate }) === selectedFY;
+    });
+  }, [collections, selectedFY]);
+
   const kpis = useMemo(() => {
     let grossInvoiced = 0;
     let taxableRevenue = 0;
@@ -96,15 +109,18 @@ export default function InvoicesPage({
       }
     }
 
+    const collectionsTotal = periodCollections.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+    const effectiveCollected = periodCollections.length > 0 ? collectionsTotal : collectedAmount;
+
     return {
       grossInvoiced,
       taxableRevenue,
       gstCollected,
-      collectedAmount,
+      collectedAmount: effectiveCollected,
       pendingReceivables,
       overdueCount,
     };
-  }, [periodInvoices]);
+  }, [periodInvoices, periodCollections]);
 
   const allTimeGrossInvoiced = useMemo(() => {
     return invoices.reduce((s, inv) => inv.isCancelled ? s : s + Number(inv.grandTotal ?? inv.total ?? 0), 0);
@@ -135,6 +151,20 @@ export default function InvoicesPage({
       return matchesStatus && matchesSearch;
     });
   }, [periodInvoices, search, statusFilter]);
+
+  const filteredCollections = useMemo(() => {
+    return periodCollections.filter((c) => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
+        String(c.collectionNumber || "").toLowerCase().includes(q) ||
+        String(c.invoiceNumber || "").toLowerCase().includes(q) ||
+        String(c.clientName || "").toLowerCase().includes(q) ||
+        String(c.paymentMode || "").toLowerCase().includes(q) ||
+        String(c.reference || "").toLowerCase().includes(q)
+      );
+    });
+  }, [periodCollections, search]);
 
   const statusCounts = useMemo(() => {
     const counts = { all: periodInvoices.length, paid: 0, pending: 0, overdue: 0, cancelled: 0 };
@@ -276,25 +306,48 @@ export default function InvoicesPage({
       <div className="card table-card">
         <div className="card-head" style={{ padding: "16px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
-            <h3>Tax Invoices Registry ({selectedFY})</h3>
-            <p>Derived transactional statuses from verified payment ledger</p>
+            <h3>{viewTab === "collections" ? `Realized Collections Ledger (${selectedFY})` : `Tax Invoices Registry (${selectedFY})`}</h3>
+            <p>{viewTab === "collections" ? "Verified collection receipts and real-time cash/bank inflows" : "Derived transactional statuses from verified payment ledger"}</p>
           </div>
 
-          <div className="filter-pills-bar" style={{ overflowX: "auto", maxWidth: "100%" }}>
-            {[
-              { id: "All", label: `All (${statusCounts.all})` },
-              { id: "Paid", label: `Paid (${statusCounts.paid})` },
-              { id: "Pending", label: `Pending (${statusCounts.pending})` },
-              { id: "Overdue", label: `Overdue (${statusCounts.overdue})` },
-            ].map(tab => (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "inline-flex", background: "rgba(0, 91, 181, 0.08)", padding: 3, borderRadius: 8 }}>
               <button
-                key={tab.id}
-                className={`filter-pill ${statusFilter === tab.id ? "active" : ""}`}
-                onClick={() => setStatusFilter(tab.id)}
+                type="button"
+                className={`filter-pill ${viewTab === "invoices" ? "active" : ""}`}
+                onClick={() => setViewTab("invoices")}
+                style={{ fontSize: 12, padding: "5px 12px", border: "none", cursor: "pointer" }}
               >
-                {tab.label}
+                Invoices ({periodInvoices.length})
               </button>
-            ))}
+              <button
+                type="button"
+                className={`filter-pill ${viewTab === "collections" ? "active" : ""}`}
+                onClick={() => setViewTab("collections")}
+                style={{ fontSize: 12, padding: "5px 12px", border: "none", cursor: "pointer" }}
+              >
+                Collections ({periodCollections.length})
+              </button>
+            </div>
+
+            {viewTab === "invoices" && (
+              <div className="filter-pills-bar" style={{ overflowX: "auto", maxWidth: "100%" }}>
+                {[
+                  { id: "All", label: `All (${statusCounts.all})` },
+                  { id: "Paid", label: `Paid (${statusCounts.paid})` },
+                  { id: "Pending", label: `Pending (${statusCounts.pending})` },
+                  { id: "Overdue", label: `Overdue (${statusCounts.overdue})` },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    className={`filter-pill ${statusFilter === tab.id ? "active" : ""}`}
+                    onClick={() => setStatusFilter(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -318,13 +371,84 @@ export default function InvoicesPage({
           </div>
           <div>
             <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 600 }}>
-              Showing {filteredInvoices.length} of {periodInvoices.length} invoices | All-Time Total: {formatIndianCurrency(allTimeGrossInvoiced)}
+              {viewTab === "collections"
+                ? `Showing ${filteredCollections.length} of ${periodCollections.length} collections | Realized: ${formatIndianCurrency(kpis.collectedAmount)}`
+                : `Showing ${filteredInvoices.length} of ${periodInvoices.length} invoices | All-Time Total: ${formatIndianCurrency(allTimeGrossInvoiced)}`}
             </span>
           </div>
         </div>
 
         {/* DUAL-RESPONSIVE: Desktop Table vs Mobile Cards */}
-        {filteredInvoices.length === 0 ? (
+        {viewTab === "collections" ? (
+          filteredCollections.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon"><CreditCard size={28} /></div>
+              <h4>No Collections Found</h4>
+              <p>No collection records match your search for {selectedFY}.</p>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Collection #</th>
+                    <th>Payment Date</th>
+                    <th>Invoice #</th>
+                    <th>Client Account</th>
+                    <th>Payment Mode</th>
+                    <th>Reference / UTR</th>
+                    <th style={{ textAlign: "right" }}>Amount Collected (₹)</th>
+                    <th style={{ textAlign: "center" }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCollections.map((col) => (
+                    <tr key={col.id || col.collectionNumber}>
+                      <td>
+                        <code style={{
+                          color: "#059669",
+                          fontWeight: 700,
+                          background: "rgba(5, 150, 105, 0.08)",
+                          padding: "3px 8px",
+                          borderRadius: 4
+                        }}>
+                          {col.collectionNumber}
+                        </code>
+                      </td>
+                      <td>{formatDate(col.paymentDate)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const matchedInv = invoices.find(i => (i.invoiceNumber || i.id) === col.invoiceNumber);
+                            if (matchedInv) setSelectedInvoice(matchedInv);
+                          }}
+                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+                        >
+                          <code style={{ color: "var(--primary)", fontWeight: 600 }}>
+                            {col.invoiceNumber}
+                          </code>
+                        </button>
+                      </td>
+                      <td><b>{col.clientName || col.clientId || "Client Account"}</b></td>
+                      <td>{col.paymentMode}</td>
+                      <td style={{ color: "var(--text-muted)", fontSize: 12 }}>{col.reference || "—"}</td>
+                      <td className="money" style={{ textAlign: "right", color: "#059669", fontWeight: 700 }}>
+                        +{formatIndianCurrency(col.amount)}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span className="badge paid">
+                          <span className="badge-dot" style={{ background: "#10b981", width: 6, height: 6, borderRadius: "50%", display: "inline-block", marginRight: 6 }} />
+                          {col.status || "Completed"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : filteredInvoices.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon"><Receipt size={28} /></div>
             <h4>No Invoices Found</h4>
@@ -447,7 +571,41 @@ export default function InvoicesPage({
                           </td>
 
                           <td style={{ textAlign: "center" }}>
-                            <div className="row-actions" style={{ justifyContent: "center" }}>
+                            <div className="row-actions" style={{ justifyContent: "center", gap: 6 }}>
+                              {Number(inv.balanceDue ?? Math.max(0, Number(inv.grandTotal || 0) - Number(inv.paidAmount || 0))) > 0 && !inv.isCancelled && (
+                                <button
+                                  type="button"
+                                  title={`Record payment for ${invId}`}
+                                  onClick={() => setPaymentInvoice(inv)}
+                                  style={{
+                                    color: "#059669",
+                                    background: "rgba(5, 150, 105, 0.1)",
+                                    border: "1px solid rgba(5, 150, 105, 0.25)",
+                                    borderRadius: 4,
+                                    padding: "3px 8px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    fontSize: 11.5,
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <CreditCard size={13} />
+                                  <span>Pay</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                title={`Edit ${invId}`}
+                                onClick={() => {
+                                  setEditInvoice(inv);
+                                  setIsCreateModalOpen(true);
+                                }}
+                                style={{ color: "var(--text-muted)" }}
+                              >
+                                <Edit3 size={15} />
+                              </button>
                               <button
                                 type="button"
                                 title={`View & print ${invId}`}
@@ -517,6 +675,16 @@ export default function InvoicesPage({
                       }
                       actions={
                         <>
+                          {balance > 0 && !inv.isCancelled && (
+                            <button
+                              type="button"
+                              className="outline"
+                              onClick={() => setPaymentInvoice(inv)}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "#059669", borderColor: "#059669" }}
+                            >
+                              <CreditCard size={14} /> Pay
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="outline"
@@ -577,13 +745,26 @@ export default function InvoicesPage({
         onSave={async (newInv) => {
           try {
             if (editInvoice) {
-              await erpApi.updateInvoice(editInvoice.invoiceNumber || editInvoice.id, {
+              const previousPaid = Number(editInvoice.paidAmount || 0);
+              const newPaid = Number(newInv.paidAmount || 0);
+              const paymentDelta = Math.max(0, newPaid - previousPaid);
+
+              const updatePayload = {
                 notes: newInv.notes,
                 dueDate: newInv.dueDate,
                 clientAddress: newInv.clientAddress,
                 clientContact: newInv.clientContact,
-              });
-              notify(`✓ Invoice ${editInvoice.invoiceNumber || editInvoice.id} metadata updated`);
+              };
+
+              if (paymentDelta > 0) {
+                updatePayload.paymentAmount = paymentDelta;
+                updatePayload.paymentMode = newInv.paymentMode || newInv.paymentMethod || "UPI";
+                updatePayload.paymentDate = newInv.date || getToday();
+                updatePayload.referenceNo = newInv.notes || "";
+              }
+
+              await erpApi.updateInvoice(editInvoice.invoiceNumber || editInvoice.id, updatePayload);
+              notify(`✓ Invoice ${editInvoice.invoiceNumber || editInvoice.id} saved successfully${paymentDelta > 0 ? ` and payment of ₹${paymentDelta.toLocaleString("en-IN")} recorded to Collection` : ""}`);
             } else if (onCreateInvoice) {
               await onCreateInvoice(newInv);
             } else {
@@ -602,6 +783,17 @@ export default function InvoicesPage({
         products={products}
         company={company}
         editInvoice={editInvoice}
+        showToast={notify}
+      />
+
+      {/* RECORD PAYMENT MODAL */}
+      <RecordPaymentModal
+        isOpen={!!paymentInvoice}
+        onClose={() => setPaymentInvoice(null)}
+        invoice={paymentInvoice}
+        onSuccess={async () => {
+          if (onRefresh) await onRefresh();
+        }}
         showToast={notify}
       />
     </div>

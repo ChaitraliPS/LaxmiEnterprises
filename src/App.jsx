@@ -78,6 +78,7 @@ export default function App() {
   // Invoices and Purchases state loaded strictly from GET /sync/all
   const [invoices, setInvoices] = useState([]);
   const [purchases, setPurchases] = useState([]);
+  const [collections, setCollections] = useState([]);
 
   // Operating Expenses state with persistence & MySQL sync
   const [expenses, setExpenses] = useState(() => {
@@ -139,6 +140,9 @@ export default function App() {
       if (Array.isArray(data.invoices)) {
         setInvoices(data.invoices);
       }
+      if (Array.isArray(data.collections)) {
+        setCollections(data.collections);
+      }
       if (Array.isArray(data.purchases)) {
         setPurchases(data.purchases);
       }
@@ -172,7 +176,7 @@ export default function App() {
     setProducts(newProducts);
     localStorage.setItem("le_products", JSON.stringify(newProducts));
 
-    // Automatically reflect and synchronize products with inventory immediately in state
+    // Update metadata on existing inventory items without changing stored stock
     setInventory((prevInv) => {
       const prodMap = new Map((newProducts || []).map((p) => [String(p.id || p.productId), p]));
       const existingProductIds = new Set();
@@ -188,10 +192,8 @@ export default function App() {
           const pId = String(inv.productId || inv.id || inv.sku);
           existingProductIds.add(pId);
           const p = prodMap.get(pId);
-          const rawOpen = Number(p.openingStock || 0);
-          const rawIn = Number(p.inwardStock || 0);
-          const rawOut = Number(p.outwardStock || 0);
-          const rawStock = calculateCurrentStock({ opening: rawOpen, inward: rawIn, outward: rawOut });
+          const curStock = Number(inv.currentStock ?? inv.stock ?? 0);
+          const minAlert = Number(p.minStock ?? p.reorderLevel ?? inv.minStockAlert ?? 10);
           return {
             ...inv,
             product: p.name,
@@ -199,15 +201,12 @@ export default function App() {
             sku: p.sku || inv.sku || pId,
             category: p.category || inv.category,
             unit: p.unit || inv.unit,
-            openingStock: rawOpen,
-            in: rawIn,
-            inwardStock: rawIn,
-            out: rawOut,
-            outwardStock: rawOut,
-            stock: rawStock,
-            currentStock: rawStock,
-            minStockAlert: Number(p.minStock ?? inv.minStockAlert ?? 10),
-            status: rawStock <= 0 ? "Out of Stock" : rawStock <= Number(p.minStock ?? inv.minStockAlert ?? 10) ? "Low Stock" : "In Stock",
+            stock: curStock,
+            currentStock: curStock,
+            minStockAlert: minAlert,
+            reorderLevel: minAlert,
+            warehouseLocation: p.warehouseLocation || inv.warehouseLocation || "Main Warehouse - Bay 01",
+            status: curStock <= 0 ? "Out of Stock" : curStock <= minAlert ? "Low Stock" : "In Stock",
           };
         });
 
@@ -215,11 +214,8 @@ export default function App() {
       (newProducts || []).forEach((p) => {
         const pId = String(p.id || p.productId);
         if (!existingProductIds.has(pId)) {
-          const rawOpen = Number(p.openingStock || 0);
-          const rawIn = Number(p.inwardStock || 0);
-          const rawOut = Number(p.outwardStock || 0);
-          const rawStock = calculateCurrentStock({ opening: rawOpen, inward: rawIn, outward: rawOut });
-          const minAlert = Number(p.minStock ?? 10);
+          const curStock = Number(p.currentStock ?? p.stock ?? 0);
+          const minAlert = Number(p.minStock ?? p.reorderLevel ?? 10);
           newEntries.push({
             id: pId,
             productId: pId,
@@ -228,17 +224,13 @@ export default function App() {
             sku: p.sku || pId,
             category: p.category || "General",
             unit: p.unit || "Bags",
-            openingStock: rawOpen,
-            in: rawIn,
-            inwardStock: rawIn,
-            out: rawOut,
-            outwardStock: rawOut,
-            stock: rawStock,
-            currentStock: rawStock,
+            stock: curStock,
+            currentStock: curStock,
             minStockAlert: minAlert,
+            reorderLevel: minAlert,
             warehouseLocation: p.warehouseLocation || "Main Warehouse - Bay 01",
             location: p.warehouseLocation || "Main Warehouse - Bay 01",
-            status: rawStock <= 0 ? "Out of Stock" : rawStock <= minAlert ? "Low Stock" : "In Stock",
+            status: curStock <= 0 ? "Out of Stock" : curStock <= minAlert ? "Low Stock" : "In Stock",
             lastUpdated: new Date().toISOString(),
           });
         }
@@ -671,6 +663,7 @@ export default function App() {
               <InvoicesPage 
                 onRefresh={fetchMasterDataFromDB}
                 invoices={invoices} 
+                collections={collections}
                 onCreateInvoice={handleCreateInvoiceCascade}
                 clients={clients} 
                 products={products}
@@ -685,6 +678,7 @@ export default function App() {
               <RevenuePage 
                 clients={clients} 
                 invoices={invoices}
+                collections={collections}
                 onCreateInvoice={handleCreateInvoiceCascade}
                 products={products}
                 company={company}

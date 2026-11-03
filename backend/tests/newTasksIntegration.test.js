@@ -560,17 +560,8 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
   // -------------------------------------------------------------------------
   describe("Task 8: Initial Payment, Line Validation & Sequential Enforcement", () => {
     it("createInvoice should reject overpayment, negative paidAmount, and invalid paymentMode", async () => {
-      // Ensure product PR-001 has temporary stock
-      const tempMovement = await StockMovement.create({
-        productId: "PR-001",
-        quantity: 50,
-        direction: "IN",
-        movementType: "ADJUSTMENT_IN",
-        referenceType: "TEST",
-        referenceId: "TEST-INIT-VAL",
-        movementDate: new Date(),
-        warehouseLocation: "Main Warehouse - Bay 01",
-      });
+      // Ensure product PR-001 has stock in inventory
+      await Inventory.update({ currentStock: 500 }, { where: { productId: "PR-001" } });
 
       try {
         // 1. Flexible payment: user can pay any amount on their mind without error
@@ -622,21 +613,12 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
           assert.match(res.data.message, /valid paymentMode is required/i);
         }
       } finally {
-        await tempMovement.destroy();
+        // cleanup
       }
     });
 
     it("createInvoice should reject negative discounts, excessive discounts, and negative unit prices", async () => {
-      const tempMovement = await StockMovement.create({
-        productId: "PR-001",
-        quantity: 50,
-        direction: "IN",
-        movementType: "ADJUSTMENT_IN",
-        referenceType: "TEST",
-        referenceId: "TEST-INIT-VAL2",
-        movementDate: new Date(),
-        warehouseLocation: "Main Warehouse - Bay 01",
-      });
+      await Inventory.update({ currentStock: 500 }, { where: { productId: "PR-001" } });
 
       try {
         // 1. Negative discount
@@ -675,21 +657,12 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
           assert.match(res.data.message, /unit price must be a valid non-negative number/i);
         }
       } finally {
-        await tempMovement.destroy();
+        // cleanup
       }
     });
 
     it("createInvoice should strictly respect line-item gstRate (e.g. 18%) chosen at invoice creation and accept matching paidAmount", async () => {
-      const tempMovement = await StockMovement.create({
-        productId: "PR-001",
-        quantity: 50,
-        direction: "IN",
-        movementType: "ADJUSTMENT_IN",
-        referenceType: "TEST",
-        referenceId: "TEST-LINE-GST",
-        movementDate: new Date(),
-        warehouseLocation: "Main Warehouse - Bay 01",
-      });
+      await Inventory.update({ currentStock: 500 }, { where: { productId: "PR-001" } });
       let createdInv = null;
       try {
         const { req, res, next } = mockReqRes({
@@ -709,7 +682,6 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
         assert.strictEqual(Number(createdInv.balanceDue), 0);
         assert.strictEqual(createdInv.status, "Paid");
       } finally {
-        await tempMovement.destroy().catch(() => {});
         if (createdInv) {
           await InvoiceLine.destroy({ where: { invoiceId: createdInv.invoiceNumber } }).catch(() => {});
           await StockMovement.destroy({ where: { referenceId: createdInv.invoiceNumber } }).catch(() => {});
@@ -719,16 +691,7 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
     });
 
     it("createInvoice should merge duplicate lines and enforce sequential invoiceNumber", async () => {
-      const tempMovement = await StockMovement.create({
-        productId: "PR-001",
-        quantity: 50,
-        direction: "IN",
-        movementType: "ADJUSTMENT_IN",
-        referenceType: "TEST",
-        referenceId: "TEST-INIT-VAL3",
-        movementDate: new Date(),
-        warehouseLocation: "Main Warehouse - Bay 01",
-      });
+      await Inventory.update({ currentStock: 500 }, { where: { productId: "PR-001" } });
 
       let created = null;
       try {
@@ -755,7 +718,6 @@ describe("ERP Single Source of Truth & Concurrency Test Suite", () => {
         assert.strictEqual(lines.length, 1);
         assert.strictEqual(Number(lines[0].quantity), 5);
       } finally {
-        await tempMovement.destroy();
         if (created) {
           await InvoiceLine.destroy({ where: { invoiceId: created.invoiceNumber } });
           await StockMovement.destroy({ where: { referenceId: created.invoiceNumber } });

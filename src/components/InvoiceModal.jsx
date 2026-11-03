@@ -55,6 +55,7 @@ export default function InvoiceModal({
     notes: ""
   });
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [items, setItems] = useState(() => {
     if (products && products.length > 0) {
       const p = products[0];
@@ -410,15 +411,19 @@ export default function InvoiceModal({
   };
 
   const handleSubmit = async (e) => {
+    if (isSubmitting) return;
     e.preventDefault();
     if (!validateForm()) return;
     const inv = getInvoicePayload();
     if (onSave) {
+      setIsSubmitting(true);
       try {
         await onSave(inv);
         onClose();
       } catch (err) {
         // Keep modal open on error
+      } finally {
+        setIsSubmitting(false);
       }
     } else {
       onClose();
@@ -992,11 +997,11 @@ export default function InvoiceModal({
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button type="button" className="outline" onClick={onClose} style={{ fontSize: "0.85rem" }}>
+              <button type="button" className="outline" onClick={onClose} disabled={isSubmitting} style={{ fontSize: "0.85rem" }}>
                 Cancel
               </button>
-              <button type="submit" className="primary" style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <Save size={15} /> {editInvoice ? "Update Invoice" : "Save & Issue Invoice"}
+              <button type="submit" className="primary" disabled={isSubmitting} style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: 6, opacity: isSubmitting ? 0.7 : 1 }}>
+                <Save size={15} /> {isSubmitting ? "Saving..." : (editInvoice ? "Update Invoice" : "Save & Issue Invoice")}
               </button>
             </div>
           </div>

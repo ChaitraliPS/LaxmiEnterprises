@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  X, Download, Receipt, ShieldCheck, Edit3, CreditCard, Ban, CheckCircle2, AlertCircle
+  X, Download, Receipt, ShieldCheck, Edit3, CreditCard, Ban, CheckCircle2, AlertCircle, Trash2
 } from "lucide-react";
 import { generateInvoicePDF, numberToWordsINR } from "../services/pdfService";
 import { erpApi } from "../services/api";
@@ -107,6 +107,41 @@ export default function InvoiceViewModal({
       setIsSubmitting(false);
     }
   };
+
+  const handleDeletePayment = async (paymentId, paymentAmount) => {
+    const targetId = invoice.invoiceNumber || invoice.id;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Payment #${paymentId} (₹${Number(paymentAmount).toLocaleString("en-IN")})? This will update the invoice balance due and remove the linked Collection entry.`
+    );
+    if (!confirmed) return;
+    setIsSubmitting(true);
+    try {
+      await erpApi.deletePayment(targetId, paymentId);
+      if (showToast) showToast(`✓ Payment #${paymentId} and linked Collection deleted.`);
+      if (onRefresh) await onRefresh();
+      onClose();
+    } catch (err) {
+      console.error("Failed to delete payment:", err);
+      if (showToast) showToast(`⚠️ Failed to delete payment: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Sort payments chronologically and compute running balance
+  const paymentList = (invoice.payments || []).filter(p => p.status !== "Cancelled");
+  let cumulativePaid = 0;
+  const paymentHistoryWithRunningBalance = paymentList.map((p) => {
+    const pAmt = Number(p.amount || 0);
+    cumulativePaid += pAmt;
+    const runBal = Math.max(0, total - cumulativePaid);
+    return {
+      ...p,
+      amount: pAmt,
+      cumulativePaid,
+      runningBalance: runBal,
+    };
+  });
 
   const statusClass = (invoice.status || "Paid").toLowerCase();
 
@@ -542,6 +577,80 @@ export default function InvoiceViewModal({
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Payment History & Realized Collections Ledger */}
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#002b5c", display: "flex", alignItems: "center", gap: 6 }}>
+                  <CreditCard size={15} color="#005bb5" />
+                  <span>Payment History & Realized Collections Ledger</span>
+                </div>
+                <span style={{ fontSize: 11, color: "#64748b" }}>
+                  {paymentHistoryWithRunningBalance.length} payment{paymentHistoryWithRunningBalance.length === 1 ? "" : "s"} recorded
+                </span>
+              </div>
+
+              {paymentHistoryWithRunningBalance.length > 0 ? (
+                <div className="table-wrap">
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, background: "#f8fafc", borderRadius: 6, overflow: "hidden", border: "1px solid #e2e8f0" }}>
+                    <thead>
+                      <tr style={{ background: "#f1f5f9", color: "#475569", borderBottom: "1px solid #e2e8f0" }}>
+                        <th style={{ padding: "8px 10px", textAlign: "left" }}>Date</th>
+                        <th style={{ padding: "8px 10px", textAlign: "left" }}>Payment #</th>
+                        <th style={{ padding: "8px 10px", textAlign: "left" }}>Method / Mode</th>
+                        <th style={{ padding: "8px 10px", textAlign: "left" }}>Reference / UTR</th>
+                        <th style={{ padding: "8px 10px", textAlign: "right" }}>Amount Paid (₹)</th>
+                        <th style={{ padding: "8px 10px", textAlign: "right" }}>Running Balance (₹)</th>
+                        <th style={{ padding: "8px 10px", textAlign: "center", width: 50 }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paymentHistoryWithRunningBalance.map((pay, pIdx) => {
+                        const dateStr = pay.paymentDate ? String(pay.paymentDate).slice(0, 10) : "-";
+                        return (
+                          <tr key={pay.id || pIdx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                            <td style={{ padding: "8px 10px", color: "#334155", fontWeight: 600 }}>{dateStr}</td>
+                            <td style={{ padding: "8px 10px", color: "#005bb5", fontFamily: "monospace", fontWeight: 600 }}>
+                              {pay.paymentNumber || `#${pay.id}`}
+                            </td>
+                            <td style={{ padding: "8px 10px", color: "#334155" }}>{pay.paymentMode || "UPI"}</td>
+                            <td style={{ padding: "8px 10px", color: "#64748b" }}>{pay.reference || "-"}</td>
+                            <td style={{ padding: "8px 10px", textAlign: "right", color: "#059669", fontWeight: 700 }}>
+                              +₹{pay.amount.toLocaleString("en-IN")}
+                            </td>
+                            <td style={{ padding: "8px 10px", textAlign: "right", color: pay.runningBalance > 0 ? "#dc2626" : "#059669", fontWeight: 700 }}>
+                              ₹{pay.runningBalance.toLocaleString("en-IN")}
+                            </td>
+                            <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePayment(pay.id, pay.amount)}
+                                disabled={isSubmitting}
+                                title="Delete payment"
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "#ef4444",
+                                  cursor: "pointer",
+                                  padding: 2,
+                                  opacity: isSubmitting ? 0.5 : 1,
+                                }}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ padding: "12px 14px", background: "#f8fafc", borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 12, color: "#64748b", textAlign: "center" }}>
+                  No verified payments recorded yet. Remaining Balance Due: <strong style={{ color: "#dc2626" }}>₹{balanceDue.toLocaleString("en-IN")}</strong>
+                </div>
+              )}
             </div>
 
             {/* Terms and Signatory */}

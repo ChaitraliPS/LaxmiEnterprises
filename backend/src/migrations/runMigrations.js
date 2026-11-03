@@ -3,6 +3,8 @@ import {
   Target,
   StockMovement,
   Payment,
+  Collection,
+  Invoice,
   InvoiceLine,
   PurchaseLine,
   VendorPayment,
@@ -10,6 +12,7 @@ import {
   SchemaMigration,
   Expense,
 } from "../models/index.js";
+import { generateCollectionNumber, generatePaymentNumber } from "../utils/numberSequence.js";
 
 /**
  * Part (a): Safe Schema DDL Migration
@@ -260,6 +263,7 @@ export async function runSchemaMigrations() {
   await Target.sync().catch(() => {});
   await StockMovement.sync().catch(() => {});
   await Payment.sync().catch(() => {});
+  await Collection.sync().catch(() => {});
   await InvoiceLine.sync().catch(() => {});
   await PurchaseLine.sync().catch(() => {});
   await VendorPayment.sync().catch(() => {});
@@ -267,7 +271,114 @@ export async function runSchemaMigrations() {
   await SchemaMigration.sync().catch(() => {});
   await Expense.sync().catch(() => {});
 
+  // 3. Backfill collections for existing verified payments and paid invoices
+  await backfillCollectionsFromExistingData().catch((err) => {
+    console.warn("⚠️ Backfill collections notice:", err.message);
+  });
+
   console.log("✓ Schema verification and DDL sync completed successfully.");
+}
+
+/**
+ * Backfill collections for existing payments and paid invoices
+ * Guarantees that historical invoices that were already paid have corresponding
+ * payment and collection entries.
+ */
+export async function backfillCollectionsFromExistingData() {
+  const t = await sequelize.transaction();
+  try {
+    // 1. Backfill Collection entries for existing Payment records without a collection
+    const payments = await Payment.findAll({ transaction: t });
+    for (const pay of payments) {
+      const existingCol = await Collection.findOne({
+        where: { paymentId: pay.id },
+        transaction: t,
+      });
+      if (!existingCol) {
+        const inv = await Invoice.findOne({
+          where: { invoiceNumber: pay.invoiceId },
+          transaction: t,
+        });
+        if (!inv) continue; // Skip orphaned records where invoice no longer exists in DB
+        const colNum = await generateCollectionNumber(t, pay.paymentDate || new Date());
+        await Collection.create(
+          {
+            collectionNumber: colNum,
+            paymentId: pay.id,
+            invoiceNumber: pay.invoiceId,
+            clientId: pay.clientId || inv?.clientId || "",
+            clientName: inv?.clientName || "",
+            amount: Number(pay.amount || 0),
+            paymentDate: pay.paymentDate || new Date(),
+            paymentMode: pay.paymentMode || "UPI",
+            status: pay.status || "Completed",
+            reference: pay.reference || `Historical backfill for payment ${pay.paymentNumber}`,
+            notes: pay.notes || "",
+          },
+          { transaction: t }
+        );
+      }
+    }
+
+    // 2. Check for invoices that have paidAmount > 0 but no Payment records
+    const invoicesWithPaid = await Invoice.findAll({
+      where: {
+        paidAmount: { [sequelize.Sequelize.Op.gt]: 0 },
+        isCancelled: false,
+      },
+      include: [{ model: Payment, as: "payments" }],
+      transaction: t,
+    });
+
+    for (const inv of invoicesWithPaid) {
+      const totalRecordedPayments = (inv.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+      const invoicePaid = Number(inv.paidAmount || 0);
+      const missingAmount = Math.round((invoicePaid - totalRecordedPayments) * 100) / 100;
+
+      if (missingAmount > 0.01) {
+        const invDate = inv.invoiceDate ? new Date(inv.invoiceDate) : new Date();
+        const payNum = await generatePaymentNumber(t, invDate);
+        const colNum = await generateCollectionNumber(t, invDate);
+
+        const newPay = await Payment.create(
+          {
+            paymentNumber: payNum,
+            invoiceId: inv.invoiceNumber,
+            clientId: inv.clientId || "",
+            amount: missingAmount,
+            paymentDate: inv.paidDate || invDate,
+            paymentMode: inv.paymentMode || "UPI",
+            status: "Completed",
+            reference: `Historical settlement backfill for ${inv.invoiceNumber}`,
+            notes: "Auto-backfilled from legacy invoice paidAmount",
+          },
+          { transaction: t }
+        );
+
+        await Collection.create(
+          {
+            collectionNumber: colNum,
+            paymentId: newPay.id,
+            invoiceNumber: inv.invoiceNumber,
+            clientId: inv.clientId || "",
+            clientName: inv.clientName || "",
+            amount: missingAmount,
+            paymentDate: inv.paidDate || invDate,
+            paymentMode: inv.paymentMode || "UPI",
+            status: "Completed",
+            reference: `Historical settlement backfill for ${inv.invoiceNumber}`,
+            notes: "Auto-backfilled from legacy invoice paidAmount",
+          },
+          { transaction: t }
+        );
+      }
+    }
+
+    await t.commit();
+  } catch (err) {
+    await t.rollback();
+    throw err;
+  }
 }
 
 /**
@@ -299,6 +410,7 @@ export async function verifySchemaHealth() {
     "purchases",
     "purchase_lines",
     "payments",
+    "collections",
     "vendor_payments",
     "stock_movements",
     "products",

@@ -5,6 +5,8 @@ import {
   createInvoice,
   updateInvoice,
   recordPayment,
+  updatePayment,
+  deletePayment,
   deleteInvoice,
 } from "../controllers/invoiceController.js";
 
@@ -15,6 +17,8 @@ router.get("/:id", getInvoiceById);
 router.post("/", createInvoice);
 router.put("/:id", updateInvoice);
 router.post("/:id/payment", recordPayment);
+router.put("/:id/payments/:paymentId", updatePayment);
+router.delete("/:id/payments/:paymentId", deletePayment);
 router.delete("/:id", deleteInvoice);
 
 export default router;

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  X, Save, AlertTriangle, Package, Barcode, Warehouse, Tag, Calculator, Coins, Percent
+  X, Save, Package, Barcode, Warehouse, Tag, Coins, Percent
 } from "lucide-react";
 import {
   validateRequiredText,
@@ -9,7 +9,7 @@ import {
   validateUniqueId
 } from "../utils/validators";
 import { FieldError, RequiredStar, ValidationSummary } from "./ValidationFeedback";
-import { PRODUCT_CATEGORIES, calculateCurrentStock } from "../constants/erpConstants";
+import { PRODUCT_CATEGORIES } from "../constants/erpConstants";
 
 export default function ProductModal(props) {
   if (!props.isOpen) return null;
@@ -21,12 +21,6 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
 
   const [form, setForm] = useState(() => {
     if (productToEdit) {
-      const open = Number(productToEdit.openingStock) || 0;
-      const inW = Number(productToEdit.inwardStock) !== undefined && !isNaN(Number(productToEdit.inwardStock))
-        ? Number(productToEdit.inwardStock)
-        : Number(productToEdit.stock) || 0;
-      const outW = Number(productToEdit.outwardStock) || 0;
-      const calcStock = calculateCurrentStock({ opening: open, inward: inW, outward: outW });
       const sp = Number(productToEdit.sellingPrice || productToEdit.price || 0);
       const cp = Number(productToEdit.costPrice || productToEdit.purchasePrice || 0);
       const reorder = productToEdit.reorderLevel !== null && productToEdit.reorderLevel !== undefined && productToEdit.reorderLevel !== ""
@@ -44,12 +38,10 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
         purchasePrice: cp,
         sellingPrice: sp,
         price: sp,
-        gstRate: 0,
+        gstRate: Number(productToEdit.gstRate || (productToEdit.category === PRODUCT_CATEGORIES.DAIRY ? 0 : 5)),
         reorderLevel: reorder,
-        openingStock: open,
-        inwardStock: inW,
-        outwardStock: outW,
-        stock: calcStock,
+        warehouseLocation: productToEdit.warehouseLocation || (productToEdit.category === PRODUCT_CATEGORIES.DAIRY ? "Cold Silo Tank 1" : "Godown Bay A-1"),
+        description: productToEdit.description || "",
       };
     }
     return {
@@ -62,12 +54,10 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
       purchasePrice: "",
       sellingPrice: "",
       price: "",
-      gstRate: 0,
+      gstRate: 5,
       reorderLevel: "",
-      openingStock: 0,
-      inwardStock: 0,
-      outwardStock: 0,
-      stock: 0,
+      warehouseLocation: "Godown Bay A-1",
+      description: "",
     };
   });
 
@@ -83,30 +73,19 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
         if (val === PRODUCT_CATEGORIES.DAIRY && prev.unitOfMeasure === "Bags") {
           next.unitOfMeasure = "Liters";
           next.unit = "Liters";
+          next.gstRate = 0;
+          next.warehouseLocation = "Cold Silo Tank 1";
         } else if (val === PRODUCT_CATEGORIES.ANIMAL_FEED && prev.unitOfMeasure === "Liters") {
           next.unitOfMeasure = "Bags";
           next.unit = "Bags";
+          next.gstRate = 5;
+          next.warehouseLocation = "Godown Bay A-1";
         }
       }
       return next;
     });
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: null }));
-    }
-  };
-
-  const handleStockParamChange = (field, val) => {
-    const num = Math.max(0, Number(val) || 0);
-    setForm(prev => {
-      const updated = { ...prev, [field]: num };
-      const open = Number(updated.openingStock) || 0;
-      const inW = Number(updated.inwardStock) || 0;
-      const outW = Number(updated.outwardStock) || 0;
-      updated.stock = calculateCurrentStock({ opening: open, inward: inW, outward: outW });
-      return updated;
-    });
-    if (errors[field] || errors.stock) {
-      setErrors(prev => ({ ...prev, [field]: null, stock: null }));
     }
   };
 
@@ -125,9 +104,6 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
     const priceVal = validatePositiveNumber(form.price, "Unit Selling Price");
     if (!priceVal.isValid) errs.price = priceVal.error;
 
-    const stockVal = validateNonNegativeNumber(form.stock, "Available Stock");
-    if (!stockVal.isValid) errs.stock = stockVal.error;
-
     if (form.reorderLevel !== "" && form.reorderLevel !== null && form.reorderLevel !== undefined) {
       const reorderVal = validateNonNegativeNumber(form.reorderLevel, "Reorder Level");
       if (!reorderVal.isValid) errs.reorderLevel = reorderVal.error;
@@ -142,11 +118,6 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
     if (!validateForm()) {
       return;
     }
-    const open = Number(form.openingStock) || 0;
-    const inW = Number(form.inwardStock) || 0;
-    const outW = Number(form.outwardStock) || 0;
-    const res = Number(form.reservedStock) || 0;
-    const calculatedStock = Math.max(0, (open + inW) - outW - res);
 
     const sp = Number(form.price || form.sellingPrice || 0);
     const cp = Number(form.costPrice || form.purchasePrice || 0);
@@ -154,6 +125,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
       ? Number(form.reorderLevel)
       : null;
 
+    // The Products page must not edit stock. Stock changes are managed only in Inventory.
     onSave({
       ...form,
       id: form.id,
@@ -169,18 +141,10 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
       gstRate: Number(form.gstRate || 0),
       reorderLevel: reorder,
       minStock: reorder,
-      openingStock: open,
-      inwardStock: inW,
-      outwardStock: outW,
-      reservedStock: res,
-      stock: calculatedStock,
+      warehouseLocation: form.warehouseLocation || "Main Warehouse - Bay 01",
+      description: form.description || "",
     });
   };
-
-  const hasReorder = form.reorderLevel !== "" && form.reorderLevel !== null && form.reorderLevel !== undefined;
-  const reorderNum = hasReorder ? Number(form.reorderLevel) : null;
-  const stockStatus = !hasReorder ? "Not set" : form.stock <= 0 ? "Out of Stock" : form.stock <= reorderNum ? "Low Stock" : "In Stock";
-  const stockBadgeClass = !hasReorder ? "muted" : form.stock <= 0 ? "danger" : form.stock <= reorderNum ? "warning" : "success";
 
   const sellingRate = Number(form.price || form.sellingPrice || 0);
   const costRate = Number(form.costPrice || form.purchasePrice || 0);
@@ -193,7 +157,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
         className="modal-card"
         onClick={(e) => e.stopPropagation()}
         style={{
-          maxWidth: 680,
+          maxWidth: 640,
           width: "95%",
           maxHeight: "92vh",
           display: "flex",
@@ -339,7 +303,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
               </div>
 
               {/* Reorder Level (Nullable) */}
-              <div className="form-group full">
+              <div className="form-group">
                 <label>Reorder Level (Optional / Nullable)</label>
                 <input
                   type="number"
@@ -350,99 +314,31 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
                   placeholder="Leave blank for 'Not set'"
                 />
                 <FieldError error={errors.reorderLevel} />
-                <span className="form-help">Minimum safe threshold. If not configured, status shows "Not set"</span>
+                <span className="form-help">Minimum safe threshold alert</span>
               </div>
 
-              {/* STOCK LEDGER BASELINE PARAMETERS */}
-              <div className="form-group full" style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 4 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <Calculator size={15} style={{ color: "var(--primary)" }} />
-                    <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-main)" }}>
-                      Stock Balance Ledger Audit
-                    </span>
-                  </div>
-                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                    Formula: (Opening + Inward) − Outward
-                  </span>
-                </div>
+              {/* Warehouse Location */}
+              <div className="form-group">
+                <label>Warehouse Bay / Location</label>
+                <input
+                  className="form-input"
+                  value={form.warehouseLocation}
+                  onChange={(e) => handleFieldChange("warehouseLocation", e.target.value)}
+                  placeholder="e.g. Godown Bay A-1, Cold Silo Tank 1"
+                />
+                <span className="form-help">Designated warehouse storage bay</span>
+              </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <label style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 600 }}>Opening Base</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="form-input"
-                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
-                      value={form.openingStock}
-                      onChange={(e) => handleStockParamChange("openingStock", e.target.value)}
-                      title="Initial baseline stock units"
-                    />
-                  </div>
-
-                  <div style={{ minWidth: 0 }}>
-                    <label style={{ fontSize: "0.75rem", color: "#059669", fontWeight: 600 }}>+ Inward Received</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="form-input"
-                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
-                      value={form.inwardStock}
-                      onChange={(e) => handleStockParamChange("inwardStock", e.target.value)}
-                      title="Total inward procured / supplier receipts"
-                    />
-                  </div>
-
-                  <div style={{ minWidth: 0 }}>
-                    <label style={{ fontSize: "0.75rem", color: "#d97706", fontWeight: 600 }}>− Outward Sold</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="form-input"
-                      style={{ width: "100%", boxSizing: "border-box", minWidth: 0 }}
-                      value={form.outwardStock}
-                      onChange={(e) => handleStockParamChange("outwardStock", e.target.value)}
-                      title="Total outward dispatched / billed sales"
-                    />
-                  </div>
-                </div>
-
-                {/* LIVE SPECIFIC CALCULATION RESULT BAR */}
-                <div style={{
-                  background: "linear-gradient(135deg, rgba(0, 91, 181, 0.06) 0%, rgba(16, 185, 129, 0.06) 100%)",
-                  border: "1.5px solid rgba(0, 91, 181, 0.2)",
-                  borderRadius: 10,
-                  padding: "12px 16px",
-                  marginTop: 10,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 10
-                }}>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--primary)", textTransform: "uppercase" }}>
-                      Ledger Movement Balance:
-                    </div>
-                    <div style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-main)", marginTop: 2 }}>
-                      ({form.openingStock || 0} Open + {form.inwardStock || 0} Inward) − {form.outwardStock || 0} Outward
-                    </div>
-                  </div>
-
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase" }}>
-                      CURRENT AVAILABLE STOCK
-                    </div>
-                    <div style={{ fontSize: "1.35rem", fontWeight: 900, color: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
-                      <span>{form.stock}</span>
-                      <small style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)" }}>{form.unitOfMeasure}</small>
-                      <span className={`badge ${stockBadgeClass}`} style={{ fontSize: "0.7rem", padding: "1px 6px" }}>
-                        {stockStatus}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+              {/* Description */}
+              <div className="form-group full">
+                <label>Product Description / Specifications</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  value={form.description}
+                  onChange={(e) => handleFieldChange("description", e.target.value)}
+                  placeholder="Optional notes or specifications"
+                />
               </div>
 
             </div>
@@ -453,7 +349,7 @@ function ProductModalInner({ isOpen, onClose, onSave, productToEdit, nextId, exi
               Cancel
             </button>
             <button type="submit" className="primary">
-              <Save size={15} /> {isEditing ? "Save Product & Stock" : "Create Product"}
+              <Save size={15} /> {isEditing ? "Save Product Details" : "Create Product"}
             </button>
           </div>
         </form>

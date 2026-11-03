@@ -17,6 +17,7 @@ import { VendorPayment } from "./VendorPayment.js";
 import { Sequence } from "./Sequence.js";
 import { SchemaMigration } from "./SchemaMigration.js";
 import { Expense } from "./Expense.js";
+import { Collection } from "./Collection.js";
 
 // Client <-> Invoice
 Client.hasMany(Invoice, {
@@ -178,6 +179,49 @@ Payment.belongsTo(Client, {
   constraints: false,
 });
 
+// Payment <-> Collection
+Payment.hasOne(Collection, {
+  foreignKey: "paymentId",
+  sourceKey: "id",
+  as: "collection",
+  constraints: false,
+  onDelete: "CASCADE",
+});
+Collection.belongsTo(Payment, {
+  foreignKey: "paymentId",
+  targetKey: "id",
+  as: "payment",
+  constraints: false,
+});
+
+// Invoice <-> Collection
+Invoice.hasMany(Collection, {
+  foreignKey: "invoiceNumber",
+  sourceKey: "invoiceNumber",
+  as: "collections",
+  constraints: false,
+});
+Collection.belongsTo(Invoice, {
+  foreignKey: "invoiceNumber",
+  targetKey: "invoiceNumber",
+  as: "invoice",
+  constraints: false,
+});
+
+// Client <-> Collection
+Client.hasMany(Collection, {
+  foreignKey: "clientId",
+  sourceKey: "clientId",
+  as: "collections",
+  constraints: false,
+});
+Collection.belongsTo(Client, {
+  foreignKey: "clientId",
+  targetKey: "clientId",
+  as: "client",
+  constraints: false,
+});
+
 export {
   sequelize,
   User,
@@ -192,6 +236,7 @@ export {
   Target,
   StockMovement,
   Payment,
+  Collection,
   InvoiceLine,
   PurchaseLine,
   VendorPayment,

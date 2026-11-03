@@ -1,11 +1,11 @@
 import { Op } from "sequelize";
 import { sequelize } from "../config/db.js";
-import { Invoice, InvoiceLine, Product, Client, Payment, StockMovement, Inventory } from "../models/index.js";
+import { Invoice, InvoiceLine, Product, Client, Payment, Collection, StockMovement, Inventory } from "../models/index.js";
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { applyStockChange } from "../utils/stockSync.js";
-import { generateInvoiceNumber, generatePaymentNumber } from "../utils/numberSequence.js";
+import { updateStock, applyStockChange } from "../utils/stockSync.js";
+import { generateInvoiceNumber, generatePaymentNumber, generateCollectionNumber } from "../utils/numberSequence.js";
 import { getToday, deriveTransactionStatus, TRANSACTION_STATUSES } from "../constants/erpConstants.js";
 
 export const canonicalizePaymentMode = (mode) => {
@@ -59,6 +59,7 @@ export const getInvoices = asyncHandler(async (req, res) => {
     where: whereClause,
     include: [
       { model: Payment, as: "payments" },
+      { model: Collection, as: "collections" },
       { model: InvoiceLine, as: "lines" },
       { model: Client, as: "client", attributes: ["clientId", "name", "clientType", "paymentTerms"] },
     ],
@@ -79,6 +80,7 @@ export const getInvoiceById = asyncHandler(async (req, res) => {
     },
     include: [
       { model: Payment, as: "payments" },
+      { model: Collection, as: "collections" },
       { model: InvoiceLine, as: "lines", include: [{ model: Product, as: "product" }] },
       { model: Client, as: "client" },
     ],
@@ -349,11 +351,11 @@ export const createInvoice = asyncHandler(async (req, res) => {
       );
     }
 
-    // 6. Record Initial Payment if provided
+    // 6. Record Initial Payment and Collection if provided (in same transaction)
     if (paidAmount > 0) {
       const payMode = canonicalMode || "UPI";
       const payNumber = await generatePaymentNumber(t, businessDateStr);
-      await Payment.create(
+      const initialPayment = await Payment.create(
         {
           paymentNumber: payNumber,
           invoiceId: invoiceNumber,
@@ -367,33 +369,32 @@ export const createInvoice = asyncHandler(async (req, res) => {
         },
         { transaction: t }
       );
+
+      const colNumber = await generateCollectionNumber(t, businessDateStr);
+      await Collection.create(
+        {
+          collectionNumber: colNumber,
+          paymentId: initialPayment.id,
+          invoiceNumber,
+          clientId,
+          clientName,
+          amount: paidAmount,
+          paymentDate: new Date(businessDateStr),
+          paymentMode: payMode,
+          status: "Completed",
+          reference: `Initial Collection for ${invoiceNumber}`,
+          notes: inputData.paymentNotes || "",
+        },
+        { transaction: t }
+      );
     }
 
-    // 7. Check Stock & Write SALE_OUT movements inside the same transaction
+    // 7. Deduct Stock via updateStock outward function inside the same transaction
     for (const vLine of validatedLines) {
-      // Calculate current stock balance strictly from stock_movements ledger inside transaction
-      const movements = await StockMovement.findAll({
-        where: { productId: vLine.productId },
-        transaction: t,
-        lock: t.LOCK.UPDATE,
-      });
-
-      let currentBalance = 0;
-      for (const m of movements) {
-        const q = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
-        const dir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
-        currentBalance += dir === "IN" ? q : -q;
-      }
-
-      if (currentBalance < vLine.quantity) {
-        throw ApiError.badRequest(
-          `Insufficient stock for product "${vLine.productName}" (${vLine.productId}). Required: ${vLine.quantity}, Available: ${currentBalance}. Transaction rolled back.`
-        );
-      }
-
-      // Record SALE_OUT movement
-      await applyStockChange(vLine.productId, -vLine.quantity, {
-        movementType: "SALE_OUT",
+      await updateStock({
+        productId: vLine.productId,
+        type: "outward",
+        quantity: vLine.quantity,
         referenceType: "SALE_INVOICE",
         reference: invoiceNumber,
         warehouseLocation: vLine.warehouseLocation || "Main Warehouse - Bay 01",
@@ -429,12 +430,14 @@ export const createInvoice = asyncHandler(async (req, res) => {
 });
 
 /**
- * Edit non-financial invoice metadata (notes, dueDate, clientAddress, clientContact)
- * Financial modifications require invoice cancellation and re-creation.
+ * Edit invoice metadata (notes, dueDate, clientAddress, clientContact)
+ * If payment is supplied, records payment and collection in the same transaction.
  */
 export const updateInvoice = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { notes, dueDate, clientAddress, clientContact } = req.body;
+  const { notes, dueDate, clientAddress, clientContact, paymentAmount, paymentMode, paymentDate, referenceNo, reference } = req.body;
+  const rawPayment = paymentAmount !== undefined ? paymentAmount : req.body.amount;
+  const hasPayment = rawPayment !== undefined && rawPayment !== null && rawPayment !== "" && Number(rawPayment) > 0;
 
   const t = await sequelize.transaction();
   try {
@@ -456,23 +459,103 @@ export const updateInvoice = asyncHandler(async (req, res) => {
     if (notes !== undefined) invoice.notes = notes;
     if (clientAddress !== undefined) invoice.clientAddress = clientAddress;
     if (clientContact !== undefined) invoice.clientContact = clientContact;
-    if (dueDate !== undefined) {
-      invoice.dueDate = dueDate;
-      // Re-derive status if dueDate changed
-      invoice.status = deriveTransactionStatus({
-        grandTotal: Number(invoice.grandTotal || 0),
-        paidAmount: Number(invoice.paidAmount || 0),
-        dueDate: invoice.dueDate,
-        isCancelled: false,
-        asOfDate: getToday(),
+    if (dueDate !== undefined) invoice.dueDate = dueDate;
+
+    let recordedPayment = null;
+    let recordedCollection = null;
+
+    if (hasPayment) {
+      const amount = Number(rawPayment);
+      if (isNaN(amount) || amount <= 0) {
+        throw ApiError.badRequest("Payment amount must be greater than 0");
+      }
+
+      const pMode = paymentMode || invoice.paymentMode || "UPI";
+      if (!VALID_PAYMENT_MODES.some((m) => m.toLowerCase() === String(pMode).trim().toLowerCase())) {
+        throw ApiError.badRequest(`Valid paymentMode is required (${VALID_PAYMENT_MODES.join(", ")})`);
+      }
+
+      const currentBalance = Number(invoice.balanceDue ?? Math.max(0, Number(invoice.grandTotal || 0) - Number(invoice.paidAmount || 0)));
+      if (amount > currentBalance + 0.005) {
+        throw ApiError.badRequest(`Payment amount (₹${amount}) exceeds remaining balance due (₹${currentBalance})`);
+      }
+
+      const payDate = paymentDate ? new Date(paymentDate) : new Date();
+      const payNumber = await generatePaymentNumber(t, payDate);
+      const canonicalMode = canonicalizePaymentMode(pMode);
+
+      recordedPayment = await Payment.create(
+        {
+          paymentNumber: payNumber,
+          invoiceId: invoice.invoiceNumber,
+          clientId: invoice.clientId || "",
+          amount,
+          paymentDate: payDate,
+          paymentMode: canonicalMode,
+          status: "Completed",
+          reference: referenceNo || reference || `Settlement for ${invoice.invoiceNumber}`,
+          notes: notes || "",
+        },
+        { transaction: t }
+      );
+
+      const colNumber = await generateCollectionNumber(t, payDate);
+      recordedCollection = await Collection.create(
+        {
+          collectionNumber: colNumber,
+          paymentId: recordedPayment.id,
+          invoiceNumber: invoice.invoiceNumber,
+          clientId: invoice.clientId || "",
+          clientName: invoice.clientName || "",
+          amount,
+          paymentDate: payDate,
+          paymentMode: canonicalMode,
+          status: "Completed",
+          reference: referenceNo || reference || `Settlement for ${invoice.invoiceNumber}`,
+          notes: notes || "",
+        },
+        { transaction: t }
+      );
+
+      // Re-query payments
+      const allPayments = await Payment.findAll({
+        where: { invoiceId: invoice.invoiceNumber, status: "Completed" },
+        transaction: t,
       });
-      invoice.paymentStatus = invoice.status;
+      const totalPaid = allPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+      const grandTotal = Number(invoice.grandTotal || 0);
+      const balanceDue = Math.max(0, grandTotal - totalPaid);
+
+      invoice.paidAmount = totalPaid;
+      invoice.balanceDue = balanceDue;
+      invoice.paymentMode = canonicalMode;
+      if (balanceDue === 0) invoice.paidDate = payDate;
+
+      // Update client outstanding
+      if (invoice.clientId) {
+        const client = await Client.findOne({ where: { clientId: invoice.clientId }, transaction: t });
+        if (client) {
+          client.outstandingBalance = Math.max(0, Number(client.outstandingBalance || 0) - amount);
+          client.outstanding = client.outstandingBalance;
+          await client.save({ transaction: t });
+        }
+      }
     }
+
+    // Re-derive status
+    invoice.status = deriveTransactionStatus({
+      grandTotal: Number(invoice.grandTotal || 0),
+      paidAmount: Number(invoice.paidAmount || 0),
+      dueDate: invoice.dueDate,
+      isCancelled: false,
+      asOfDate: getToday(),
+    });
+    invoice.paymentStatus = invoice.status;
 
     await invoice.save({ transaction: t });
     await t.commit();
 
-    return ApiResponse.success(res, invoice, "Invoice metadata updated successfully");
+    return ApiResponse.success(res, { invoice, payment: recordedPayment, collection: recordedCollection }, "Invoice updated successfully");
   } catch (err) {
     await t.rollback();
     throw err;
@@ -482,13 +565,19 @@ export const updateInvoice = asyncHandler(async (req, res) => {
 /**
  * Record a payment against an outstanding invoice
  * Safe concurrency with row lock on Invoice, rejects overpayment, cancelled documents, and invalid modes.
+ * Atomically inserts Payment, updates Invoice, inserts Collection, and updates Client in ONE transaction.
  */
 export const recordPayment = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { paymentAmount, paymentMode, paymentDate, referenceNo, notes, reference } = req.body;
 
-  const amount = Number(paymentAmount ?? req.body.amount);
-  if (!amount || amount <= 0) {
+  const rawAmount = paymentAmount !== undefined ? paymentAmount : req.body.amount;
+  if (rawAmount === undefined || rawAmount === null || rawAmount === "") {
+    throw ApiError.badRequest("Payment amount is required and must be greater than 0");
+  }
+
+  const amount = Number(rawAmount);
+  if (isNaN(amount) || amount <= 0) {
     throw ApiError.badRequest("Payment amount must be greater than 0");
   }
 
@@ -522,6 +611,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
 
     const payDate = paymentDate ? new Date(paymentDate) : new Date();
     const payNumber = await generatePaymentNumber(t, payDate);
+    const colNumber = await generateCollectionNumber(t, payDate);
 
     // 1. Create Payment record
     const canonicalMode = canonicalizePaymentMode(paymentMode);
@@ -540,7 +630,25 @@ export const recordPayment = asyncHandler(async (req, res) => {
       { transaction: t }
     );
 
-    // 2. Derive updated paid amount and status
+    // 2. Create Collection entry linked to payment in SAME transaction
+    const collection = await Collection.create(
+      {
+        collectionNumber: colNumber,
+        paymentId: payment.id,
+        invoiceNumber: invoice.invoiceNumber,
+        clientId: invoice.clientId || "",
+        clientName: invoice.clientName || "",
+        amount,
+        paymentDate: payDate,
+        paymentMode: canonicalMode,
+        status: "Completed",
+        reference: referenceNo || reference || `Settlement for ${invoice.invoiceNumber}`,
+        notes: notes || "",
+      },
+      { transaction: t }
+    );
+
+    // 3. Derive updated paid amount and status
     const allPayments = await Payment.findAll({
       where: { invoiceId: invoice.invoiceNumber, status: "Completed" },
       transaction: t,
@@ -565,7 +673,7 @@ export const recordPayment = asyncHandler(async (req, res) => {
     if (balanceDue === 0) invoice.paidDate = payDate;
     await invoice.save({ transaction: t });
 
-    // 3. Update Client outstanding
+    // 4. Update Client outstanding
     if (invoice.clientId) {
       const client = await Client.findOne({ where: { clientId: invoice.clientId }, transaction: t });
       if (client) {
@@ -576,10 +684,215 @@ export const recordPayment = asyncHandler(async (req, res) => {
     }
 
     await t.commit();
-    return ApiResponse.success(res, { invoice, payment }, "Payment recorded and derived status updated");
+    return ApiResponse.success(res, { invoice, payment, collection }, "Payment and Collection entry recorded successfully");
   } catch (error) {
     await t.rollback();
     throw error;
+  }
+});
+
+/**
+ * Update an existing payment and its linked Collection entry together in one transaction
+ */
+export const updatePayment = asyncHandler(async (req, res) => {
+  const { id, paymentId } = req.params;
+  const { paymentAmount, paymentMode, paymentDate, referenceNo, notes, reference } = req.body;
+  const rawAmount = paymentAmount !== undefined ? paymentAmount : req.body.amount;
+  const newAmount = rawAmount !== undefined && rawAmount !== null && rawAmount !== "" ? Number(rawAmount) : null;
+
+  if (newAmount !== null && (isNaN(newAmount) || newAmount <= 0)) {
+    throw ApiError.badRequest("Payment amount must be greater than 0");
+  }
+
+  const t = await sequelize.transaction();
+  try {
+    const invoice = await Invoice.findOne({
+      where: {
+        [Op.or]: [{ invoiceNumber: id }, ...(isNaN(id) ? [] : [{ id: Number(id) }])],
+      },
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+    if (!invoice) throw ApiError.notFound(`Invoice not found with identifier: ${id}`);
+    if (invoice.isCancelled) throw ApiError.badRequest("Cannot edit payment on a cancelled invoice");
+
+    const payment = await Payment.findOne({
+      where: {
+        id: paymentId,
+        invoiceId: invoice.invoiceNumber,
+      },
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+    if (!payment) throw ApiError.notFound(`Payment ${paymentId} not found for invoice ${id}`);
+
+    const collection = await Collection.findOne({
+      where: { paymentId: payment.id },
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+
+    const oldAmount = Number(payment.amount || 0);
+    const updatedAmount = newAmount !== null ? newAmount : oldAmount;
+    const diff = updatedAmount - oldAmount;
+
+    // Check overpayment if amount increased
+    const otherPayments = await Payment.findAll({
+      where: {
+        invoiceId: invoice.invoiceNumber,
+        status: "Completed",
+        id: { [Op.ne]: payment.id },
+      },
+      transaction: t,
+    });
+    const otherPaid = otherPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const grandTotal = Number(invoice.grandTotal || 0);
+    if (otherPaid + updatedAmount > grandTotal + 0.005) {
+      throw ApiError.badRequest(`Updated payment amount (₹${updatedAmount}) exceeds invoice grand total`);
+    }
+
+    const payMode = paymentMode ? (canonicalizePaymentMode(paymentMode) || paymentMode) : payment.paymentMode;
+    const payDate = paymentDate ? new Date(paymentDate) : payment.paymentDate;
+    const payRef = referenceNo || reference || payment.reference;
+    const payNotes = notes !== undefined ? notes : payment.notes;
+
+    // 1. Update Payment
+    payment.amount = updatedAmount;
+    payment.paymentMode = payMode;
+    payment.paymentDate = payDate;
+    payment.reference = payRef;
+    payment.notes = payNotes;
+    await payment.save({ transaction: t });
+
+    // 2. Update linked Collection
+    if (collection) {
+      collection.amount = updatedAmount;
+      collection.paymentMode = payMode;
+      collection.paymentDate = payDate;
+      collection.reference = payRef;
+      collection.notes = payNotes;
+      await collection.save({ transaction: t });
+    }
+
+    // 3. Recalculate Invoice totals
+    const totalPaid = otherPaid + updatedAmount;
+    const balanceDue = Math.max(0, grandTotal - totalPaid);
+    const derivedStatus = deriveTransactionStatus({
+      grandTotal,
+      paidAmount: totalPaid,
+      dueDate: invoice.dueDate,
+      isCancelled: false,
+      asOfDate: getToday(),
+    });
+
+    invoice.paidAmount = totalPaid;
+    invoice.balanceDue = balanceDue;
+    invoice.status = derivedStatus;
+    invoice.paymentStatus = derivedStatus;
+    if (balanceDue === 0) invoice.paidDate = payDate;
+    else invoice.paidDate = null;
+    await invoice.save({ transaction: t });
+
+    // 4. Update Client outstanding balance
+    if (invoice.clientId && diff !== 0) {
+      const client = await Client.findOne({ where: { clientId: invoice.clientId }, transaction: t });
+      if (client) {
+        client.outstandingBalance = Math.max(0, Number(client.outstandingBalance || 0) - diff);
+        client.outstanding = client.outstandingBalance;
+        await client.save({ transaction: t });
+      }
+    }
+
+    await t.commit();
+    return ApiResponse.success(res, { invoice, payment, collection }, "Payment and Collection updated successfully");
+  } catch (err) {
+    await t.rollback();
+    throw err;
+  }
+});
+
+/**
+ * Delete a payment and its linked Collection entry together in one transaction
+ */
+export const deletePayment = asyncHandler(async (req, res) => {
+  const { id, paymentId } = req.params;
+  const t = await sequelize.transaction();
+  try {
+    const invoice = await Invoice.findOne({
+      where: {
+        [Op.or]: [{ invoiceNumber: id }, ...(isNaN(id) ? [] : [{ id: Number(id) }])],
+      },
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+    if (!invoice) throw ApiError.notFound(`Invoice not found with identifier: ${id}`);
+
+    const payment = await Payment.findOne({
+      where: {
+        id: paymentId,
+        invoiceId: invoice.invoiceNumber,
+      },
+      lock: t.LOCK.UPDATE,
+      transaction: t,
+    });
+    if (!payment) throw ApiError.notFound(`Payment ${paymentId} not found for invoice ${id}`);
+
+    const collection = await Collection.findOne({
+      where: { paymentId: payment.id },
+      transaction: t,
+    });
+
+    const removedAmount = Number(payment.amount || 0);
+
+    // 1. Delete linked Collection
+    if (collection) {
+      await collection.destroy({ transaction: t });
+    }
+
+    // 2. Delete Payment
+    await payment.destroy({ transaction: t });
+
+    // 3. Recalculate Invoice totals
+    const remainingPayments = await Payment.findAll({
+      where: {
+        invoiceId: invoice.invoiceNumber,
+        status: "Completed",
+      },
+      transaction: t,
+    });
+    const totalPaid = remainingPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const grandTotal = Number(invoice.grandTotal || 0);
+    const balanceDue = Math.max(0, grandTotal - totalPaid);
+    const derivedStatus = deriveTransactionStatus({
+      grandTotal,
+      paidAmount: totalPaid,
+      dueDate: invoice.dueDate,
+      isCancelled: invoice.isCancelled,
+      asOfDate: getToday(),
+    });
+
+    invoice.paidAmount = totalPaid;
+    invoice.balanceDue = balanceDue;
+    invoice.status = derivedStatus;
+    invoice.paymentStatus = derivedStatus;
+    if (balanceDue > 0) invoice.paidDate = null;
+    await invoice.save({ transaction: t });
+
+    // 4. Update Client outstanding balance
+    if (invoice.clientId && removedAmount > 0) {
+      const client = await Client.findOne({ where: { clientId: invoice.clientId }, transaction: t });
+      if (client) {
+        client.outstandingBalance = Number(client.outstandingBalance || 0) + removedAmount;
+        client.outstanding = client.outstandingBalance;
+        await client.save({ transaction: t });
+      }
+    }
+
+    await t.commit();
+    return ApiResponse.success(res, { invoice }, `Payment ${paymentId} and linked Collection entry deleted successfully`);
+  } catch (err) {
+    await t.rollback();
+    throw err;
   }
 });
 
@@ -610,10 +923,12 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
       return ApiResponse.success(res, invoice, "Invoice is already cancelled");
     }
 
-    // 1. Reverse stock movements for each line item (RETURN / reversal)
+    // 1. Reverse stock movements for each line item (RETURN / reversal via updateStock)
     for (const line of invoice.lines || []) {
-      await applyStockChange(line.productId, line.quantity, {
-        movementType: "RETURN",
+      await updateStock({
+        productId: line.productId,
+        type: "inward",
+        quantity: line.quantity,
         referenceType: "CANCEL_INVOICE",
         reference: `Cancelled ${invoice.invoiceNumber}`,
         warehouseLocation: line.warehouseLocation,
@@ -622,10 +937,14 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
       });
     }
 
-    // 2. Mark payments as Cancelled
+    // 2. Mark payments and collections as Cancelled
     await Payment.update(
       { status: "Cancelled", notes: `Cancelled due to invoice ${invoice.invoiceNumber} cancellation` },
       { where: { invoiceId: invoice.invoiceNumber }, transaction: t }
+    );
+    await Collection.update(
+      { status: "Cancelled", notes: `Cancelled due to invoice ${invoice.invoiceNumber} cancellation` },
+      { where: { invoiceNumber: invoice.invoiceNumber }, transaction: t }
     );
 
     // 3. Soft-cancel the invoice header

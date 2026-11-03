@@ -1,17 +1,15 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
-  Package, Plus, Search, Filter, Pencil, Download, AlertTriangle, Eye, X,
+  Package, Plus, Search, Pencil, AlertTriangle, X,
   Calculator, IndianRupee, Tag, CheckCircle2, RefreshCw
 } from "lucide-react";
 import ProductModal from "./ProductModal";
-import ProductStockModal from "./ProductStockModal";
 import ExportMenu from "./ExportMenu";
 import MobileRecordCard from "./responsive/MobileRecordCard";
 import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
 import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { downloadCSV } from "../utils/exportUtils";
 import { calculateProductStock } from "../services/stockService";
-import { erpApi } from "../services/api";
 
 export default function ProductsPage({ products = [], onSaveProducts, inventory = [], onRefresh }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -32,7 +30,6 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [calculatingProduct, setCalculatingProduct] = useState(null);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg) => {
@@ -82,24 +79,6 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
     });
     const parts = Object.entries(map).map(([unit, qty]) => `${qty.toLocaleString("en-IN")} ${unit}`);
     return parts.length > 0 ? parts.join(", ") : "0 Units";
-  }, [products, inventory]);
-
-  const inOutBreakdown = useMemo(() => {
-    const inMap = {};
-    const outMap = {};
-    products.forEach(p => {
-      const inv = (inventory || []).find(i => 
-        (i.product && i.product.toLowerCase() === (p.name || "").toLowerCase()) || 
-        (i.sku && i.sku.toLowerCase() === (p.id || p.productId || "").toLowerCase())
-      );
-      const m = calculateProductStock(p, inv);
-      const u = p.unitOfMeasure || p.unit || "Units";
-      inMap[u] = (inMap[u] || 0) + m.inwardStock;
-      outMap[u] = (outMap[u] || 0) + m.outwardStock;
-    });
-    const inParts = Object.entries(inMap).map(([u, q]) => `+${q} ${u}`).join(", ");
-    const outParts = Object.entries(outMap).map(([u, q]) => `−${q} ${u}`).join(", ");
-    return `(${inParts || "+0"} in / ${outParts || "−0"} out)`;
   }, [products, inventory]);
 
   const totalValuation = useMemo(() => products.reduce((sum, p) => {
@@ -152,7 +131,7 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
 
   const handleExportCSV = () => {
     const headers = [
-      "SKU", "Product_Name", "Category", "Unit", "Inward_Stock", "Outward_Stock",
+      "SKU", "Product_Name", "Category", "Unit",
       "Available_Stock", "Cost_Price_INR", "Selling_Price_INR", "Safety_Threshold",
       "Warehouse_Location", "Valuation_at_Cost_INR", "Status"
     ];
@@ -168,13 +147,11 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
         p.name,
         p.category,
         uom,
-        metrics.inwardStock,
-        metrics.outwardStock,
         metrics.currentAvailableStock,
         p.costPrice || 0,
         p.price || p.sellingPrice || 0,
         metrics.minStock !== null ? metrics.minStock : "Not set",
-        inv?.location || p.warehouseLocation || "Main Warehouse",
+        inv?.location || inv?.warehouseLocation || p.warehouseLocation || "Main Warehouse",
         metrics.valuation,
         metrics.status
       ];
@@ -192,7 +169,7 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
         </div>
       )}
 
-      {/* QUICK STATS CARDS: 4-cols on Laptop, 2-cols on Mobile */}
+      {/* QUICK STATS CARDS */}
       <ResponsiveKpiGrid cols={4}>
         <div className="stat-card">
           <div className="stat-top">
@@ -213,7 +190,7 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
             </div>
           </div>
           <div className="stat-value" style={{ fontSize: "16px", lineHeight: "1.3" }}>{unitBreakdown}</div>
-          <div className="trend neutral"><span>{inOutBreakdown}</span></div>
+          <div className="trend neutral"><span>Inventory balance</span></div>
         </div>
 
         <div className="stat-card">
@@ -287,11 +264,10 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
             )}
           </div>
           <span style={{ fontSize: "12px", color: "var(--text-muted)", fontWeight: 600 }}>
-            Showing {filtered.length} of {products.length} products • Ledger audit synchronized
+            Showing {filtered.length} of {products.length} products • Inventory Single Source of Truth
           </span>
         </div>
 
-        {/* DUAL-RESPONSIVE: Desktop Table vs Mobile Cards */}
         {filtered.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon"><Package size={26} /></div>
@@ -302,7 +278,6 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
         ) : (
           <ResponsiveDataTable
             hasRecords={filtered.length > 0}
-            /* DESKTOP TABLE VIEW (Preserved all 10 columns) */
             desktopView={
               <div className="table-wrap">
                 <table>
@@ -312,12 +287,7 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                       <th>Product Name</th>
                       <th>Category</th>
                       <th>Pricing</th>
-                      <th>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span>Available Stock</span>
-                          <Calculator size={13} style={{ color: "var(--primary)" }} />
-                        </div>
-                      </th>
+                      <th>Current Stock</th>
                       <th>Reorder Level</th>
                       <th>Status</th>
                       <th>Actions</th>
@@ -342,9 +312,9 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                           <td><code>{p.id || p.productId}</code></td>
                           <td>
                             <b>{p.name}</b>
-                            {inv?.location && (
+                            {(inv?.location || inv?.warehouseLocation || p.warehouseLocation) && (
                               <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                                📍 {inv.location}
+                                📍 {inv?.location || inv?.warehouseLocation || p.warehouseLocation}
                               </div>
                             )}
                           </td>
@@ -363,40 +333,12 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                           </td>
                           
                           <td>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                <b style={{
-                                  fontSize: "0.95rem",
-                                  color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--text-main)"
-                                }}>
-                                  {metrics.currentAvailableStock.toLocaleString("en-IN")} {uom}
-                                </b>
-                                <button
-                                  type="button"
-                                  onClick={() => setCalculatingProduct(p)}
-                                  title="View detailed stock calculation breakdown & audit formula"
-                                  style={{
-                                    padding: "2px 6px",
-                                    background: "rgba(0, 91, 181, 0.08)",
-                                    color: "var(--primary)",
-                                    border: "1px solid rgba(0, 91, 181, 0.22)",
-                                    borderRadius: 4,
-                                    fontSize: "11px",
-                                    fontWeight: 700,
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 4,
-                                    cursor: "pointer"
-                                  }}
-                                >
-                                  <Calculator size={12} />
-                                  <span>View Calc</span>
-                                </button>
-                              </div>
-                              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "monospace" }}>
-                                Open: {metrics.openingStock} | In: +{metrics.inwardStock} | Out: −{metrics.outwardStock}
-                              </span>
-                            </div>
+                            <b style={{
+                              fontSize: "0.95rem",
+                              color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--text-main)"
+                            }}>
+                              {metrics.currentAvailableStock.toLocaleString("en-IN")} {uom}
+                            </b>
                           </td>
 
                           <td>{metrics.minStock !== null ? `${metrics.minStock} ${uom}` : <span style={{ color: "var(--text-muted)" }}>Not set</span>}</td>
@@ -418,13 +360,6 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                           </td>
                           <td>
                             <div className="row-actions">
-                              <button
-                                title="View Stock Calculation Breakdown & Audit"
-                                onClick={() => setCalculatingProduct(p)}
-                                style={{ color: "var(--primary)" }}
-                              >
-                                <Calculator size={14} />
-                              </button>
                               <button title="Edit Product Details" onClick={() => handleOpenEdit(p)}>
                                 <Pencil size={14} />
                               </button>
@@ -437,7 +372,6 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                 </table>
               </div>
             }
-            /* MOBILE RECORD CARDS VIEW */
             mobileView={
               <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "8px 4px" }}>
                 {filtered.map(p => {
@@ -456,7 +390,7 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                       key={pId}
                       idBadge={pId}
                       title={p.name}
-                      subtitle={inv?.location || p.warehouseLocation || "Main Warehouse"}
+                      subtitle={inv?.location || inv?.warehouseLocation || p.warehouseLocation || "Main Warehouse"}
                       categoryBadge={p.category}
                       statusBadge={
                         <span className={`badge ${metrics.status === "Not set" ? "muted" : isOut ? "danger" : isLow ? "warning" : "success"}`} style={{ fontSize: 11 }}>
@@ -464,24 +398,12 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                         </span>
                       }
                       primaryMetrics={[
-                        { label: "Available", value: `${metrics.currentAvailableStock.toLocaleString("en-IN")} ${uom}`, color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--primary)" },
+                        { label: "Current Stock", value: `${metrics.currentAvailableStock.toLocaleString("en-IN")} ${uom}`, color: isOut ? "var(--danger)" : isLow ? "var(--warning)" : "var(--primary)" },
                         { label: "Selling Rate", value: `₹${Number(p.price || p.sellingPrice || 0).toLocaleString("en-IN")}`, isMoney: true },
                         { label: "Cost Price", value: `₹${Number(p.costPrice || p.purchasePrice || 0).toLocaleString("en-IN")}`, isMoney: true },
                       ]}
                       expandedDetails={
                         <div>
-                          <div className="mobile-record-detail-row">
-                            <span className="mobile-record-detail-label">Opening Base Stock</span>
-                            <span className="mobile-record-detail-val" style={{ color: "#0284c7" }}>{metrics.openingStock} {uom}</span>
-                          </div>
-                          <div className="mobile-record-detail-row">
-                            <span className="mobile-record-detail-label">Inward Stock</span>
-                            <span className="mobile-record-detail-val" style={{ color: "var(--success)" }}>+{metrics.inwardStock} {uom}</span>
-                          </div>
-                          <div className="mobile-record-detail-row">
-                            <span className="mobile-record-detail-label">Outward Dispatched</span>
-                            <span className="mobile-record-detail-val" style={{ color: "var(--danger)" }}>−{metrics.outwardStock} {uom}</span>
-                          </div>
                           <div className="mobile-record-detail-row">
                             <span className="mobile-record-detail-label">Safety Reorder Threshold</span>
                             <span className="mobile-record-detail-val">{metrics.minStock !== null ? `${metrics.minStock} ${uom}` : "Not set"}</span>
@@ -493,24 +415,14 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                         </div>
                       }
                       actions={
-                        <>
-                          <button
-                            type="button"
-                            className="outline"
-                            onClick={() => setCalculatingProduct(p)}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-                          >
-                            <Calculator size={14} /> Audit Calc
-                          </button>
-                          <button
-                            type="button"
-                            className="primary"
-                            onClick={() => handleOpenEdit(p)}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
-                          >
-                            <Pencil size={14} /> Edit
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => handleOpenEdit(p)}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 5 }}
+                        >
+                          <Pencil size={14} /> Edit
+                        </button>
                       }
                     />
                   );
@@ -529,21 +441,6 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
         productToEdit={editingProduct}
         nextId={nextId}
         existingIds={products.map(p => p.id || p.productId)}
-      />
-
-      {/* DEDICATED STOCK CALCULATION AUDIT MODAL */}
-      <ProductStockModal
-        isOpen={!!calculatingProduct}
-        onClose={() => setCalculatingProduct(null)}
-        product={calculatingProduct}
-        inventoryItem={(inventory || []).find(i => 
-          (i.product && i.product.toLowerCase() === (calculatingProduct?.name || "").toLowerCase()) || 
-          (i.sku && i.sku.toLowerCase() === (calculatingProduct?.id || calculatingProduct?.productId || "").toLowerCase())
-        )}
-        onEditProduct={(p) => {
-          setCalculatingProduct(null);
-          handleOpenEdit(p);
-        }}
       />
     </div>
   );

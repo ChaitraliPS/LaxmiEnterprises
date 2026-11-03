@@ -115,7 +115,12 @@ export const erpApi = {
   createInvoice: (data) => apiClient.post("/invoices", data),
   updateInvoice: (id, data) => apiClient.put(`/invoices/${id}`, data),
   recordPayment: (id, data) => apiClient.post(`/invoices/${id}/payment`, data),
+  updatePayment: (id, paymentId, data) => apiClient.put(`/invoices/${id}/payments/${paymentId}`, data),
+  deletePayment: (id, paymentId) => apiClient.delete(`/invoices/${id}/payments/${paymentId}`),
   deleteInvoice: (id) => apiClient.delete(`/invoices/${id}`),
+
+  // Collections Management
+  getCollections: (params) => apiClient.get("/collections", { params }),
 
   getLeads: () => apiClient.get("/expo"),
   createLead: (data) => apiClient.post("/expo", data),

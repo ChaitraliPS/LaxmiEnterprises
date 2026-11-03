@@ -128,36 +128,26 @@ export async function runConsistencyCheck(asOfDate = getToday()) {
     details: `Service Overdue Count: ${allSales.counts.overdue}, Verified Condition Matches: ${manualOverdueCount}`,
   });
 
-  // 6. For each product: stock balance == opening + purchase IN - sale OUT +/- adjustments, and Products balance == Inventory balance
+  // 6. Inventory Single Source of Truth: Product balance == Inventory balance == cached stock
   const stockHealth = await getStockHealth(asOfDate);
   const inventories = await Inventory.findAll();
   const invMap = new Map(inventories.map((i) => [i.productId, Number(i.currentStock || 0)]));
   let stockDiscrepancies = 0;
   for (const p of stockHealth.products) {
-    const movements = await StockMovement.findAll({ where: { productId: p.productId } });
-    let calculated = 0;
-    for (const m of movements) {
-      const q = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
-      const dir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
-      calculated += dir === "IN" ? q : -q;
-    }
-    if (Math.abs(calculated - p.currentBalance) > 0.01) {
-      stockDiscrepancies += 1;
-    }
     const cachedStock = invMap.get(p.productId);
-    if (cachedStock !== undefined && Math.abs(calculated - cachedStock) > 0.01) {
+    if (cachedStock !== undefined && Math.abs(p.currentBalance - cachedStock) > 0.01) {
       stockDiscrepancies += 1;
     }
   }
   results.push({
     id: 6,
-    name: "Product Stock Ledger Identity",
-    description: "Stock balance == sum(IN) - sum(OUT) per product, and Products balance == Inventory balance == cached stock",
+    name: "Inventory Single Source of Truth",
+    description: "Inventory.currentStock is the single source of truth; Products balance == Inventory currentStock",
     passed: stockDiscrepancies === 0,
     difference: stockDiscrepancies,
     expected: "0 stock discrepancies",
     actual: `${stockDiscrepancies} discrepancies`,
-    details: `Verified ${stockHealth.products.length} products against ledger & cached stock. Discrepancies: ${stockDiscrepancies}`,
+    details: `Verified ${stockHealth.products.length} products against Inventory.currentStock. Discrepancies: ${stockDiscrepancies}`,
   });
 
   // 7. Dashboard warehouse units == sum of balances per unit type
@@ -353,36 +343,28 @@ export async function runConsistencyCheck(asOfDate = getToday()) {
     details: `Clients Checked: ${allClients.length}, Client Balance Mismatches: ${clientBalMismatches}`,
   });
 
-  // 15. Cached Inventory.currentStock == stock_movements ledger
-  const allProdsList = await Product.findAll();
+  // 15. Inventory Current Stock Integrity
+  const allProdsList = await Product.findAll({ where: { isActive: true } });
   const allInvsList = await Inventory.findAll();
   const invStockMap = new Map(allInvsList.map((i) => [i.productId, Number(i.currentStock || 0)]));
   let cachedStockMismatches = 0;
   let cachedStockDiff = 0;
   for (const p of allProdsList) {
-    const mvts = await StockMovement.findAll({ where: { productId: p.productId } });
-    let ledgerSum = 0;
-    for (const m of mvts) {
-      const q = Number(m.quantity || Math.abs(Number(m.quantityChange || 0)));
-      const dir = m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT");
-      ledgerSum += dir === "IN" ? q : -q;
-    }
-    const cachedStock = invStockMap.get(p.productId) ?? 0;
-    const diff = Math.abs(ledgerSum - cachedStock);
-    if (diff > 0.01) {
+    const cachedStock = invStockMap.get(p.productId);
+    if (cachedStock === undefined || cachedStock < 0) {
       cachedStockMismatches += 1;
-      cachedStockDiff += diff;
+      cachedStockDiff += 1;
     }
   }
   results.push({
     id: 15,
-    name: "Cached Stock vs Movement Ledger Identity",
-    description: "Cached Inventory.currentStock == stock_movements ledger for every product",
+    name: "Inventory Current Stock Integrity",
+    description: "Every active product has an Inventory row with valid non-negative currentStock",
     passed: cachedStockMismatches === 0,
     difference: cachedStockDiff,
-    expected: "All cached stocks match ledger sum(IN) - sum(OUT)",
-    actual: `${cachedStockMismatches} stock discrepancies`,
-    details: `Products Checked: ${allProdsList.length}, Cached Stock Mismatches: ${cachedStockMismatches}`,
+    expected: "0 stock discrepancies",
+    actual: `${cachedStockMismatches} discrepancies`,
+    details: `Products Checked: ${allProdsList.length}, Missing / Negative Inventory Rows: ${cachedStockMismatches}`,
   });
 
   const totalPassed = results.filter((r) => r.passed).length;

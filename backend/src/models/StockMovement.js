@@ -11,6 +11,8 @@ export class StockMovement extends Model {
       quantity: qty,
       direction: dir,
       quantityChange: dir === "IN" ? qty : -qty,
+      stockBefore: Number(values.stockBefore || 0),
+      stockAfter: Number(values.stockAfter || 0),
     };
   }
 }
@@ -30,8 +32,8 @@ StockMovement.init(
     movementType: {
       type: DataTypes.STRING(40),
       allowNull: false,
-      defaultValue: "OPENING",
-      comment: "OPENING, PURCHASE_IN, SALE_OUT, ADJUSTMENT_IN, ADJUSTMENT_OUT, RETURN",
+      defaultValue: "INWARD",
+      comment: "INWARD, OUTWARD, PURCHASE_IN, SALE_OUT, ADJUSTMENT_IN, ADJUSTMENT_OUT, RETURN",
     },
     quantity: {
       type: DataTypes.DECIMAL(12, 2),
@@ -47,6 +49,18 @@ StockMovement.init(
       allowNull: false,
       defaultValue: "IN",
       comment: "IN adds to stock balance, OUT subtracts",
+    },
+    stockBefore: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+      defaultValue: 0.0,
+      comment: "Stored inventory currentStock immediately before this movement (history log only)",
+    },
+    stockAfter: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+      defaultValue: 0.0,
+      comment: "Stored inventory currentStock immediately after this movement (history log only)",
     },
     referenceType: {
       type: DataTypes.STRING(50),

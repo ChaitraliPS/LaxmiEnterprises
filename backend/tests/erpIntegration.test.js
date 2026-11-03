@@ -309,7 +309,7 @@ describe("Laxmi Enterprises ERP Integration & Consistency Test Suite", () => {
       }
     });
 
-    it("strictly preserves opening stock 50, then adds inward 26, giving opening 50, inward 26, and closing 76", async () => {
+    it("strictly preserves starting stock 50, then adds inward 26, giving current stock 76", async () => {
       const testProdId = "PR-TEST-ACCUM";
 
       // 1. Clean up any previous test artifacts
@@ -319,7 +319,7 @@ describe("Laxmi Enterprises ERP Integration & Consistency Test Suite", () => {
 
       const testDate = new Date(`${getToday()}T10:00:00.000+05:30`);
 
-      // 2. Create product with initial opening stock 50
+      // 2. Create product with initial starting stock 50
       const prod = await Product.create({
         productId: testProdId,
         name: "Test Accumulation Feed",
@@ -332,10 +332,7 @@ describe("Laxmi Enterprises ERP Integration & Consistency Test Suite", () => {
         createdAt: testDate,
         updatedAt: testDate,
         extraData: {
-          openingStock: 50,
           stock: 50,
-          inwardStock: 0,
-          outwardStock: 0,
         },
       });
 
@@ -351,9 +348,8 @@ describe("Laxmi Enterprises ERP Integration & Consistency Test Suite", () => {
 
       // 3. Verify initial state before any movements
       const initBal = await getStockBalance(testProdId, getToday());
-      assert.strictEqual(initBal.openingStock, 50, "Initial opening stock must be 50");
-      assert.strictEqual(initBal.totalInward, 0, "Initial inward must be 0");
-      assert.strictEqual(initBal.balance, 50, "Initial closing stock must be 50");
+      assert.strictEqual(initBal.balance, 50, "Initial stock balance must be 50");
+      assert.strictEqual(initBal.currentStock, 50, "Initial currentStock must be 50");
 
       // 4. Record inward stock movement of 26 units
       const result = await applyStockChange(testProdId, 26, {
@@ -368,10 +364,8 @@ describe("Laxmi Enterprises ERP Integration & Consistency Test Suite", () => {
 
       // 5. Check getStockBalance aggregation
       const balAfter = await getStockBalance(testProdId, getToday());
-      assert.strictEqual(balAfter.openingStock, 50, "Opening stock must remain 50");
-      assert.strictEqual(balAfter.totalInward, 26, "Inward stock must be 26");
-      assert.strictEqual(balAfter.totalOut, 0, "Outward stock must be 0");
       assert.strictEqual(balAfter.balance, 76, "Closing stock must be exactly 76 (50 + 26)");
+      assert.strictEqual(balAfter.currentStock, 76, "Current stock must be 76");
 
       // 6. Check Inventory row currentStock in database
       const reloadedInv = await Inventory.findOne({ where: { productId: testProdId } });
@@ -379,8 +373,6 @@ describe("Laxmi Enterprises ERP Integration & Consistency Test Suite", () => {
 
       // 7. Check Product extraData in database
       const reloadedProd = await Product.findOne({ where: { productId: testProdId } });
-      assert.strictEqual(Number(reloadedProd.extraData.openingStock), 50, "Product extraData.openingStock must be 50");
-      assert.strictEqual(Number(reloadedProd.extraData.inwardStock), 26, "Product extraData.inwardStock must be 26");
       assert.strictEqual(Number(reloadedProd.extraData.stock), 76, "Product extraData.stock must be 76");
 
       // 8. Clean up test records

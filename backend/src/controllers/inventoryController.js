@@ -5,13 +5,13 @@ import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { getStockHealth } from "../services/metrics/stockMetrics.js";
-import { applyStockChange } from "../utils/stockSync.js";
-import { getToday, calculateCurrentStock } from "../constants/erpConstants.js";
+import { updateStock as updateInventoryStock } from "../utils/stockSync.js";
+import { getToday } from "../constants/erpConstants.js";
 import { sequelize } from "../config/db.js";
 
 /**
  * Get inventory overview with per-unit totals and product health
- * Shared service ensures identical numbers with Products page.
+ * Inventory is the SINGLE source of truth for stock.
  */
 export const getInventory = asyncHandler(async (req, res) => {
   const healthData = await getStockHealth(getToday());
@@ -46,6 +46,8 @@ export const getStockMovements = asyncHandler(async (req, res) => {
       movementType: m.movementType || m.type,
       direction: m.direction || (Number(m.quantityChange || 0) >= 0 ? "IN" : "OUT"),
       quantity: Number(m.quantity || Math.abs(Number(m.quantityChange || 0))),
+      stockBefore: Number(m.stockBefore || 0),
+      stockAfter: Number(m.stockAfter || 0),
       unit: m.product?.unitOfMeasure || "Bags",
       warehouseLocation: m.warehouseLocation || "Godown Bay A-1",
       referenceType: m.referenceType,
@@ -61,6 +63,7 @@ export const getStockMovements = asyncHandler(async (req, res) => {
 
 /**
  * Record a stock movement directly (inward / outward)
+ * Uses the single shared updateStock function.
  */
 export const recordStockMovement = asyncHandler(async (req, res) => {
   const { productId, adjustment, quantity, movementType, warehouseLocation, reason, notes, reference } = req.body;
@@ -81,82 +84,67 @@ export const recordStockMovement = asyncHandler(async (req, res) => {
 
   // Validate on SERVER: quantity must be a positive integer
   if (isNaN(rawQty) || !Number.isInteger(rawQty) || rawQty <= 0) {
-    throw ApiError.badRequest("Quantity must be a positive integer");
+    throw ApiError.badRequest("Quantity must be a positive integer greater than 0");
   }
 
   const isOut = String(movementType || "").toLowerCase() === "outward" ||
     String(movementType || "").toUpperCase().includes("OUT") ||
     (adjustment !== undefined && Number(adjustment) < 0);
 
-  const delta = isOut ? -rawQty : rawQty;
-  const mType = movementType
-    ? (movementType === "inward" ? "ADJUSTMENT_IN" : movementType === "outward" ? "ADJUSTMENT_OUT" : movementType)
-    : (delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT");
+  const result = await updateInventoryStock({
+    productId,
+    type: isOut ? "outward" : "inward",
+    quantity: rawQty,
+    warehouseLocation,
+    referenceType: "MANUAL",
+    reference: reference || reason || notes || "Stock Movement Entry",
+    notes: notes || reason || "",
+  });
 
-  const t = await sequelize.transaction();
-  try {
-    const result = await applyStockChange(productId, delta, {
-      warehouseLocation,
-      movementType: mType,
-      referenceType: "MANUAL",
-      reference: reference || reason || notes || "Stock Movement Entry",
-      notes: notes || reason || "",
-      transaction: t,
-    });
-    await t.commit();
-    return ApiResponse.created(res, result, `Stock movement of ${delta > 0 ? "+" : ""}${delta} recorded successfully`);
-  } catch (err) {
-    await t.rollback();
-    throw err;
-  }
+  return ApiResponse.created(res, result, `Stock movement of ${isOut ? "-" : "+"}${rawQty} recorded successfully`);
 });
 
 /**
  * Adjust stock: +inward / -outward
+ * Uses the single shared updateStock function.
  */
 export const adjustStock = asyncHandler(async (req, res) => {
   const { productId } = req.params;
-  const { adjustment, warehouseLocation, reason, movementType } = req.body;
+  const { adjustment, quantity, warehouseLocation, reason, movementType } = req.body;
 
-  if (adjustment === undefined || adjustment === null || String(adjustment).trim() === "") {
-    throw ApiError.badRequest("adjustment must be a non-zero number (+inward / -outward)");
+  const raw = quantity !== undefined ? quantity : adjustment;
+  if (raw === undefined || raw === null || String(raw).trim() === "") {
+    throw ApiError.badRequest("Quantity or adjustment is required");
   }
 
-  const rawQty = Math.abs(Number(adjustment));
+  const rawQty = Math.abs(Number(raw));
   if (isNaN(rawQty) || !Number.isInteger(rawQty) || rawQty <= 0) {
-    throw ApiError.badRequest("Quantity must be a positive integer");
+    throw ApiError.badRequest("Quantity must be a positive integer greater than 0");
   }
 
   const isOut = String(movementType || "").toLowerCase() === "outward" ||
     String(movementType || "").toUpperCase().includes("OUT") ||
     Number(adjustment) < 0;
 
-  const qty = isOut ? -rawQty : rawQty;
-  const mType = movementType || (qty > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT");
+  const result = await updateInventoryStock({
+    productId,
+    type: isOut ? "outward" : "inward",
+    quantity: rawQty,
+    warehouseLocation,
+    referenceType: "ADJUSTMENT",
+    reference: reason || "Manual stock adjustment",
+    notes: reason || "",
+  });
 
-  const t = await sequelize.transaction();
-  try {
-    const result = await applyStockChange(productId, qty, {
-      warehouseLocation,
-      movementType: mType,
-      referenceType: "ADJUSTMENT",
-      reference: reason || "Manual stock adjustment",
-      transaction: t,
-    });
-    await t.commit();
-    return ApiResponse.success(
-      res,
-      result,
-      `Stock ${qty > 0 ? "increased" : "decreased"} successfully`
-    );
-  } catch (err) {
-    await t.rollback();
-    throw err;
-  }
+  return ApiResponse.success(
+    res,
+    result,
+    `Stock ${isOut ? "decreased" : "increased"} successfully`
+  );
 });
 
 /**
- * Update stock metadata or quantity directly
+ * Update stock metadata directly (e.g. minStockAlert, warehouseLocation)
  */
 export const updateStock = asyncHandler(async (req, res) => {
   const { productId } = req.params;
@@ -174,8 +162,10 @@ export const updateStock = asyncHandler(async (req, res) => {
     const target = Number(currentStock ?? quantity);
     const diff = target - Number(inv.currentStock || 0);
     if (diff !== 0) {
-      await applyStockChange(productId, diff, {
-        movementType: diff > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT",
+      await updateInventoryStock({
+        productId,
+        type: diff > 0 ? "inward" : "outward",
+        quantity: Math.abs(diff),
         referenceType: "ADJUSTMENT",
         reference: notes || "Direct inventory adjustment",
       });

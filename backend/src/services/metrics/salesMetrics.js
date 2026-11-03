@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { Invoice, Payment, InvoiceLine, Client } from "../../models/index.js";
+import { Invoice, Payment, Collection, InvoiceLine, Client } from "../../models/index.js";
 import { resolveDateRange, formatISTDateString } from "./dateRangeHelper.js";
 import { getToday, TRANSACTION_STATUSES, deriveTransactionStatus } from "../../constants/erpConstants.js";
 
@@ -87,10 +87,15 @@ export async function getSalesSummary(range = "fy", asOfDate = getToday()) {
     else if (derivedStatus === TRANSACTION_STATUSES.CANCELLED) counts.cancelled += 1;
   }
 
-  const pendingDues = Math.max(0, grossInvoiced - collectedAmount);
+  // Dashboard/Sales metrics read collection totals directly from the Collection data
+  const colSummary = await getCollections(range, asOfDate);
+  const collectionsCollected = Number(colSummary.totalCollected || 0);
+  const effectiveCollected = colSummary.paymentCount > 0 ? collectionsCollected : collectedAmount;
+
+  const pendingDues = Math.max(0, grossInvoiced - effectiveCollected);
   const grossProfit = taxableRevenue - totalCost;
   const grossMarginPct = taxableRevenue > 0 ? (grossProfit / taxableRevenue) * 100 : null;
-  const realizedPct = grossInvoiced > 0 ? (collectedAmount / grossInvoiced) * 100 : null;
+  const realizedPct = grossInvoiced > 0 ? (effectiveCollected / grossInvoiced) * 100 : null;
   const averageTicket = counts.all > 0 ? taxableRevenue / counts.all : null;
   const roundOff = Math.round((grossInvoiced - (taxableRevenue + gstCollected)) * 100) / 100;
 
@@ -108,7 +113,7 @@ export async function getSalesSummary(range = "fy", asOfDate = getToday()) {
     totalCost,
     grossProfit,
     grossMarginPct: grossMarginPct !== null ? Math.round(grossMarginPct * 10) / 10 : null,
-    collectedAmount,
+    collectedAmount: effectiveCollected,
     pendingDues,
     outstandingReceivables: pendingDues,
     realizedPct: realizedPct !== null ? Math.round(realizedPct * 10) / 10 : null,
@@ -126,14 +131,16 @@ export async function getSalesSummary(range = "fy", asOfDate = getToday()) {
 export async function getCollections(range = "fy", asOfDate = getToday()) {
   const { startDate, endDate, isAllTime, label } = resolveDateRange(range, asOfDate);
 
-  const whereClause = {};
+  const whereClause = {
+    status: { [Op.ne]: "Cancelled" },
+  };
   if (!isAllTime) {
     const startUTC = new Date(`${startDate}T00:00:00+05:30`);
     const endUTC = new Date(`${endDate}T23:59:59.999+05:30`);
     whereClause.paymentDate = { [Op.between]: [startUTC, endUTC] };
   }
 
-  const payments = await Payment.findAll({
+  const collections = await Collection.findAll({
     where: whereClause,
     order: [["paymentDate", "ASC"]],
   });
@@ -141,10 +148,10 @@ export async function getCollections(range = "fy", asOfDate = getToday()) {
   let totalCollected = 0;
   const byMode = {};
 
-  for (const p of payments) {
-    const amt = Number(p.amount || 0);
+  for (const c of collections) {
+    const amt = Number(c.amount || 0);
     totalCollected += amt;
-    const mode = p.paymentMode || "Other";
+    const mode = c.paymentMode || "Other";
     byMode[mode] = (byMode[mode] || 0) + amt;
   }
 
@@ -153,7 +160,7 @@ export async function getCollections(range = "fy", asOfDate = getToday()) {
     startDate,
     endDate,
     totalCollected,
-    paymentCount: payments.length,
+    paymentCount: collections.length,
     byMode,
   };
 }

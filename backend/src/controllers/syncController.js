@@ -1,6 +1,6 @@
 import { toInventoryView, applyStockChange } from "../utils/stockSync.js";
 import { Op } from "sequelize";
-import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company, Target, Expense } from "../models/index.js";
+import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company, Target, Expense, Collection, Payment } from "../models/index.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { getStockHealth, getStockBalance } from "../services/metrics/stockMetrics.js";
@@ -12,13 +12,19 @@ import { getToday, evaluateStockHealth, canonicalClientType, canonicalVendorType
  * Get all ERP data from MySQL database with server-derived metrics
  */
 export const getAllData = asyncHandler(async (req, res) => {
-  const [clients, vendors, products, inventory, purchases, invoices, expoLeads, company, targets, healthData, receivablesData, payablesData, expenses] = await Promise.all([
+  const [clients, vendors, products, inventory, purchases, invoices, expoLeads, company, targets, healthData, receivablesData, payablesData, expenses, collections] = await Promise.all([
     Client.findAll({ order: [["createdAt", "DESC"]] }),
     Vendor.findAll({ order: [["createdAt", "DESC"]] }),
     Product.findAll({ include: [{ model: Inventory, as: "inventory" }], order: [["createdAt", "DESC"]] }),
     Inventory.findAll({ order: [["productName", "ASC"]] }),
     Purchase.findAll({ order: [["createdAt", "DESC"]] }),
-    Invoice.findAll({ order: [["createdAt", "DESC"]] }),
+    Invoice.findAll({
+      include: [
+        { model: Payment, as: "payments" },
+        { model: Collection, as: "collections" },
+      ],
+      order: [["createdAt", "DESC"]],
+    }),
     ExpoLead.findAll({ order: [["createdAt", "DESC"]] }),
     Company.findOne({ where: { id: 1 } }),
     Target.findAll({ order: [["fiscalYear", "DESC"], ["quarter", "ASC"]] }),
@@ -26,6 +32,7 @@ export const getAllData = asyncHandler(async (req, res) => {
     getReceivables(getToday()),
     getVendorPayables(getToday()),
     Expense.findAll({ order: [["expenseDate", "DESC"], ["createdAt", "DESC"]] }),
+    Collection.findAll({ order: [["paymentDate", "DESC"], ["createdAt", "DESC"]] }),
   ]);
 
   const prodMap = new Map(products.map((p) => [p.productId, p]));
@@ -71,20 +78,13 @@ export const getAllData = asyncHandler(async (req, res) => {
       products: products.map((p) => {
         const json = p.toJSON();
         const metrics = healthMap.get(p.productId);
-        const openStock = metrics ? metrics.openingStock : Number(json.openingStock ?? json.extraData?.openingStock ?? 0);
-        const inW = metrics ? metrics.totalInward : Number(json.inwardStock ?? json.extraData?.inwardStock ?? 0);
-        const outW = metrics ? metrics.totalOut : Number(json.outwardStock ?? json.extraData?.outwardStock ?? 0);
-        const balance = metrics ? metrics.currentBalance : calculateCurrentStock({ opening: openStock, inward: inW, outward: outW });
+        const inv = prodMap.get(p.productId);
+        const balance = metrics ? metrics.currentBalance : Number(inv?.currentStock ?? json.stock ?? json.extraData?.stock ?? 0);
         const valAtCost = metrics ? metrics.valuationAtCost : balance * Number(p.costPrice || 0);
         return {
           ...json,
           stock: balance,
           currentStock: balance,
-          openingStock: openStock,
-          in: inW,
-          inwardStock: inW,
-          out: outW,
-          outwardStock: outW,
           inventoryValue: valAtCost,
           valuationAtCost: valAtCost,
           unitOfMeasure: p.unitOfMeasure || p.unit || "Bags",
@@ -97,17 +97,9 @@ export const getAllData = asyncHandler(async (req, res) => {
           const p = prodMap.get(i.productId);
           const metrics = healthMap.get(i.productId);
           const base = toInventoryView(i, p);
-          const openStock = metrics ? metrics.openingStock : Number(p?.extraData?.openingStock ?? 0);
-          const inW = metrics ? metrics.totalInward : Number(p?.extraData?.inwardStock ?? 0);
-          const outW = metrics ? metrics.totalOut : Number(p?.extraData?.outwardStock ?? 0);
-          const balance = metrics ? metrics.currentBalance : calculateCurrentStock({ opening: openStock, inward: inW, outward: outW });
+          const balance = metrics ? metrics.currentBalance : Number(i.currentStock || 0);
           return {
             ...base,
-            openingStock: openStock,
-            in: inW,
-            out: outW,
-            inwardStock: inW,
-            outwardStock: outW,
             stock: balance,
             currentStock: balance,
             reorderLevel: p?.reorderLevel !== null && p?.reorderLevel !== undefined ? Number(p.reorderLevel) : null,
@@ -119,10 +111,7 @@ export const getAllData = asyncHandler(async (req, res) => {
           .filter((p) => !inventory.some((i) => i.productId === p.productId))
           .map((p) => {
             const metrics = healthMap.get(p.productId);
-            const openStock = metrics ? metrics.openingStock : Number(p.extraData?.openingStock ?? 0);
-            const inW = metrics ? metrics.totalInward : Number(p.extraData?.inwardStock ?? 0);
-            const outW = metrics ? metrics.totalOut : Number(p.extraData?.outwardStock ?? 0);
-            const balance = metrics ? metrics.currentBalance : calculateCurrentStock({ opening: openStock, inward: inW, outward: outW });
+            const balance = metrics ? metrics.currentBalance : Number(p.extraData?.stock ?? 0);
             return {
               productId: p.productId,
               productName: p.name,
@@ -130,11 +119,6 @@ export const getAllData = asyncHandler(async (req, res) => {
               unit: p.unitOfMeasure || p.unit || "Bags",
               currentStock: balance,
               stock: balance,
-              openingStock: openStock,
-              in: inW,
-              out: outW,
-              inwardStock: inW,
-              outwardStock: outW,
               minStockAlert: Number(p.reorderLevel || 10),
               reorderLevel: p.reorderLevel !== null && p.reorderLevel !== undefined ? Number(p.reorderLevel) : null,
               warehouseLocation: p.warehouseLocation || "Main Warehouse",
@@ -143,7 +127,12 @@ export const getAllData = asyncHandler(async (req, res) => {
           }),
       ],
       purchases: purchases.map((p) => p.toJSON()),
-      invoices: invoices.map((inv) => inv.toJSON()),
+      invoices: invoices.map((inv) => ({
+        ...inv.toJSON(),
+        payments: (inv.payments || []).map((p) => (typeof p.toJSON === "function" ? p.toJSON() : p)),
+        collections: (inv.collections || []).map((c) => (typeof c.toJSON === "function" ? c.toJSON() : c)),
+      })),
+      collections: collections.map((c) => (typeof c.toJSON === "function" ? c.toJSON() : c)),
       expoLeads: expoLeads.map((e) => e.toJSON()),
       company: company ? company.toJSON() : null,
       targets: targets.map((t) => t.toJSON()),
@@ -350,26 +339,16 @@ export const syncProducts = asyncHandler(async (req, res) => {
     const productId = String(item.productId || item.id || "");
     if (!productId) continue;
 
-    let openingStock = Math.max(0, Number(item.openingStock ?? 0));
-    let inwardStock = Math.max(0, Number(item.inwardStock ?? 0));
-    const outwardStock = Math.max(0, Number(item.outwardStock ?? 0));
-
-    let requestedStock = calculateCurrentStock({ opening: openingStock, inward: inwardStock, outward: outwardStock });
-    if (requestedStock === 0 && Number(item.stock ?? item.currentStock ?? 0) > 0) {
-      requestedStock = Number(item.stock ?? item.currentStock ?? 0);
-      if (openingStock === 0 && inwardStock === 0) {
-        openingStock = requestedStock;
-      }
-    }
+    const rawInitial = Number(item.initialStock ?? item.quantity ?? item.stock ?? 0);
+    const initialQty = !isNaN(rawInitial) && rawInitial > 0 ? (Number.isInteger(rawInitial) ? rawInitial : Math.floor(rawInitial)) : 0;
 
     const extraData = {
       ...(item.extraData || {}),
-      stock: requestedStock,
-      openingStock,
-      inwardStock,
-      outwardStock,
       minStock: item.minStock || item.reorderLevel || 10,
     };
+    delete extraData.openingStock;
+    delete extraData.inwardStock;
+    delete extraData.outwardStock;
     delete extraData.reservedStock;
 
     const productData = {
@@ -383,7 +362,7 @@ export const syncProducts = asyncHandler(async (req, res) => {
       purchasePrice: Number(item.purchasePrice || item.costPrice || 0),
       costPrice: Number(item.costPrice || item.purchasePrice || 0),
       sellingPrice: Number(item.sellingPrice || item.price || 0),
-      gstRate: Number(item.gstRate || 18),
+      gstRate: Number(item.gstRate || (item.category === "Dairy" ? 0 : 5)),
       reorderLevel: item.reorderLevel !== null && item.reorderLevel !== undefined ? Number(item.reorderLevel) : null,
       warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
       description: item.description || "",
@@ -407,66 +386,33 @@ export const syncProducts = asyncHandler(async (req, res) => {
         productName: record.name,
         category: record.category,
         unit: record.unit,
-        currentStock: requestedStock,
+        currentStock: initialQty,
         minStockAlert: Number(item.reorderLevel ?? item.minStockAlert ?? 10),
         warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
       });
+      if (initialQty > 0) {
+        await StockMovement.create({
+          productId,
+          movementType: "INWARD",
+          quantity: initialQty,
+          direction: "IN",
+          quantityChange: initialQty,
+          stockBefore: 0,
+          stockAfter: initialQty,
+          referenceType: "INITIAL_STOCK",
+          referenceId: "INITIAL-STOCK",
+          warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
+          notes: `Initial stock inward for ${record.name}`,
+        });
+      }
     } else {
       await inv.update({
         productName: record.name,
         category: record.category,
         unit: record.unit,
-        currentStock: requestedStock,
         minStockAlert: Number(item.reorderLevel ?? inv.minStockAlert),
         warehouseLocation: item.warehouseLocation || inv.warehouseLocation,
       });
-    }
-
-    // Ensure OPENING movement exists in ledger if product has opening stock
-    const existingOpening = await StockMovement.findOne({
-      where: { productId, movementType: "OPENING" },
-    });
-
-    if (!existingOpening && openingStock > 0) {
-      await StockMovement.create({
-        productId,
-        movementType: "OPENING",
-        quantity: openingStock,
-        direction: "IN",
-        quantityChange: openingStock,
-        balanceAfter: openingStock,
-        referenceType: "OPENING",
-        referenceId: "INITIAL-STOCK",
-        warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
-        notes: `Opening stock baseline for ${record.name}`,
-      });
-    }
-
-    if (created && inwardStock > 0) {
-      await StockMovement.create({
-        productId,
-        movementType: "ADJUSTMENT_IN",
-        quantity: inwardStock,
-        direction: "IN",
-        quantityChange: inwardStock,
-        balanceAfter: openingStock + inwardStock,
-        referenceType: "INWARD",
-        referenceId: "INITIAL-INWARD",
-        warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
-        notes: `Initial inward received for ${record.name}`,
-      });
-    } else if (!created && item.stock !== undefined) {
-      const balanceInfo = await getStockBalance(productId);
-      const delta = requestedStock - balanceInfo.balance;
-      if (delta !== 0) {
-        await applyStockChange(productId, delta, {
-          movementType: delta > 0 ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT",
-          referenceType: "ADJUSTMENT",
-          reference: "PRODUCT_UPDATE",
-          warehouseLocation: item.warehouseLocation || "Main Warehouse - Bay 01",
-          notes: `Stock updated via product edit (${delta > 0 ? "+" : ""}${delta})`,
-        });
-      }
     }
   }
 

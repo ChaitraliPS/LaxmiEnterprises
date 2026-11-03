@@ -4,7 +4,7 @@ import { Purchase, PurchaseLine, Product, Vendor, VendorPayment, Inventory, Stoc
 import { ApiError } from "../utils/apiError.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { applyStockChange } from "../utils/stockSync.js";
+import { updateStock, applyStockChange } from "../utils/stockSync.js";
 import { generatePurchaseNumber, generateVendorPaymentNumber } from "../utils/numberSequence.js";
 import { getToday, deriveTransactionStatus, TRANSACTION_STATUSES, VENDOR_TYPES } from "../constants/erpConstants.js";
 
@@ -322,10 +322,12 @@ export const createPurchase = asyncHandler(async (req, res) => {
       );
     }
 
-    // 6. Record PURCHASE_IN movements in the same transaction
+    // 6. Record inward stock movements via updateStock in the same transaction
     for (const vLine of validatedLines) {
-      await applyStockChange(vLine.productId, vLine.quantity, {
-        movementType: "PURCHASE_IN",
+      await updateStock({
+        productId: vLine.productId,
+        type: "inward",
+        quantity: vLine.quantity,
         referenceType: "PURCHASE_BILL",
         reference: purchaseId,
         warehouseLocation: vLine.warehouseLocation || "Main Warehouse - Bay 01",
@@ -532,10 +534,12 @@ export const deletePurchase = asyncHandler(async (req, res) => {
       return ApiResponse.success(res, purchase, "Purchase bill is already cancelled");
     }
 
-    // 1. Reverse stock movements (ADJUSTMENT_OUT / reversal)
+    // 1. Reverse stock movements (outward / reversal via updateStock)
     for (const line of purchase.lines || []) {
-      await applyStockChange(line.productId, -line.quantity, {
-        movementType: "ADJUSTMENT_OUT",
+      await updateStock({
+        productId: line.productId,
+        type: "outward",
+        quantity: line.quantity,
         referenceType: "CANCEL_PURCHASE",
         reference: `Cancelled ${purchase.purchaseId}`,
         warehouseLocation: line.warehouseLocation,

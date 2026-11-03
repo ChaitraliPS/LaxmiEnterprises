@@ -188,19 +188,14 @@ describe("Outward Stock Equation & Race Safety Test Suite", () => {
 
       // Verify DB equilibrium
       const balance = await getStockBalance(TEST_PID, getToday());
-      assert.strictEqual(balance.openingStock, 50, "Opening stock must be 50");
-      assert.strictEqual(balance.totalInward, 50, "Inward stock must be 50");
-      assert.strictEqual(balance.totalOut, 30, "Outward stock must be 30");
       assert.strictEqual(balance.balance, 70, "Current stock must be 70 (50 + 50 - 30)");
+      assert.strictEqual(balance.currentStock, 70, "Current stock must be 70");
 
       const updatedInv = await Inventory.findOne({ where: { productId: TEST_PID } });
       assert.strictEqual(Number(updatedInv.currentStock), 70, "Inventory.currentStock in DB must be 70");
 
       const updatedProd = await Product.findOne({ where: { productId: TEST_PID } });
       assert.strictEqual(Number(updatedProd.extraData.stock), 70, "Product.extraData.stock must be 70");
-      assert.strictEqual(Number(updatedProd.extraData.openingStock), 50);
-      assert.strictEqual(Number(updatedProd.extraData.inwardStock), 50);
-      assert.strictEqual(Number(updatedProd.extraData.outwardStock), 30);
     });
 
     it("Case 2: outward greater than current stock -> rejected, stock unchanged", async () => {
@@ -245,10 +240,8 @@ describe("Outward Stock Equation & Race Safety Test Suite", () => {
       assert.strictEqual(res.data.data.newBalance, 0, "Stock must reach exactly 0");
 
       const balance = await getStockBalance(TEST_PID, getToday());
-      assert.strictEqual(balance.openingStock, 50);
-      assert.strictEqual(balance.totalInward, 50);
-      assert.strictEqual(balance.totalOut, 100); // 30 + 70 = 100
-      assert.strictEqual(balance.balance, 0, "50 + 50 - 100 = 0");
+      assert.strictEqual(balance.balance, 0, "Current stock must be 0");
+      assert.strictEqual(balance.currentStock, 0, "Current stock must be 0");
 
       const inv = await Inventory.findOne({ where: { productId: TEST_PID } });
       assert.strictEqual(Number(inv.currentStock), 0);
@@ -344,21 +337,16 @@ describe("Outward Stock Equation & Race Safety Test Suite", () => {
       assert.strictEqual(res.statusCode, 201);
       assert.strictEqual(res.data.data.newBalance, 45, "10 + 35 = 45");
 
-      // Verify the equation: Opening (50) + Inward (35) - Outward (40) = 45
+      // Verify stock in DB
       const balance = await getStockBalance(CONCURRENT_PID, getToday());
-      assert.strictEqual(balance.openingStock, 50, "Opening stock must remain 50");
-      assert.strictEqual(balance.totalInward, 35, "Inward stock must be 35");
-      assert.strictEqual(balance.totalOut, 40, "Outward stock must be 40");
-      assert.strictEqual(balance.balance, 45, "Equation must strictly balance: 50 + 35 - 40 = 45");
+      assert.strictEqual(balance.balance, 45, "Equation must strictly balance: 10 + 35 = 45");
+      assert.strictEqual(balance.currentStock, 45, "Current stock must be 45");
 
       const inv = await Inventory.findOne({ where: { productId: CONCURRENT_PID } });
       assert.strictEqual(Number(inv.currentStock), 45);
 
       const prod = await Product.findOne({ where: { productId: CONCURRENT_PID } });
       assert.strictEqual(Number(prod.extraData.stock), 45);
-      assert.strictEqual(Number(prod.extraData.openingStock), 50);
-      assert.strictEqual(Number(prod.extraData.inwardStock), 35);
-      assert.strictEqual(Number(prod.extraData.outwardStock), 40);
     });
   });
 });
