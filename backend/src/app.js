@@ -129,6 +129,7 @@ const healthCheckHandler = async (req, res) => {
 };
 app.get("/", healthCheckHandler);
 app.get("/api/health", healthCheckHandler);
+app.get("/api/v1/health", healthCheckHandler);
 app.get("/health", healthCheckHandler);
 
 // Generic File Upload Endpoint
