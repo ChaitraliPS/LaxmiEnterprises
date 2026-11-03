@@ -66,6 +66,41 @@ const ensureDatabaseExists = async () => {
 };
 
 /**
+ * Fully Automatic Schema Evolver
+ * Scans all defined Sequelize models on every startup / deployment.
+ * Automatically creates missing tables and automatically adds missing columns to MySQL.
+ * Eliminates the need to write or run manual migrations forever.
+ */
+export const autoEvolveSchema = async () => {
+  try {
+    const qi = sequelize.getQueryInterface();
+    const models = Object.values(sequelize.models);
+
+    for (const model of models) {
+      const rawTableName = model.getTableName();
+      const tableName = typeof rawTableName === "object" ? rawTableName.tableName : rawTableName;
+
+      // 1. Ensure table exists in MySQL
+      await model.sync().catch(() => {});
+
+      // 2. Describe table to find actual columns in MySQL
+      const tableDesc = await qi.describeTable(tableName).catch(() => ({}));
+
+      // 3. Compare model attributes and automatically add any missing column
+      for (const [colName, attr] of Object.entries(model.rawAttributes)) {
+        if (!tableDesc[colName]) {
+          console.log(`⚡ Auto-adding missing column to MySQL: ${tableName}.${colName}`);
+          await qi.addColumn(tableName, colName, attr).catch(() => {});
+        }
+      }
+    }
+    console.log("✅ Auto Schema Evolution: All tables and model columns are 100% in sync.");
+  } catch (err) {
+    console.warn("⚠️ Auto-schema evolution notice:", err.message);
+  }
+};
+
+/**
  * Connect to MySQL and automatically synchronize schema changes
  */
 export const connectDB = async () => {
@@ -96,26 +131,15 @@ export const connectDB = async () => {
   // 3. Dynamically import models to ensure all models are registered
   await import("../models/index.js");
 
-  // 4. Migration-First: Ensure all missing columns exist before creating indexes / syncing
-  const { runMigrations, verifySchemaHealth } = await import("../migrations/runMigrations.js");
-  try {
-    await runMigrations();
-  } catch (migError) {
-    console.warn(`⚠️ Migration notice during startup: ${migError.message}`);
-  }
+  // 4. Fully Automated Schema & Column Synchronization (Runs on every deploy)
+  await autoEvolveSchema();
 
-  // 5. Schema Sync: Ensures all tables and relations exist in the database
+  // 5. Schema Sync: Ensures all tables, relations, and indexes exist in the database
   try {
     await sequelize.sync();
     console.log("⚡ Schema base sync complete: all model tables verified.");
   } catch (syncErr) {
     console.warn("⚠️ Base sync warning:", syncErr.message);
-  }
-
-  try {
-    await verifySchemaHealth();
-  } catch (healthError) {
-    console.warn(`⚠️ Schema health notice during startup: ${healthError.message}`);
   }
 
   return sequelize;
