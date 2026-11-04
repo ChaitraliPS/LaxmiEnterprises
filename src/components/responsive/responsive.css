@@ -969,9 +969,15 @@
 @media (max-width: 600px) {
   .modal-backdrop,
   .responsive-modal-backdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 9999 !important;
     padding: 0 !important;
     align-items: flex-end !important;
     justify-content: center !important;
+    background: rgba(10, 25, 45, 0.72) !important;
+    backdrop-filter: blur(4px) !important;
+    -webkit-backdrop-filter: blur(4px) !important;
   }
 
   .modal-card,
@@ -983,18 +989,35 @@
     max-width: 100vw !important;
     margin: 0 !important;
     border-bottom: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    z-index: 10000 !important;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45) !important;
     animation: slideUpSheet 0.26s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .modal-card form,
+  .modal form,
+  .responsive-modal-card form {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
   }
 
   .modal-card .mobile-sheet-handle-bar,
   .responsive-modal-card .mobile-sheet-handle-bar {
     display: flex !important;
     padding: 10px 0 2px !important;
+    flex-shrink: 0 !important;
   }
 
   .modal-header,
   .responsive-modal-header {
     padding: 12px 16px !important;
+    flex-shrink: 0 !important;
   }
 
   .modal-header h3,
@@ -1004,27 +1027,42 @@
 
   .modal-body,
   .responsive-modal-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     padding: 14px 14px 20px !important;
-    max-height: calc(92dvh - 120px) !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
 
   .modal-footer,
   .responsive-modal-footer {
+    flex-shrink: 0 !important;
     position: sticky !important;
     bottom: 0 !important;
-    z-index: 10 !important;
+    z-index: 25 !important;
     background: var(--card-bg) !important;
     padding: 12px 14px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08) !important;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12) !important;
+    border-top: 1px solid var(--border) !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
   }
 
   .modal-footer > *,
+  .modal-footer button,
+  .modal-footer .primary,
+  .modal-footer .outline,
+  .modal-footer .btn-danger,
   .responsive-modal-footer > * {
     flex: 1 1 auto !important;
     justify-content: center !important;
     min-height: 44px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
 }
 

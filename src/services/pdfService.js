@@ -62,6 +62,14 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
     format: "a4"
   });
 
+  // Safe text wrapper to prevent any "Invalid arguments passed to jsPDF.text"
+  const _origText = doc.text.bind(doc);
+  doc.text = function(text, x, y, options, transform) {
+    if (text === null || text === undefined) text = "";
+    else if (typeof text !== "string" && !Array.isArray(text)) text = String(text);
+    return _origText(text, x, y, options, transform);
+  };
+
   const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
   const margin = 14;
   const contentWidth = pageWidth - margin * 2; // 182mm
@@ -554,6 +562,14 @@ export function generatePurchaseInvoicePDF(purchase = {}, company = {}) {
     unit: "mm",
     format: "a4"
   });
+
+  // Safe text wrapper to prevent any "Invalid arguments passed to jsPDF.text"
+  const _origText = doc.text.bind(doc);
+  doc.text = function(text, x, y, options, transform) {
+    if (text === null || text === undefined) text = "";
+    else if (typeof text !== "string" && !Array.isArray(text)) text = String(text);
+    return _origText(text, x, y, options, transform);
+  };
 
   const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
   const margin = 14;
