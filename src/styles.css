@@ -2747,6 +2747,7 @@ td b {
   /* Modals as ergonomic mobile bottom sheets */
   .modal-backdrop {
     padding: 0 !important;
+    padding-bottom: 62px !important;
     align-items: flex-end !important;
   }
 
@@ -2754,7 +2755,7 @@ td b {
   .modal {
     width: 100% !important;
     max-width: 100vw !important;
-    max-height: 92dvh !important;
+    max-height: calc(92dvh - 62px) !important;
     border-radius: 20px 20px 0 0 !important;
     margin: 0 !important;
     border-bottom: none !important;
@@ -2775,7 +2776,7 @@ td b {
   .modal-body {
     padding: 16px 14px !important;
     gap: 14px !important;
-    max-height: calc(92dvh - 125px) !important;
+    max-height: calc(92dvh - 62px - 125px) !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }

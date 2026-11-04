@@ -69,6 +69,9 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   // Default company info
   const companyInfo = {
     name: company.name || "LAXMI ENTERPRISES",
+    tagline: company.tagline || "Agribusiness, Cattle Feed & Industrial Supplies",
+    gstin: company.gstin || "27AAACL1234F1Z5",
+    pan: company.pan || "AAACL1234F",
     phone: company.phone || "+91 99210 63187",
     email: company.email || "laxmigroup616@gmail.com",
     address: company.address || "Zalta, Zalta fata Main Road , Chikalthana, Chh. Shambhajnagar - 431007, Maharashtra, India",
@@ -168,7 +171,7 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   doc.setFont("helvetica", "bold");
   doc.text("Invoice No:", metaBoxX + 4, metaBoxY + 6);
   doc.setTextColor(0, 91, 181);
-  doc.text(invoice.id, rightX - 4, metaBoxY + 6, { align: "right" });
+  doc.text(String(invoice.id || "N/A"), rightX - 4, metaBoxY + 6, { align: "right" });
 
   // Invoice Date
   doc.setTextColor(30, 41, 59);
