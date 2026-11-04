@@ -14,7 +14,9 @@ export default function PurchaseViewModal({
   onClose,
   purchase,
   company = {},
+  vendor = {},
   onEdit,
+  onRecordPayment,
   showToast,
   onRefresh
 }) {
@@ -211,36 +213,6 @@ export default function PurchaseViewModal({
       <span className="badge warning" style={{ fontSize: "0.72rem", whiteSpace: "nowrap" }}>
         Day 1 Partial
       </span>
-    )}
-        {!isCancelled && balanceDue > 0 && (
-      <button
-        type="button"
-        className="primary"
-        onClick={() => {
-          if (onRecordPayment) {
-            onRecordPayment(purchase);
-          } else {
-            setPayAmount(balanceDue > 0 ? balanceDue : purchaseTotal);
-            setShowPaymentForm(true);
-            setTimeout(() => printRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 50);
-          }
-        }}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          padding: "5px 12px",
-          fontSize: 12,
-          background: "#059669",
-          borderColor: "#059669",
-          color: "#fff",
-          cursor: "pointer"
-        }}
-        title="Record payment made to vendor for this bill"
-      >
-        <CreditCard size={14} />
-        <span>Record Payment</span>
-      </button>
     )}
     <button className="icon-btn" onClick={onClose} aria-label="Close modal">
       <X size={18} />

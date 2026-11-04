@@ -194,12 +194,14 @@
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    height: 60px !important;
+    min-height: 62px !important;
+    height: calc(62px + env(safe-area-inset-bottom, 0px)) !important;
     background: var(--card-bg) !important;
     border-top: 1px solid var(--border) !important;
     box-shadow: 0 -4px 18px rgba(0, 25, 55, 0.08) !important;
     z-index: 1000 !important;
-    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px)) !important;
+    box-sizing: border-box !important;
     align-items: center !important;
     justify-content: space-around !important;
   }
@@ -212,15 +214,34 @@
     gap: 3px !important;
     flex: 1 !important;
     height: 100% !important;
+    min-height: 48px !important;
     color: var(--text-muted) !important;
     text-decoration: none !important;
-    font-size: 10.5px !important;
+    font-size: 11px !important;
     font-weight: 600 !important;
     background: none !important;
     border: none !important;
     cursor: pointer !important;
-    padding: 4px 0 !important;
+    padding: 2px 0 !important;
     transition: color 0.15s ease, transform 0.15s ease !important;
+  }
+
+  .mobile-bottom-item svg,
+  .mobile-bottom-item .mobile-nav-icon {
+    width: 22px !important;
+    height: 22px !important;
+    min-width: 22px !important;
+    min-height: 22px !important;
+    flex-shrink: 0 !important;
+    display: block !important;
+  }
+
+  .mobile-bottom-item span,
+  .mobile-bottom-item .mobile-nav-label {
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    margin-top: 1px !important;
   }
 
   .mobile-bottom-item.active,

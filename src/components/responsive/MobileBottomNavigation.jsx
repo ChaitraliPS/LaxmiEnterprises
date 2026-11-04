@@ -20,32 +20,32 @@ export default function MobileBottomNavigation({ onOpenMore }) {
         end
         className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}
       >
-        <LayoutDashboard size={20} />
-        <span>Home</span>
+        <LayoutDashboard size={22} className="mobile-nav-icon" />
+        <span className="mobile-nav-label">Home</span>
       </NavLink>
 
       <NavLink
         to="/clients"
         className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}
       >
-        <Users size={20} />
-        <span>Clients</span>
+        <Users size={22} className="mobile-nav-icon" />
+        <span className="mobile-nav-label">Clients</span>
       </NavLink>
 
       <NavLink
         to="/invoices"
         className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}
       >
-        <Receipt size={20} />
-        <span>Sales</span>
+        <Receipt size={22} className="mobile-nav-icon" />
+        <span className="mobile-nav-label">Sales</span>
       </NavLink>
 
       <NavLink
         to="/inventory"
         className={({ isActive }) => `mobile-bottom-item ${isActive ? "active" : ""}`}
       >
-        <Boxes size={20} />
-        <span>Inventory</span>
+        <Boxes size={22} className="mobile-nav-icon" />
+        <span className="mobile-nav-label">Inventory</span>
       </NavLink>
 
       <button
@@ -54,8 +54,8 @@ export default function MobileBottomNavigation({ onOpenMore }) {
         onClick={onOpenMore}
         aria-label="Open More Modules"
       >
-        <MoreHorizontal size={20} />
-        <span>More</span>
+        <MoreHorizontal size={22} className="mobile-nav-icon" />
+        <span className="mobile-nav-label">More</span>
       </button>
     </nav>
   );

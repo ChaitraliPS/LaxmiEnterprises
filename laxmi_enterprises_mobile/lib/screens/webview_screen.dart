@@ -356,6 +356,7 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
       child: Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
         body: SafeArea(
+          bottom: false,
           child: _hasFatalError
               ? OfflineScreen(onRetry: _reloadWebView)
               : Stack(
@@ -381,22 +382,6 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
                           minHeight: 3,
                         ),
                       ),
-
-                    // ── Floating Refresh Button ────────────────────────
-                    Positioned(
-                      bottom: 18,
-                      right: 18,
-                      child: AnimatedOpacity(
-                        opacity: _loadingProgress >= 100 ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 300),
-                        child: FloatingActionButton.small(
-                          onPressed: _loadingProgress >= 100 ? _reloadWebView : null,
-                          backgroundColor: const Color(AppConfig.primaryColorHex),
-                          tooltip: 'Refresh ERP',
-                          child: const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
         ),
