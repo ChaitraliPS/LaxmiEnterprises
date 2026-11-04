@@ -516,7 +516,18 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   const cleanId = (invoice.id || "INV").replace(/[^a-zA-Z0-9_-]/g, "_");
   const fileName = `${cleanId}_Laxmi_Enterprises_Invoice.pdf`;
   try {
-    if (typeof window !== "undefined" && typeof doc.save === "function") {
+    if (typeof window !== "undefined" && window.FlutterDownloadBridge) {
+      try {
+        const dataUri = doc.output("datauristring");
+        window.FlutterDownloadBridge.postMessage(JSON.stringify({
+          filename: fileName,
+          dataUrl: dataUri
+        }));
+      } catch(e) {
+        console.error("Flutter bridge error:", e);
+        if (typeof doc.save === "function") doc.save(fileName);
+      }
+    } else if (typeof window !== "undefined" && typeof doc.save === "function") {
       doc.save(fileName);
     }
   } catch (saveErr) {
@@ -1010,7 +1021,18 @@ export function generatePurchaseInvoicePDF(purchase = {}, company = {}) {
   const cleanId = (purchase.id || "PUR").replace(/[^a-zA-Z0-9_-]/g, "_");
   const fileName = `${cleanId}_Purchase_Receipt.pdf`;
   try {
-    if (typeof window !== "undefined" && typeof doc.save === "function") {
+    if (typeof window !== "undefined" && window.FlutterDownloadBridge) {
+      try {
+        const dataUri = doc.output("datauristring");
+        window.FlutterDownloadBridge.postMessage(JSON.stringify({
+          filename: fileName,
+          dataUrl: dataUri
+        }));
+      } catch(e) {
+        console.error("Flutter bridge error:", e);
+        if (typeof doc.save === "function") doc.save(fileName);
+      }
+    } else if (typeof window !== "undefined" && typeof doc.save === "function") {
       doc.save(fileName);
     }
   } catch (saveErr) {

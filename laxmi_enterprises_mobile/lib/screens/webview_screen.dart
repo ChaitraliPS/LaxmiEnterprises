@@ -6,6 +6,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:open_filex/open_filex.dart';
 import '../config/app_config.dart';
 import 'offline_screen.dart';
 
@@ -24,66 +25,106 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   int _loadingProgress = 0;
   bool _hasFatalError = false;
 
-  // JavaScript injection script to intercept Blob/Data URL file downloads (PDFs, CSVs, vCards, Backups)
+  // Comprehensive JavaScript injection to intercept PDF and file downloads across all libraries (jsPDF, FileSaver, Blob URLs)
   static const String _downloadBridgeJs = r'''
   (function() {
     if (window.__le_download_bridge_installed) return;
     window.__le_download_bridge_installed = true;
 
-    function deliverPayload(filename, dataUrl) {
-      if (window.FlutterDownloadBridge) {
-        window.FlutterDownloadBridge.postMessage(JSON.stringify({
-          filename: filename || 'document',
-          dataUrl: dataUrl
-        }));
-      }
-    }
-
-    function processBlobOrData(filename, url) {
-      if (!url) return;
-      if (url.startsWith('blob:')) {
-        fetch(url)
-          .then(res => res.blob())
-          .then(blob => {
-            const reader = new FileReader();
-            reader.onloadend = function() {
-              deliverPayload(filename, reader.result);
-            };
-            reader.readAsDataURL(blob);
-          })
-          .catch(err => console.error('Blob read error:', err));
-      } else if (url.startsWith('data:')) {
-        deliverPayload(filename, url);
-      }
-    }
-
-    // Intercept standard anchor clicks
-    document.addEventListener('click', function(e) {
-      const anchor = e.target.closest('a[download]');
-      if (anchor && anchor.href) {
-        const downloadAttr = anchor.getAttribute('download') || anchor.download || 'download';
-        if (anchor.href.startsWith('blob:') || anchor.href.startsWith('data:')) {
-          e.preventDefault();
-          processBlobOrData(downloadAttr, anchor.href);
+    function deliver(filename, dataUrl) {
+      try {
+        if (window.FlutterDownloadBridge) {
+          window.FlutterDownloadBridge.postMessage(JSON.stringify({
+            filename: filename || 'document.pdf',
+            dataUrl: dataUrl
+          }));
         }
+      } catch (err) {
+        console.error('FlutterDownloadBridge post error:', err);
       }
-    }, true);
+    }
 
-    // Intercept programmatic click calls (jsPDF, dynamic CSV generators)
-    const originalClick = HTMLAnchorElement.prototype.click;
+    function process(filename, blobOrUrl) {
+      if (!blobOrUrl) return;
+      try {
+        if (blobOrUrl instanceof Blob) {
+          const reader = new FileReader();
+          reader.onloadend = function() {
+            deliver(filename, reader.result);
+          };
+          reader.readAsDataURL(blobOrUrl);
+        } else if (typeof blobOrUrl === 'string') {
+          if (blobOrUrl.startsWith('data:')) {
+            deliver(filename, blobOrUrl);
+          } else if (blobOrUrl.startsWith('blob:')) {
+            fetch(blobOrUrl)
+              .then(res => res.blob())
+              .then(blob => {
+                const reader = new FileReader();
+                reader.onloadend = function() {
+                  deliver(filename, reader.result);
+                };
+                reader.readAsDataURL(blob);
+              })
+              .catch(err => console.error('Blob fetch error:', err));
+          }
+        }
+      } catch (e) {
+        console.error('Process error:', e);
+      }
+    }
+
+    // 1. Intercept window.saveAs (jsPDF checks globalObject.saveAs before creating <a> tag!)
+    window.saveAs = function(blob, filename) {
+      console.log('Intercepted window.saveAs for:', filename);
+      process(filename, blob);
+    };
+
+    // 2. Intercept HTMLAnchorElement.prototype.dispatchEvent (for detached <a> tags in file downloaders)
+    const origDispatch = HTMLAnchorElement.prototype.dispatchEvent;
+    HTMLAnchorElement.prototype.dispatchEvent = function(evt) {
+      try {
+        if (evt && (evt.type === 'click' || evt.type === 'MouseEvents')) {
+          const downloadAttr = this.getAttribute('download') || this.download;
+          const href = this.href;
+          if (downloadAttr && href && (href.startsWith('blob:') || href.startsWith('data:'))) {
+            process(downloadAttr, href);
+            return true;
+          }
+        }
+      } catch(e) {
+        console.error(e);
+      }
+      return origDispatch.apply(this, arguments);
+    };
+
+    // 3. Intercept HTMLAnchorElement.prototype.click
+    const origClick = HTMLAnchorElement.prototype.click;
     HTMLAnchorElement.prototype.click = function() {
       try {
         const downloadAttr = this.getAttribute('download') || this.download;
         const href = this.href;
         if (downloadAttr && href && (href.startsWith('blob:') || href.startsWith('data:'))) {
-          processBlobOrData(downloadAttr, href);
+          process(downloadAttr, href);
           return;
         }
-      } catch (err) {
-        console.error('Download intercept error:', err);
+      } catch(e) {
+        console.error(e);
       }
-      return originalClick.apply(this, arguments);
+      return origClick.apply(this, arguments);
     };
+
+    // 4. Intercept document click bubbling
+    document.addEventListener('click', function(e) {
+      const anchor = e.target.closest('a[download]');
+      if (anchor && anchor.href) {
+        const downloadAttr = anchor.getAttribute('download') || anchor.download;
+        if (anchor.href.startsWith('blob:') || anchor.href.startsWith('data:')) {
+          e.preventDefault();
+          process(downloadAttr, anchor.href);
+        }
+      }
+    }, true);
   })();
   ''';
 
@@ -103,47 +144,66 @@ class _WebViewScreenState extends State<WebViewScreen> with WidgetsBindingObserv
   // ── Handle downloaded files from JavaScript bridge ────────────────────────
   Future<void> _handleFileDownload(String rawJson) async {
     try {
+      debugPrint('FlutterDownloadBridge received file download message');
       final data = jsonDecode(rawJson) as Map<String, dynamic>;
-      final fileName = (data['filename'] as String? ?? 'document').replaceAll(RegExp(r'[^\w\.\-]'), '_');
+      final rawName = data['filename'] as String? ?? 'document.pdf';
+      final fileName = rawName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
       final dataUrl = data['dataUrl'] as String? ?? '';
 
       if (!dataUrl.contains(',')) return;
       final base64String = dataUrl.split(',').last;
       final bytes = base64Decode(base64String);
 
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/$fileName');
-      await file.writeAsBytes(bytes);
+      // Determine public downloads directory on Android (/storage/emulated/0/Download)
+      Directory? targetDir;
+      if (Platform.isAndroid) {
+        final publicDownload = Directory('/storage/emulated/0/Download');
+        if (await publicDownload.exists()) {
+          targetDir = publicDownload;
+        }
+      }
+      if (targetDir == null) {
+        final extDirs = await getExternalStorageDirectories(type: StorageDirectory.downloads);
+        if (extDirs != null && extDirs.isNotEmpty) {
+          targetDir = extDirs.first;
+        }
+      }
+      targetDir ??= await getApplicationDocumentsDirectory();
+
+      final file = File('${targetDir.path}/$fileName');
+      await file.writeAsBytes(bytes, flush: true);
+      debugPrint('File saved successfully to: ${file.path}');
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Downloaded: $fileName'),
+          content: Text('✓ Saved to Downloads: $fileName'),
           action: SnackBarAction(
-            label: 'Share / View',
+            label: 'Open',
             textColor: const Color(AppConfig.accentColorHex),
-            onPressed: () {
-              SharePlus.instance.share(
-                ShareParams(
-                  files: [XFile(file.path)],
-                  subject: 'Laxmi Enterprises - $fileName',
-                ),
-              );
+            onPressed: () async {
+              await OpenFilex.open(file.path);
             },
           ),
-          duration: const Duration(seconds: 5),
+          duration: const Duration(seconds: 7),
           behavior: SnackBarBehavior.floating,
         ),
       );
 
-      // Automatically open system share/save sheet so user can save to device or send via WhatsApp/Email
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          subject: 'Laxmi Enterprises - $fileName',
-        ),
-      );
+      // Automatically open the downloaded file so user sees it instantly
+      try {
+        await OpenFilex.open(file.path);
+      } catch (err) {
+        debugPrint('OpenFilex error: $err');
+        // Fallback to share sheet
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [XFile(file.path)],
+            subject: 'Laxmi Enterprises - $fileName',
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('Error saving downloaded file: $e');
     }
