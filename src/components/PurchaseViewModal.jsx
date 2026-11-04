@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import {
-  X, Download, ShoppingCart, Milk, Tractor, Wheat,
+  X, Download, ShoppingCart, Milk, Tractor, Wheat, Trash2,
   MapPin, Phone, Mail, Calendar, ShieldCheck, Edit3,
   CreditCard, Ban, CheckCircle2
 } from "lucide-react";
@@ -51,20 +51,7 @@ export default function PurchaseViewModal({
     }
   };
 
-  const handleWhatsApp = () => {
-    try {
-      const url = getPurchaseWhatsAppUrl(purchase, company);
-      window.open(url, "_blank", "noopener,noreferrer");
-      if (showToast) {
-        showToast(`✓ Opened WhatsApp to send purchase receipt to ${purchase.vendorName || "supplier"}`);
-      }
-    } catch (err) {
-      console.error("WhatsApp launch failed:", err);
-      if (showToast) {
-        showToast("⚠️ Could not open WhatsApp: " + err.message);
-      }
-    }
-  };
+
 
   const parseList = (val) => {
     if (!val) return [];
@@ -103,6 +90,41 @@ export default function PurchaseViewModal({
     } catch (err) {
       console.error("Failed to record vendor payment:", err);
       if (showToast) showToast(`⚠️ Failed to record vendor payment: ${err.response?.data?.message || err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Compute vendor payment history with running balance
+  const paymentList = (purchase.vendorPayments || purchase.payments || []).filter(p => p.status !== "Cancelled");
+  let cumulativePaid = 0;
+  const paymentHistoryWithRunningBalance = paymentList.map((p) => {
+    const pAmt = Number(p.amount || 0);
+    cumulativePaid += pAmt;
+    const runBal = Math.max(0, purchaseTotal - cumulativePaid);
+    return {
+      ...p,
+      amount: pAmt,
+      cumulativePaid,
+      runningBalance: runBal,
+    };
+  });
+
+  const handleDeletePayment = async (paymentId, paymentAmount) => {
+    const targetId = purchase.purchaseId || purchase.id;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete Payment #${paymentId} (₹${Number(paymentAmount).toLocaleString("en-IN")})? This will update the purchase balance due and revert the vendor outstanding payable.`
+    );
+    if (!confirmed) return;
+    setIsSubmitting(true);
+    try {
+      await erpApi.deleteVendorPayment(targetId, paymentId);
+      if (showToast) showToast(`✓ Payment #${paymentId} deleted and balance updated.`);
+      if (onRefresh) await onRefresh();
+      onClose();
+    } catch (err) {
+      console.error("Failed to delete vendor payment:", err);
+      if (showToast) showToast(`⚠️ Failed to delete payment: ${err.response?.data?.message || err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -189,6 +211,36 @@ export default function PurchaseViewModal({
       <span className="badge warning" style={{ fontSize: "0.72rem", whiteSpace: "nowrap" }}>
         Day 1 Partial
       </span>
+    )}
+        {!isCancelled && balanceDue > 0 && (
+      <button
+        type="button"
+        className="primary"
+        onClick={() => {
+          if (onRecordPayment) {
+            onRecordPayment(purchase);
+          } else {
+            setPayAmount(balanceDue > 0 ? balanceDue : purchaseTotal);
+            setShowPaymentForm(true);
+            setTimeout(() => printRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 50);
+          }
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "5px 12px",
+          fontSize: 12,
+          background: "#059669",
+          borderColor: "#059669",
+          color: "#fff",
+          cursor: "pointer"
+        }}
+        title="Record payment made to vendor for this bill"
+      >
+        <CreditCard size={14} />
+        <span>Record Payment</span>
+      </button>
     )}
     <button className="icon-btn" onClick={onClose} aria-label="Close modal">
       <X size={18} />
@@ -649,6 +701,80 @@ export default function PurchaseViewModal({
             </div>
           )}
 
+                    {/* Vendor Payment Settlement History & Outflow Ledger */}
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)", marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-main)", display: "flex", alignItems: "center", gap: 6 }}>
+                <CreditCard size={15} color="#059669" />
+                <span>Vendor Payment Settlement History & Outflow Ledger</span>
+              </div>
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                {paymentHistoryWithRunningBalance.length} payment{paymentHistoryWithRunningBalance.length === 1 ? "" : "s"} recorded
+              </span>
+            </div>
+
+            {paymentHistoryWithRunningBalance.length > 0 ? (
+              <div className="table-wrap">
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, background: "var(--table-hover)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border)" }}>
+                  <thead>
+                    <tr style={{ background: "var(--table-head)", color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
+                      <th style={{ padding: "8px 10px", textAlign: "left" }}>Date</th>
+                      <th style={{ padding: "8px 10px", textAlign: "left" }}>Payment #</th>
+                      <th style={{ padding: "8px 10px", textAlign: "left" }}>Method / Mode</th>
+                      <th style={{ padding: "8px 10px", textAlign: "left" }}>Reference / UTR</th>
+                      <th style={{ padding: "8px 10px", textAlign: "right" }}>Amount Settled (₹)</th>
+                      <th style={{ padding: "8px 10px", textAlign: "right" }}>Running Balance (₹)</th>
+                      <th style={{ padding: "8px 10px", textAlign: "center", width: 50 }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentHistoryWithRunningBalance.map((pay, pIdx) => {
+                      const dateStr = pay.paymentDate ? String(pay.paymentDate).slice(0, 10) : "-";
+                      return (
+                        <tr key={pay.id || pIdx} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "8px 10px", fontWeight: 600 }}>{dateStr}</td>
+                          <td style={{ padding: "8px 10px", color: "var(--primary)", fontFamily: "monospace", fontWeight: 600 }}>
+                            {pay.paymentNumber || `#${pay.id}`}
+                          </td>
+                          <td style={{ padding: "8px 10px" }}>{pay.paymentMode || "RTGS / Bank Transfer"}</td>
+                          <td style={{ padding: "8px 10px", color: "var(--text-muted)" }}>{pay.reference || "-"}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", color: "#059669", fontWeight: 700 }}>
+                            -₹{pay.amount.toLocaleString("en-IN")}
+                          </td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", color: pay.runningBalance > 0 ? "#dc2626" : "#059669", fontWeight: 700 }}>
+                            ₹{pay.runningBalance.toLocaleString("en-IN")}
+                          </td>
+                          <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePayment(pay.id, pay.amount)}
+                              disabled={isSubmitting}
+                              title="Delete payment"
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "#ef4444",
+                                cursor: "pointer",
+                                padding: 2,
+                                opacity: isSubmitting ? 0.5 : 1,
+                              }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ padding: "12px 14px", background: "var(--card-bg)", borderRadius: 6, border: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
+                No verified payments recorded yet. Remaining Balance Due: <strong style={{ color: "#dc2626" }}>₹{balanceDue.toLocaleString("en-IN")}</strong>
+              </div>
+            )}
+          </div>
+
           {/* SETTLEMENT BREAKDOWN */}
           <div className="responsive-two-col" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 20, alignItems: "start" }}>
             <div style={{ background: "var(--table-hover)", padding: "14px 18px", borderRadius: 8, border: "1px solid var(--border)", fontSize: "0.83rem" }}>
@@ -698,20 +824,84 @@ export default function PurchaseViewModal({
         {/* MODAL FOOTER */}
         {/* MODAL FOOTER */}
         <div className="modal-footer" style={{ padding: "14px 24px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--text-muted)" }}>
-            <ShieldCheck size={16} color="#10b981" />
-            <span>Verified Inward Voucher</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "12px", color: "var(--text-muted)" }}>
+              <ShieldCheck size={16} color="#10b981" />
+              <span>Verified Inward Voucher</span>
+            </div>
+
+            {!isCancelled && (
+              <button
+                type="button"
+                className="outline"
+                onClick={handleCancelPurchase}
+                disabled={isSubmitting}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  color: "#dc2626",
+                  borderColor: "rgba(220, 38, 38, 0.4)",
+                  padding: "5px 12px",
+                  fontSize: 12,
+                  cursor: isSubmitting ? "not-allowed" : "pointer"
+                }}
+                title="Cancel / Delete this purchase bill and reverse stock"
+              >
+                <Trash2 size={13} />
+                <span>Delete / Cancel Bill</span>
+              </button>
+            )}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        {!isCancelled && balanceDue > 0 && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  if (onRecordPayment) {
+                    onRecordPayment(purchase);
+                  } else {
+                    setPayAmount(balanceDue > 0 ? balanceDue : purchaseTotal);
+                    setShowPaymentForm(true);
+                    setTimeout(() => printRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 50);
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#059669",
+                  borderColor: "#059669"
+                }}
+                title="Record payment made to vendor for this purchase bill"
+              >
+                <CreditCard size={15} />
+                <span>Record Payment</span>
+              </button>
+            )}
             {onEdit && (
               <button
                 type="button"
                 className="outline"
-                onClick={() => { onClose(); onEdit(purchase); }}
-                style={{ display: "flex", alignItems: "center", gap: 6 }}
+                disabled={isCancelled}
+                onClick={() => {
+                  if (!isCancelled) {
+                    onClose();
+                    onEdit(purchase);
+                  }
+                }}
+                title={isCancelled ? "Cancelled purchases cannot be edited" : "Edit Voucher"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  opacity: isCancelled ? 0.4 : 1,
+                  cursor: isCancelled ? "not-allowed" : "pointer"
+                }}
               >
                 <Edit3 size={14} />
-                <span>Edit Voucher</span>
+                <span>Edit Purchase</span>
               </button>
             )}
             <button

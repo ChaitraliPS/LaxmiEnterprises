@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Wallet, Plus, Search, Filter, RotateCcw, Download,
-  Pencil, Trash2, Calendar, Tag, CreditCard, User,
+  Pencil, Eye, Trash2, Calendar, Tag, CreditCard, User,
   FileText, CheckCircle2, AlertTriangle, ArrowUpDown, PieChart as PieIcon
 } from "lucide-react";
 import ExpenseModal from "./ExpenseModal";
+import ExpenseDetailsModal from "./ExpenseDetailsModal";
 import { StatCard } from "./Dashboard";
 import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
 import { formatIndianCurrency } from "../utils/formatters";
@@ -49,6 +50,7 @@ export default function ExpensesPage({
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [viewingExpense, setViewingExpense] = useState(null);
   const [expenseToEdit, setExpenseToEdit] = useState(null);
   const [expenseToDelete, setExpenseToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -523,11 +525,11 @@ export default function ExpensesPage({
                           <button
                             type="button"
                             className="icon-btn"
-                            onClick={() => handleOpenEditModal(exp)}
-                            title="Edit Expense"
+                            onClick={() => setViewingExpense(exp)}
+                            title="View Expense Details"
                             style={{ padding: 4 }}
                           >
-                            <Pencil size={15} style={{ color: "var(--primary)" }} />
+                            <Eye size={15} style={{ color: "var(--accent)" }} />
                           </button>
                           <button
                             type="button"
@@ -606,6 +608,16 @@ export default function ExpensesPage({
       )}
 
       {/* Expense Add / Edit Modal */}
+      <ExpenseDetailsModal
+        isOpen={!!viewingExpense}
+        onClose={() => setViewingExpense(null)}
+        expense={viewingExpense}
+        onEdit={(exp) => {
+          setViewingExpense(null);
+          handleOpenEditModal(exp);
+        }}
+      />
+
       <ExpenseModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

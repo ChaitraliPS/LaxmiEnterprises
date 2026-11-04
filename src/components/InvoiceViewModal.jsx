@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   X, Download, Receipt, ShieldCheck, Edit3, CreditCard, Ban, CheckCircle2, AlertCircle, Trash2
 } from "lucide-react";
@@ -13,11 +13,13 @@ export default function InvoiceViewModal({
   company = {},
   client = null,
   onEdit,
+  onRecordPayment,
   showToast,
   onRefresh
 }) {
   if (!isOpen || !invoice) return null;
 
+  const modalBodyRef = useRef(null);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [payMode, setPayMode] = useState("NEFT");
@@ -28,12 +30,12 @@ export default function InvoiceViewModal({
 
   const companyInfo = {
     name: company.name || "Laxmi Enterprises",
-    tagline: company.tagline || "Industrial Supplies, Hardware & Trading",
-    gstin: company.gstin || "27AAACL1234F1Z5",
-    pan: company.pan || "AAACL1234F",
-    phone: company.phone || "+91 98765 43210",
-    email: company.email || "contact@laxmienterprises.com",
-    address: company.address || "Shop No. 12, Commercial Complex, Near Industrial Estate, Pune - 411038, Maharashtra, India"
+    tagline: company.tagline || "",
+    gstin: company.gstin || "",
+    pan: company.pan || "",
+    phone: company.phone || "+91 99210 63187",
+    email: company.email || "laxmigroup616@gmail.com",
+    address: company.address || "Zalta, Zalta fata Main Road , Chikalthana, Chh. Shambhajnagar - 431007, Maharashtra, India"
   };
 
   const amount = Number(invoice.amount ?? invoice.taxableTotal ?? invoice.subtotal ?? 0);
@@ -153,7 +155,7 @@ export default function InvoiceViewModal({
         style={{ maxWidth: 840, width: "95vw", maxHeight: "92vh", display: "flex", flexDirection: "column" }}
       >
         {/* ── MODAL HEADER ── */}
-        <div className="modal-header" style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+        <div className="modal-header" style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="mini-avatar" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
               <Receipt size={18} />
@@ -168,18 +170,77 @@ export default function InvoiceViewModal({
             </div>
           </div>
 
-          <button
-            type="button"
-            className="modal-close-btn"
-            onClick={onClose}
-            aria-label="Close invoice viewer"
-          >
-            <X size={17} />
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {!isCancelled && balanceDue > 0 && !showPaymentForm && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  if (onRecordPayment) {
+                    onRecordPayment(invoice);
+                  } else {
+                    setPayAmount(balanceDue > 0 ? balanceDue : total);
+                    setShowPaymentForm(true);
+                    setTimeout(() => modalBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 50);
+                  }
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#059669",
+                  borderColor: "#059669",
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+                title="Record payment received for this invoice"
+              >
+                <CreditCard size={14} />
+                <span>Record Payment</span>
+              </button>
+            )}
+
+            {!isCancelled && (
+              <button
+                type="button"
+                className="outline"
+                onClick={() => {
+                  if (onEdit) onEdit(invoice);
+                  onClose();
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+                title="Edit this invoice"
+              >
+                <Edit3 size={14} />
+                <span>Edit Invoice</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="modal-close-btn"
+              onClick={onClose}
+              aria-label="Close invoice viewer"
+            >
+              <X size={17} />
+            </button>
+          </div>
         </div>
 
         {/* ── PRINTABLE INVOICE PAPER BODY ── */}
-        <div className="modal-body" style={{ overflowY: "auto", padding: 24, background: "#f8fafc" }}>
+        <div className="modal-body" ref={modalBodyRef} style={{ overflowY: "auto", padding: 24, background: "#f8fafc" }}>
           
           {/* Inline Payment Form Panel if active */}
           {showPaymentForm && (
@@ -338,10 +399,12 @@ export default function InvoiceViewModal({
                 <div style={{ fontSize: 12, color: "#475569", marginTop: 10, lineHeight: 1.5, maxWidth: 380 }}>
                   {companyInfo.address}
                 </div>
-                <div style={{ fontSize: 12, color: "#1e293b", marginTop: 6, display: "flex", gap: 16, flexWrap: "wrap", fontWeight: 600 }}>
-                  <span>GSTIN: <strong style={{ color: "#005bb5" }}>{companyInfo.gstin}</strong></span>
-                  <span>PAN: <strong>{companyInfo.pan}</strong></span>
-                </div>
+                {(companyInfo.gstin || companyInfo.pan) && (
+                  <div style={{ fontSize: 12, color: "#1e293b", marginTop: 6, display: "flex", gap: 16, flexWrap: "wrap", fontWeight: 600 }}>
+                    {companyInfo.gstin ? <span>GSTIN: <strong style={{ color: "#005bb5" }}>{companyInfo.gstin}</strong></span> : null}
+                    {companyInfo.pan ? <span>PAN: <strong>{companyInfo.pan}</strong></span> : null}
+                  </div>
+                )}
                 <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 4 }}>
                   <span>Tel: {companyInfo.phone}</span> • <span>Email: {companyInfo.email}</span>
                 </div>
@@ -746,8 +809,13 @@ export default function InvoiceViewModal({
                 type="button"
                 className="primary"
                 onClick={() => {
-                  setPayAmount(balanceDue);
-                  setShowPaymentForm(true);
+                  if (onRecordPayment) {
+                    onRecordPayment(invoice);
+                  } else {
+                    setPayAmount(balanceDue > 0 ? balanceDue : total);
+                    setShowPaymentForm(true);
+                    setTimeout(() => modalBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" }), 50);
+                  }
                 }}
                 style={{
                   display: "flex",

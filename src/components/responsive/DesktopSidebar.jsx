@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, Users, Truck, ShoppingCart, MessageCircle, Receipt,
-  IndianRupee, Package, Boxes, ShieldCheck, Database, X, LogOut, Wallet
+  IndianRupee, Package, Boxes, ShieldCheck, X, LogOut, Wallet
 } from "lucide-react";
 
 export const coreNav = [
@@ -22,7 +22,6 @@ export const financialNav = [
 ];
 
 export const enterpriseNav = [
-  { to: "/data-hub", label: "Data Hub", icon: Database },
   { to: "/workspace", label: "Admin Workspace", icon: ShieldCheck }
 ];
 
@@ -104,17 +103,7 @@ export default function DesktopSidebar({
             </NavLink>
           ))}
 
-          {/* SYSTEM STATUS PILL */}
-          <div className="sidebar-status-card">
-            <span
-              className="sidebar-status-dot"
-              style={{ background: isDbOnline ? "#10b981" : "#ef4444" }}
-            />
-            <div className="sidebar-status-text">
-              <strong>Enterprise ERP Online</strong>
-              <small>{isDbOnline ? "MySQL Synced & Protected" : "Reconnecting to MySQL..."}</small>
-            </div>
-          </div>
+          
         </nav>
 
         {/* SIDEBAR FOOTER */}

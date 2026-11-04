@@ -14,7 +14,6 @@ import RevenuePage from "./components/RevenuePage";
 import ExpensesPage from "./components/ExpensesPage";
 import ProductsPage from "./components/ProductsPage";
 import InventoryPage from "./components/InventoryPage";
-import DataHubPage from "./components/DataHubPage";
 import AdminWorkspace from "./components/AdminWorkspace";
 import LoginPage from "./components/LoginPage";
 
@@ -332,12 +331,9 @@ export default function App() {
     }
     return {
       name: "Laxmi Enterprises",
-      tagline: "Industrial Supplies, Hardware & Trading",
-      gstin: "27AAACL1234F1Z5",
-      pan: "AAACL1234F",
-      email: "contact@laxmienterprises.com",
-      phone: "+91 98765 43210",
-      address: "Shop No. 12, Commercial Complex, Near Industrial Estate, Pune - 411038, Maharashtra, India",
+      email: "laxmigroup616@gmail.com",
+      phone: "+91 99210 63187",
+      address: "Zalta, Zalta fata Main Road , Chikalthana, Chh. Shambhajnagar - 431007, Maharashtra, India",
       currency: "INR (₹)",
       financialYear: getFiscalYearFormatted(getToday())
     };
@@ -716,25 +712,6 @@ export default function App() {
                 products={products}
                 onSaveProducts={saveProducts}
                 onRefresh={refreshStockData}
-              />
-            } 
-          />
-          <Route 
-            path="/data-hub" 
-            element={
-              <DataHubPage 
-                clients={clients} 
-                setClients={saveClients} 
-                products={products} 
-                setProducts={saveProducts} 
-                inventory={inventory} 
-                setInventory={saveInventory}
-                company={company}
-                invoices={invoices}
-                purchases={purchases}
-                expoLeads={expoLeads}
-                setExpoLeads={saveExpoLeads}
-                showToast={showGlobalToast}
               />
             } 
           />

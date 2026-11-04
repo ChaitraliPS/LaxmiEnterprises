@@ -41,6 +41,7 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
         numberOfAnimals: clientToEdit.numberOfAnimals || "",
         animalDetails: clientToEdit.animalDetails || "",
         gstin: clientToEdit.gstin || "",
+        pan: clientToEdit.pan || "",
         tier: clientToEdit.tier || "Gold",
         paymentTerms: clientToEdit.paymentTerms || "Net 30",
         outstanding: clientToEdit.outstanding !== undefined ? clientToEdit.outstanding : 0,
@@ -70,6 +71,7 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
       animalDetails: "",
       city: "",
       gstin: "",
+      pan: "",
       tier: "Gold",
       paymentTerms: "Net 30",
       outstanding: 0,
@@ -115,6 +117,11 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
     }
 
     // Optional GSTIN validation
+    if (form.pan && form.pan.trim()) {
+      const panVal = validatePAN(form.pan, false);
+      if (!panVal.isValid) errs.pan = panVal.error;
+    }
+
     if (form.gstin && form.gstin.trim()) {
       const gstinVal = validateGSTIN(form.gstin, false);
       if (!gstinVal.isValid) errs.gstin = gstinVal.error;
@@ -378,6 +385,19 @@ export default function ClientModal({ isOpen, onClose, onSave, clientToEdit, nex
                   />
                   <FieldError error={errors.gstin} />
                   <span className="form-help">15-character Indian GST format</span>
+                </div>
+
+                <div className="form-group">
+                  <label>PAN Number (Optional)</label>
+                  <input
+                    className={`form-input ${errors.pan ? "is-invalid" : ""}`}
+                    placeholder="e.g. ABCDE1234F"
+                    maxLength={10}
+                    value={form.pan || ""}
+                    onChange={(e) => handleFieldChange("pan", e.target.value.toUpperCase())}
+                  />
+                  <FieldError error={errors.pan} />
+                  <span className="form-help">10-character Indian PAN format</span>
                 </div>
               </div>
             </div>

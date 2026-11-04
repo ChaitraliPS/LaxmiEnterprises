@@ -1,16 +1,14 @@
 /// Global Application Configuration for Laxmi Enterprises Flutter WebApp
 class AppConfig {
-  /// The Web URL for the ERP portal.
-  ///
-  /// 🔴 IMPORTANT: Change this to your deployed URL before building for production.
-  /// - Dev / Emulator:   'http://10.0.2.2:5173'
-  /// - Dev / Real phone: 'http://192.168.X.X:5173'  (your PC's local IP)
-  /// - Production:       'https://erp.laxmienterprises.com'  ← set this before release
-  static const String initialUrl = 'http://10.0.2.2:5173';
+  /// Live Production Web URL for the ERP portal frontend.
+  static const String initialUrl = 'https://laxmienterprises.shivcoretech.com';
 
-  /// Cache-busting: when true the WebView clears its disk cache on every launch
-  /// so users always see the latest deployed website immediately.
-  static const bool clearCacheOnLaunch = true;
+  /// Live Production Backend API Service URL.
+  static const String backendUrl = 'https://darkcyan-buffalo-697008.hostingersite.com';
+
+  /// Cache-busting: Keep false in production so that user authentication tokens,
+  /// session credentials, and offline cache are preserved across app launches.
+  static const bool clearCacheOnLaunch = false;
 
   /// App Name
   static const String appTitle = 'Laxmi Enterprises ERP';

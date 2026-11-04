@@ -1,6 +1,6 @@
 import { toInventoryView, applyStockChange } from "../utils/stockSync.js";
 import { Op } from "sequelize";
-import { Client, Vendor, Product, Inventory, Purchase, Invoice, ExpoLead, Company, Target, Expense, Collection, Payment } from "../models/index.js";
+import { Client, Vendor, Product, Inventory, Purchase, PurchaseLine, VendorPayment, Invoice, ExpoLead, Company, Target, Expense, Collection, Payment } from "../models/index.js";
 import { ApiResponse } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { getStockHealth, getStockBalance } from "../services/metrics/stockMetrics.js";
@@ -17,7 +17,13 @@ export const getAllData = asyncHandler(async (req, res) => {
     Vendor.findAll({ order: [["createdAt", "DESC"]] }),
     Product.findAll({ include: [{ model: Inventory, as: "inventory" }], order: [["createdAt", "DESC"]] }),
     Inventory.findAll({ order: [["productName", "ASC"]] }),
-    Purchase.findAll({ order: [["createdAt", "DESC"]] }),
+    Purchase.findAll({
+      include: [
+        { model: PurchaseLine, as: "lines" },
+        { model: VendorPayment, as: "vendorPayments" },
+      ],
+      order: [["createdAt", "DESC"]],
+    }),
     Invoice.findAll({
       include: [
         { model: Payment, as: "payments" },
@@ -134,7 +140,14 @@ export const getAllData = asyncHandler(async (req, res) => {
       })),
       collections: collections.map((c) => (typeof c.toJSON === "function" ? c.toJSON() : c)),
       expoLeads: expoLeads.map((e) => e.toJSON()),
-      company: company ? company.toJSON() : null,
+      company: company ? {
+        ...company.toJSON(),
+        bankName: company.bankDetails?.bankName || "",
+        bankBranch: company.bankDetails?.bankBranch || "",
+        accountNumber: company.bankDetails?.accountNumber || "",
+        ifscCode: company.bankDetails?.ifscCode || "",
+        accountName: company.bankDetails?.accountName || "",
+      } : null,
       targets: targets.map((t) => t.toJSON()),
       expenses: expenses.map((e) => e.toJSON()),
     },
@@ -158,7 +171,7 @@ export const syncClients = asyncHandler(async (req, res) => {
       name: item.name || "Unnamed Client",
       clientType: canonicalClientType(item.clientType || "Farmers"),
       contactPerson: item.contactPerson || "",
-      contact: item.contact || item.phone || "",
+      contact: item.contact || item.phone || item.mobile || "",
       email: item.email || "",
       dob: item.dob || "",
       village: item.village || "",
@@ -267,7 +280,7 @@ export const syncVendors = asyncHandler(async (req, res) => {
       ifscCode: item.ifscCode || "",
       paymentTerms: item.paymentTerms || "Net 15 Days",
       status: item.status || "Active",
-      notes: item.notes || "",
+      notes: item.notes || item.remark || "",
     };
 
     const [record, created] = await Vendor.findOrCreate({
@@ -485,7 +498,12 @@ export const syncExpoLeads = asyncHandler(async (req, res) => {
     await record.update({
       visitorName: item.visitorName || item.name || record.visitorName,
       status: item.status || record.status,
-      contact: item.contact || item.phone || record.contact,
+      contact: item.contact || item.phone || item.mobile || record.contact,
+      village: item.village || record.village,
+      taluka: item.taluka || record.taluka,
+      district: item.district || record.district,
+      expoName: item.expoName || record.expoName,
+      notes: item.notes || item.remark || record.notes,
     });
   }
 
@@ -505,17 +523,42 @@ export const syncCompany = asyncHandler(async (req, res) => {
     },
   });
 
-  await record.update({
-    name: comp.name || record.name,
-    tagline: comp.tagline || record.tagline,
-    address: comp.address || record.address,
-    gstin: comp.gstin || record.gstin,
-    pan: comp.pan || record.pan,
-    phone: comp.phone || record.phone,
-    email: comp.email || record.email,
-    currency: comp.currency || record.currency,
-    financialYear: comp.financialYear || record.financialYear,
-  });
+  const updatedFields = {};
+  if (comp.name !== undefined) updatedFields.name = comp.name;
+  if (comp.tagline !== undefined) updatedFields.tagline = comp.tagline;
+  if (comp.address !== undefined) updatedFields.address = comp.address;
+  if (comp.gstin !== undefined) updatedFields.gstin = comp.gstin;
+  if (comp.pan !== undefined) updatedFields.pan = comp.pan;
+  if (comp.phone !== undefined) updatedFields.phone = comp.phone;
+  if (comp.email !== undefined) updatedFields.email = comp.email;
+  if (comp.currency !== undefined) updatedFields.currency = comp.currency;
+  if (comp.financialYear !== undefined) updatedFields.financialYear = comp.financialYear;
 
-  return ApiResponse.success(res, record.toJSON(), "Company Profile saved in MySQL");
+  const currentBank = (record.bankDetails && typeof record.bankDetails === "object") ? record.bankDetails : {};
+  if (comp.bankDetails !== undefined) {
+    updatedFields.bankDetails = comp.bankDetails;
+  } else if (comp.bankName !== undefined || comp.accountNumber !== undefined || comp.ifscCode !== undefined || comp.bankBranch !== undefined || comp.accountName !== undefined) {
+    updatedFields.bankDetails = {
+      bankName: comp.bankName !== undefined ? comp.bankName : (currentBank.bankName || ""),
+      bankBranch: comp.bankBranch !== undefined ? comp.bankBranch : (currentBank.bankBranch || ""),
+      accountNumber: comp.accountNumber !== undefined ? comp.accountNumber : (currentBank.accountNumber || ""),
+      ifscCode: comp.ifscCode !== undefined ? comp.ifscCode : (currentBank.ifscCode || ""),
+      accountName: comp.accountName !== undefined ? comp.accountName : (currentBank.accountName || "")
+    };
+  }
+
+  if (comp.extraData !== undefined) updatedFields.extraData = comp.extraData;
+
+  await record.update(updatedFields);
+
+  const finalRecord = {
+    ...record.toJSON(),
+    bankName: record.bankDetails?.bankName || comp.bankName || "",
+    bankBranch: record.bankDetails?.bankBranch || comp.bankBranch || "",
+    accountNumber: record.bankDetails?.accountNumber || comp.accountNumber || "",
+    ifscCode: record.bankDetails?.ifscCode || comp.ifscCode || "",
+    accountName: record.bankDetails?.accountName || comp.accountName || ""
+  };
+
+  return ApiResponse.success(res, finalRecord, "Company Profile saved in MySQL");
 });

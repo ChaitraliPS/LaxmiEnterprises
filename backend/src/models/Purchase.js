@@ -44,6 +44,8 @@ export class Purchase extends Model {
       paymentStatus: derivedStatus,
       status: derivedStatus,
       isCancelled: Boolean(values.isCancelled),
+      vendorPayments: values.vendorPayments || values.payments || [],
+      payments: values.vendorPayments || values.payments || [],
     };
   }
 }

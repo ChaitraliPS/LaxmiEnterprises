@@ -1,0 +1,138 @@
+/* ==========================================================================
+   INVOICES PAGE - LAPTOP & DESKTOP RESPONSIVE TABLE STYLES
+   Eliminates horizontal scrolling on standard laptop displays (1024px–1440px)
+   ========================================================================== */
+
+/* Wrapper: 100% width, no horizontal scroll needed on laptop viewports */
+.invoices-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Invoices table: auto-fitting, overrides generic min-width: 700px */
+.invoices-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 0 !important;
+}
+
+/* Compact header styling */
+.invoices-table th {
+  padding: 11px 10px;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--border-subtle);
+  border-bottom: 1.5px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+/* Compact body cell styling */
+.invoices-table td {
+  padding: 11px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  vertical-align: middle;
+}
+
+/* Monospace invoice ID code badge: stays strictly single-line */
+.invoice-id-badge {
+  display: inline-block;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--primary);
+  background: rgba(0, 91, 181, 0.08);
+  padding: 3px 7px;
+  border-radius: 5px;
+  letter-spacing: -0.01em;
+  transition: all 0.15s ease;
+}
+
+.invoice-id-btn:hover .invoice-id-badge {
+  background: rgba(0, 91, 181, 0.18);
+  transform: translateY(-1px);
+}
+
+/* Ergonomic, prominent View button replacing multiple cluttered action icons */
+.table-action-btn.view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: rgba(0, 91, 181, 0.08);
+  border: 1px solid rgba(0, 91, 181, 0.22);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.table-action-btn.view-btn:hover {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 91, 181, 0.25);
+}
+
+/* --------------------------------------------------------------------------
+   RESPONSIVE ADAPTATIONS (LAPTOPS & TABLETS)
+   -------------------------------------------------------------------------- */
+
+/* Standard laptops (<= 1366px):
+   Hide standalone Category column since category is already shown
+   in the Client Account cell (e.g. "CL-001 • Feed Shop"). */
+@media (max-width: 1366px) {
+  .invoices-table th,
+  .invoices-table td {
+    padding: 10px 8px;
+    font-size: 12px;
+  }
+
+  .invoices-table .col-category {
+    display: none !important;
+  }
+}
+
+/* Medium laptops & split-screen desktop (<= 1180px):
+   Hide standalone Payment Mode column (visible inside View modal & collections tab). */
+@media (max-width: 1180px) {
+  .invoices-table th,
+  .invoices-table td {
+    padding: 9px 6px;
+    font-size: 11.5px;
+  }
+
+  .invoices-table .col-paymode {
+    display: none !important;
+  }
+}
+
+/* Compact laptops / horizontal tablets (<= 1024px):
+   Taxable and GST breakdown are summarized into Grand Total; full details in View modal. */
+@media (max-width: 1024px) {
+  .invoices-table th,
+  .invoices-table td {
+    padding: 8px 5px;
+  }
+
+  .invoices-table .col-taxable,
+  .invoices-table .col-gst {
+    display: none !important;
+  }
+}

@@ -13,6 +13,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
+  Timer? _transitionTimer;
 
   @override
   void initState() {
@@ -24,8 +25,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeIn);
     _animController.forward();
 
-    // Transition to WebViewScreen after 2 seconds
-    Timer(const Duration(milliseconds: 2200), () {
+    // Transition to WebViewScreen after 2.2 seconds
+    _transitionTimer = Timer(const Duration(milliseconds: 2200), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
@@ -42,6 +43,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
   @override
   void dispose() {
+    _transitionTimer?.cancel();
     _animController.dispose();
     super.dispose();
   }
@@ -69,7 +71,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF005BB5).withOpacity(0.4),
+                      color: const Color(0xFF005BB5).withValues(alpha: 0.4),
                       blurRadius: 24,
                       offset: const Offset(0, 10),
                     ),

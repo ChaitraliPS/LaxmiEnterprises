@@ -26,52 +26,50 @@ export default function PurchaseModal({
   if (!isOpen) return null;
   const isEditing = !!purchaseToEdit;
 
-  const [form, setForm] = useState(() => {
+  const buildInitialForm = () => {
     if (purchaseToEdit) {
-      const pTaxable = Number(purchaseToEdit.taxableAmount || purchaseToEdit.amount || purchaseToEdit.subtotal || 0);
-      const pQty = Number(purchaseToEdit.inwardQty || purchaseToEdit.quantity || 1);
-      const pRate = pQty > 0 && pTaxable > 0 ? Math.round(pTaxable / pQty) : (Number(purchaseToEdit.unitRate || purchaseToEdit.rate) || 1000);
-      const pGst = Number(purchaseToEdit.gstRate !== undefined ? purchaseToEdit.gstRate : 5);
-      const pGstAmt = Number(purchaseToEdit.gstAmount !== undefined ? purchaseToEdit.gstAmount : Math.round(pTaxable * (pGst / 100)));
-      const pTotal = Number(purchaseToEdit.totalAmount || purchaseToEdit.total || purchaseToEdit.grandTotal || (pTaxable + pGstAmt));
+      const line = (purchaseToEdit.lines && purchaseToEdit.lines.length > 0) ? purchaseToEdit.lines[0] : null;
+      const item = (Array.isArray(purchaseToEdit.items) && purchaseToEdit.items.length > 0) ? purchaseToEdit.items[0] : null;
+
+      const pProdId = line?.productId || item?.productId || purchaseToEdit.productId || "";
+      const pItemDesc = line?.productName || item?.description || item?.productName || purchaseToEdit.itemDescription || purchaseToEdit.productName || "";
+      const pQty = Number(line?.quantity ?? item?.qty ?? item?.quantity ?? purchaseToEdit.inwardQty ?? purchaseToEdit.quantity ?? 1);
+      const pTaxable = Number(line?.taxableAmount ?? purchaseToEdit.taxableAmount ?? purchaseToEdit.amount ?? purchaseToEdit.subtotal ?? (item?.taxable || 0));
+      const pRate = Number(line?.unitCost ?? item?.rate ?? purchaseToEdit.unitRate ?? purchaseToEdit.rate ?? (pQty > 0 && pTaxable > 0 ? Math.round(pTaxable / pQty) : 1000));
+      const pGst = Number(line?.gstRate !== undefined ? line.gstRate : (purchaseToEdit.gstRate !== undefined ? purchaseToEdit.gstRate : (item?.gstRate !== undefined ? item.gstRate : 5)));
+      const pGstAmt = Number(line?.gstAmount ?? purchaseToEdit.gstAmount ?? (pTaxable > 0 ? Math.round(pTaxable * (pGst / 100)) : 0));
+      const pTotal = Number(line?.lineTotal ?? purchaseToEdit.totalAmount ?? purchaseToEdit.total ?? purchaseToEdit.grandTotal ?? (pTaxable + pGstAmt));
       const status = purchaseToEdit.paymentStatus || purchaseToEdit.status || "Paid";
-      
-      let pPaid = pTotal;
-      if (status === "Paid") {
-        pPaid = pTotal;
-      } else if (status === "Pending") {
-        pPaid = 0;
-      } else if (status === "Partial") {
-        const rawPaid = Number(purchaseToEdit.paidAmount);
-        pPaid = (rawPaid > 0 && rawPaid < pTotal) ? rawPaid : (pTotal > 0 ? Math.round(pTotal / 2) : 0);
-      }
+      const pPaid = Number(purchaseToEdit.paidAmount !== undefined && purchaseToEdit.paidAmount !== null && purchaseToEdit.paidAmount !== "" ? purchaseToEdit.paidAmount : (status === "Paid" ? pTotal : 0));
 
       return {
         ...purchaseToEdit,
+        id: purchaseToEdit.purchaseId || purchaseToEdit.id || nextId,
         vendorId: purchaseToEdit.vendorId || "",
         category: purchaseToEdit.category || "Animal Feed Shop",
         vendorName: purchaseToEdit.vendorName || purchaseToEdit.name || "",
         contactPerson: purchaseToEdit.contactPerson || "",
         village: purchaseToEdit.village || "",
-        contact: purchaseToEdit.contact || "",
-        billNumber: purchaseToEdit.billNumber || "BILL-" + Math.floor(1000 + Math.random() * 9000),
-        productId: purchaseToEdit.productId || "",
-        itemDescription: purchaseToEdit.itemDescription || purchaseToEdit.productName || "Inward Goods",
+        contact: purchaseToEdit.vendorContact || purchaseToEdit.contact || "",
+        vendorGstin: purchaseToEdit.vendorGstin || "",
+        billNumber: purchaseToEdit.vendorInvoiceNo || purchaseToEdit.billNumber || "BILL-" + Math.floor(1000 + Math.random() * 9000),
+        productId: pProdId,
+        itemDescription: pItemDesc,
         inwardQty: pQty,
-        unit: purchaseToEdit.unit || "Bags",
+        unit: line?.unitOfMeasure || item?.unit || purchaseToEdit.unit || "Bags",
         unitRate: pRate,
-        taxableAmount: pTaxable,
+        taxableAmount: pTaxable > 0 ? pTaxable : Math.round(pQty * pRate),
         gstRate: pGst,
         gstAmount: pGstAmt,
         totalAmount: pTotal,
         paidAmount: pPaid,
         paymentStatus: status,
-        paymentMethod: purchaseToEdit.paymentMethod || "RTGS / Bank Transfer",
-        date: purchaseToEdit.date || getToday(),
+        paymentMethod: purchaseToEdit.paymentMode || purchaseToEdit.paymentMethod || "RTGS / Bank Transfer",
+        date: purchaseToEdit.purchaseDate || purchaseToEdit.date || getToday(),
         dueDate: purchaseToEdit.dueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         fatPercent: purchaseToEdit.fatPercent || "4.2",
         snfPercent: purchaseToEdit.snfPercent || "8.6",
-        remarks: purchaseToEdit.remarks || "Direct inward to Warehouse Silo Bay 2"
+        remarks: purchaseToEdit.notes || purchaseToEdit.remarks || "Direct inward to Warehouse Silo Bay 2"
       };
     }
 
@@ -86,23 +84,23 @@ export default function PurchaseModal({
 
     return {
       id: nextId,
-      category: "Animal Feed Shop", // "Animal Feed Shop" | "Dairy" | "Farmers" | "Hardware"
+      category: "Animal Feed Shop",
       vendorName: "",
       contactPerson: "",
       village: "",
       contact: "",
       billNumber: "BILL-" + Math.floor(1000 + Math.random() * 9000),
-      productId: initialProduct ? initialProduct.id : "",
+      productId: initialProduct ? (initialProduct.productId || initialProduct.id) : "",
       itemDescription: initialProduct ? initialProduct.name : "High-Yield Cattle Feed (50kg bags)",
       inwardQty: defaultQty,
-      unit: initialProduct ? (initialProduct.unit || "Bags") : "Bags",
+      unit: initialProduct ? (initialProduct.unitOfMeasure || initialProduct.unit || "Bags") : "Bags",
       unitRate: defaultRate,
       taxableAmount: defaultTaxable,
       gstRate: defaultGstRate,
       gstAmount: defaultGstAmt,
       totalAmount: defaultTotal,
       paidAmount: defaultTotal,
-      paymentStatus: "Paid", // "Paid" | "Partial" | "Pending"
+      paymentStatus: "Paid",
       paymentMethod: "RTGS / Bank Transfer",
       date: defaultDate,
       dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -110,7 +108,17 @@ export default function PurchaseModal({
       snfPercent: "8.6",
       remarks: "Direct inward to Warehouse Silo Bay 2"
     };
-  });
+  };
+
+  const [form, setForm] = useState(buildInitialForm);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setForm(buildInitialForm());
+      setErrors({});
+    }
+  }, [isOpen, purchaseToEdit]);
 
   const [errors, setErrors] = useState({});
 
@@ -154,55 +162,55 @@ export default function PurchaseModal({
 
   const handleCategoryChange = (newCat) => {
     let defaultUnit = "Bags";
-    let defaultRate = 750;
     let defaultGst = 5;
-    let defaultDesc = "High-Yield Cattle Feed (50kg bags)";
-    let defaultQty = 50;
 
     if (newCat === "Dairy") {
       defaultUnit = "Liters";
-      defaultRate = 38.50;
-      defaultGst = 0; // Raw milk is GST Exempt in India (0%)
-      defaultDesc = "Chilled Raw Milk Bulk Procurement";
-      defaultQty = 1000;
+      defaultGst = 0;
     } else if (newCat === "Farmers") {
       defaultUnit = "Tonnes";
-      defaultRate = 3200;
-      defaultGst = 0; // Agricultural fodder / fresh farm produce
-      defaultDesc = "Sweet Corn Silage Bales & Green Fodder";
-      defaultQty = 10;
+      defaultGst = 0;
     } else if (newCat === "Hardware") {
       defaultUnit = "Nos";
-      defaultRate = 120;
       defaultGst = 18;
-      defaultDesc = "Piping & Industrial Fasteners";
-      defaultQty = 100;
     }
 
-    setForm(prev => ({
-      ...prev,
-      category: newCat,
-      unit: defaultUnit,
-      unitRate: defaultRate,
-      gstRate: defaultGst,
-      itemDescription: defaultDesc,
-      inwardQty: defaultQty
-    }));
+    setForm(prev => {
+      // Check if existing product belongs to new category
+      const currentProd = products.find(p => String(p.productId || p.id) === String(prev.productId));
+      const isDairySector = newCat === "Dairy";
+      const isProdDairy = currentProd && (currentProd.category === "Dairy" || currentProd.category === "DAIRY");
+      const isMismatch = currentProd && (isDairySector !== isProdDairy);
 
-    recalculateAmounts(defaultQty, defaultRate, defaultGst);
+      const nextProductId = isMismatch ? "" : prev.productId;
+      const nextDesc = isMismatch ? "" : prev.itemDescription;
+
+      // Keep user's saved values unless changing
+      const nextGst = prev.gstRate !== undefined ? prev.gstRate : defaultGst;
+      const nextUnit = prev.unit || defaultUnit;
+
+      return {
+        ...prev,
+        category: newCat,
+        productId: nextProductId,
+        itemDescription: nextDesc,
+        unit: nextUnit,
+        gstRate: nextGst
+      };
+    });
   };
 
   const handleSelectProduct = (prodId) => {
-    const p = products.find(prod => String(prod.id) === String(prodId));
+    const p = products.find(prod => String(prod.productId || prod.id) === String(prodId));
     if (!p) return;
 
     const rate = Number(p.costPrice || p.purchasePrice || 0);
     const gst = Number(p.gstRate !== undefined ? p.gstRate : 5);
-    const unit = p.unit || "Nos";
+    const unit = p.unitOfMeasure || p.unit || "Bags";
 
     setForm(prev => ({
       ...prev,
-      productId: p.id,
+      productId: p.productId || p.id,
       itemDescription: p.name,
       unit,
       unitRate: rate,
@@ -264,6 +272,19 @@ export default function PurchaseModal({
     // Catalogue Product (Strict Catalogue Selection)
     if (!form.productId) {
       newErrors.productId = "Please select a product from the existing catalogue.";
+    } else {
+      const selectedProd = products.find(p => String(p.productId || p.id) === String(form.productId));
+      if (selectedProd) {
+        const isDairySector = form.category === "Dairy";
+        const isProdDairy = selectedProd.category === "Dairy" || selectedProd.category === "DAIRY";
+        if (isDairySector !== isProdDairy) {
+          newErrors.productId = `Selected product "${selectedProd.name}" (${selectedProd.category}) does not match procurement sector "${form.category}". Please select a valid product.`;
+        }
+        const prodUnit = selectedProd.unitOfMeasure || selectedProd.unit || "Bags";
+        if (form.unit && form.unit.toLowerCase().trim() !== prodUnit.toLowerCase().trim()) {
+          newErrors.unit = `Unit of measurement "${form.unit}" does not match catalogue product unit "${prodUnit}".`;
+        }
+      }
     }
 
     // Registered Vendor Selection from directory
@@ -303,6 +324,11 @@ export default function PurchaseModal({
       if (!pVal.isValid) newErrors.paidAmount = pVal.error;
     }
 
+    const paidAmt = Number(form.paidAmount) || 0;
+    if (paidAmt > form.totalAmount) {
+      newErrors.paidAmount = "Grand total cannot be less than the amount already paid.";
+    }
+
     if (form.totalAmount <= 0) {
       newErrors.totalAmount = "Grand Total must be greater than ₹0.";
     }
@@ -313,7 +339,10 @@ export default function PurchaseModal({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
     if (!validateForm()) return;
+
+    setIsSaving(true);
 
     const inwardQty = Number(form.inwardQty) || 1;
     const unitRate = Number(form.unitRate) || 0;
@@ -370,15 +399,15 @@ export default function PurchaseModal({
       ]
     };
 
-    if (onSave) {
-      try {
+    try {
+      if (onSave) {
         await onSave(payload);
-        onClose();
-      } catch (err) {
-        // Keep modal open on error
       }
-    } else {
       onClose();
+    } catch (err) {
+      // Keep modal open on error
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -412,7 +441,7 @@ export default function PurchaseModal({
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700, color: "var(--text-main)" }}>
-                {isEditing ? `Edit Purchase Voucher: ${form.id}` : "Record Inward Purchase & Restock"}
+                {isEditing ? "Edit Purchase" : "Record Inward Purchase & Restock"}
               </h3>
               <p style={{ margin: "2px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
                 Procurement of cattle feed, raw milk, farm fodder & commercial materials with automated stock update
@@ -624,11 +653,14 @@ export default function PurchaseModal({
                       required
                     >
                       <option value="">-- Select Product from Catalogue (Required) --</option>
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} [{p.id}] — Stock: {p.stock ?? p.currentStock ?? 0} {p.unit || 'units'} | Cost: ₹{p.purchasePrice || p.costPrice || 0}
-                        </option>
-                      ))}
+                      {products.map(p => {
+                        const pid = p.productId || p.id;
+                        return (
+                          <option key={pid} value={pid}>
+                            {p.name} [{pid}] — Stock: {p.stock ?? p.currentStock ?? 0} {p.unitOfMeasure || p.unit || 'units'} | Cost: ₹{p.purchasePrice || p.costPrice || 0}
+                          </option>
+                        );
+                      })}
                     </select>
                   ) : (
                     <div style={{ padding: "10px 14px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: 8, color: "#b45309", fontSize: "0.85rem" }}>
@@ -672,7 +704,7 @@ export default function PurchaseModal({
                 <div className="form-group">
                   <label>Unit of Measurement</label>
                   <select
-                    className="form-select"
+                    className={`form-select ${errors.unit ? "is-invalid" : ""}`}
                     value={form.unit}
                     onChange={(e) => handleFieldChange("unit", e.target.value)}
                   >
@@ -683,6 +715,7 @@ export default function PurchaseModal({
                     <option value="Kg">Kilograms (Kg)</option>
                     <option value="Quintals">Quintals</option>
                   </select>
+                  {errors.unit && <FieldError error={errors.unit} />}
                 </div>
 
                 {/* Rate per Unit */}
@@ -904,8 +937,8 @@ export default function PurchaseModal({
             <button type="button" className="outline" onClick={onClose} style={{ fontSize: "0.85rem" }}>
               Cancel
             </button>
-            <button type="submit" className="primary" style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <Save size={15} /> {isEditing ? "Update Purchase Voucher" : "Save & Inward Stock"}
+            <button type="submit" disabled={isSaving} className="primary" style={{ fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: 6, opacity: isSaving ? 0.7 : 1 }}>
+              <Save size={15} /> {isSaving ? "Saving..." : (isEditing ? "Update Purchase" : "Save & Inward Stock")}
             </button>
           </div>
         </form>

@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { LAXMI_LOGO_BASE64 } from "../assets/logoBase64";
 
 /**
  * Convert integer amount to Indian currency words format (Rupees)
@@ -68,18 +69,15 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   // Default company info
   const companyInfo = {
     name: company.name || "LAXMI ENTERPRISES",
-    tagline: company.tagline || "Industrial Supplies, Hardware & Trading",
-    gstin: company.gstin || "27AAACL1234F1Z5",
-    pan: company.pan || "AAACL1234F",
-    phone: company.phone || "+91 98765 43210",
-    email: company.email || "contact@laxmienterprises.com",
-    address: company.address || "Shop No. 12, Commercial Complex, Near Industrial Estate, Pune - 411038, Maharashtra, India",
+    phone: company.phone || "+91 99210 63187",
+    email: company.email || "laxmigroup616@gmail.com",
+    address: company.address || "Zalta, Zalta fata Main Road , Chikalthana, Chh. Shambhajnagar - 431007, Maharashtra, India",
     state: "Maharashtra (Code: 27)",
-    bankName: "State Bank of India (SBI)",
-    bankBranch: "Pune Industrial Estate Branch",
-    accountNumber: "398201554902",
-    ifscCode: "SBIN0001245",
-    accountName: "Laxmi Enterprises Commercial"
+    bankName: "Bank of India",
+    bankBranch: "Shendra Industrial Estate Branch, Chh. Sambhajinagar",
+    accountNumber: "068510110008573",
+    ifscCode: "BKID0000685",
+    accountName: "Renuka Krushna Shinde"
   };
 
   const invoiceAmount = Number(invoice.amount || invoice.subtotal || invoice.taxableTotal) || 0;
@@ -100,34 +98,46 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   doc.setFillColor(0, 180, 216); // #00b4d8
   doc.rect(0, 8, pageWidth, 1.5, "F");
 
-  let currentY = 16;
+  // 2. COMPANY LOGO & BRANDING HEADER
+  const logoImg = company.logo || companyInfo.logo || LAXMI_LOGO_BASE64;
+  let textStartX = margin;
+  if (logoImg) {
+    try {
+      doc.addImage(logoImg, "PNG", margin, 12, 20, 20);
+      textStartX = margin + 24;
+    } catch (e) {
+      console.warn("Could not render logo on invoice PDF:", e);
+      textStartX = margin;
+    }
+  }
 
-  // 2. COMPANY HEADER & INVOICE TITLE
+  let currentY = 18;
+
   // Left: Company Branding
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
+  doc.setFontSize(18);
   doc.setTextColor(0, 43, 92); // Deep corporate navy
-  doc.text(companyInfo.name, margin, currentY);
+  doc.text(companyInfo.name, textStartX, currentY);
 
   currentY += 5;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(companyInfo.tagline, margin, currentY);
+  doc.text(companyInfo.tagline, textStartX, currentY);
 
   currentY += 4.5;
-  doc.setFontSize(8.5);
-  doc.text(`${companyInfo.address}`, margin, currentY, { maxWidth: 105 });
+  doc.setFontSize(8);
+  doc.text(`${companyInfo.address}`, textStartX, currentY, { maxWidth: textStartX === margin ? 105 : 86 });
 
   currentY += 7.5;
   doc.setFont("helvetica", "bold");
   doc.setTextColor(15, 23, 42);
-  doc.text(`GSTIN: ${companyInfo.gstin}  |  PAN: ${companyInfo.pan}`, margin, currentY);
+  doc.text(`GSTIN: ${companyInfo.gstin}  |  PAN: ${companyInfo.pan}`, textStartX, currentY);
 
   currentY += 4.5;
   doc.setFont("helvetica", "normal");
   doc.setTextColor(71, 85, 105);
-  doc.text(`Phone: ${companyInfo.phone}  |  Email: ${companyInfo.email}`, margin, currentY);
+  doc.text(`Phone: ${companyInfo.phone}  |  Email: ${companyInfo.email}`, textStartX, currentY);
 
   // Right Side: TAX INVOICE BADGE & INVOICE METADATA
   const rightX = pageWidth - margin;
@@ -189,7 +199,7 @@ export function generateInvoicePDF(invoice, company = {}, clientExtra = {}) {
   doc.text(statusText, rightX - 4, metaBoxY + 21, { align: "right" });
 
   // 3. SEPARATOR LINE
-  currentY += 6;
+  currentY = Math.max(currentY + 6, metaBoxY + metaBoxH + 3);
   doc.setDrawColor(203, 213, 225);
   doc.setLineWidth(0.4);
   doc.line(margin, currentY, pageWidth - margin, currentY);
@@ -576,33 +586,45 @@ export function generatePurchaseInvoicePDF(purchase = {}, company = {}) {
   doc.setFillColor(2, 132, 199); // Sky Blue #0284c7
   doc.rect(0, 8, pageWidth, 1.5, "F");
 
-  let currentY = 16;
+  // 2. COMPANY LOGO & HEADER (BUYER / RECEIVING ENTERPRISE)
+  const purchaseLogoImg = company.logo || companyInfo.logo || LAXMI_LOGO_BASE64;
+  let pTextStartX = margin;
+  if (purchaseLogoImg) {
+    try {
+      doc.addImage(purchaseLogoImg, "PNG", margin, 12, 20, 20);
+      pTextStartX = margin + 24;
+    } catch (e) {
+      console.warn("Could not render logo on purchase PDF invoice:", e);
+      pTextStartX = margin;
+    }
+  }
 
-  // 2. COMPANY HEADER (BUYER / RECEIVING ENTERPRISE)
+  let currentY = 18;
+
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
+  doc.setFontSize(18);
   doc.setTextColor(5, 150, 105); // Emerald
-  doc.text(companyInfo.name, margin, currentY);
+  doc.text(companyInfo.name, pTextStartX, currentY);
 
   currentY += 5;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
-  doc.text(companyInfo.tagline, margin, currentY);
+  doc.text(companyInfo.tagline, pTextStartX, currentY);
 
   currentY += 4.5;
-  doc.setFontSize(8.5);
-  doc.text(`${companyInfo.address}`, margin, currentY, { maxWidth: 105 });
+  doc.setFontSize(8);
+  doc.text(`${companyInfo.address}`, pTextStartX, currentY, { maxWidth: pTextStartX === margin ? 105 : 86 });
 
   currentY += 7.5;
   doc.setFont("helvetica", "bold");
   doc.setTextColor(15, 23, 42);
-  doc.text(`GSTIN: ${companyInfo.gstin}  |  PAN: ${companyInfo.pan}`, margin, currentY);
+  doc.text(`GSTIN: ${companyInfo.gstin}  |  PAN: ${companyInfo.pan}`, pTextStartX, currentY);
 
   currentY += 4.5;
   doc.setFont("helvetica", "normal");
   doc.setTextColor(71, 85, 105);
-  doc.text(`Phone: ${companyInfo.phone}  |  Email: ${companyInfo.email}`, margin, currentY);
+  doc.text(`Phone: ${companyInfo.phone}  |  Email: ${companyInfo.email}`, pTextStartX, currentY);
 
   // Right Side: DOCUMENT BADGE & METADATA
   const rightX = pageWidth - margin;
@@ -670,7 +692,7 @@ export function generatePurchaseInvoicePDF(purchase = {}, company = {}) {
   doc.text(statusText === "PARTIAL" ? "PARTIALLY PAID" : statusText, rightX - 4, metaBoxY + 25.5, { align: "right" });
 
   // 3. SEPARATOR LINE
-  currentY += 6;
+  currentY = Math.max(currentY + 6, metaBoxY + metaBoxH + 3);
   doc.setDrawColor(203, 213, 225);
   doc.setLineWidth(0.4);
   doc.line(margin, currentY, pageWidth - margin, currentY);

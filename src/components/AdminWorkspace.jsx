@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import {
-  Building2, Sliders, UserCheck, ShieldCheck, Save, Mail, Phone, MapPin,
+  Building2, UserCheck, ShieldCheck, Save, Mail, Phone, MapPin,
   Plus, CheckCircle2, Lock, Key, RefreshCw, AlertTriangle, Eye, EyeOff,
-  Target, IndianRupee, CheckCheck, XCircle
+  Target, IndianRupee
 } from "lucide-react";
 import { formatIndianCurrency, formatPercent } from "../utils/formatters";
 import {
@@ -45,7 +45,6 @@ export default function AdminWorkspace({
   // Local form states
   const [compForm, setCompForm] = useState(company);
   const [profForm, setProfForm] = useState(adminProfile);
-  const [prefsForm, setPrefsForm] = useState(systemPrefs);
 
   // Password change state
   const [passwordForm, setPasswordForm] = useState({
@@ -82,29 +81,7 @@ export default function AdminWorkspace({
   const [memberErrors, setMemberErrors] = useState({});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // Consistency Check State
-  const [consistencyReport, setConsistencyReport] = useState(null);
-  const [isLoadingConsistency, setIsLoadingConsistency] = useState(false);
-
-  const loadConsistencyReport = async () => {
-    setIsLoadingConsistency(true);
-    try {
-      const res = await erpApi.getConsistencyReport();
-      if (res?.data) {
-        setConsistencyReport(res.data);
-      }
-    } catch (e) {
-      console.warn("Could not run consistency check:", e.message);
-    } finally {
-      setIsLoadingConsistency(false);
-    }
-  };
-
-  useEffect(() => {
-    if (activeTab === "consistency") {
-      loadConsistencyReport();
-    }
-  }, [activeTab]);
+  
 
   // Sync if parent state changes
   useEffect(() => {
@@ -114,10 +91,6 @@ export default function AdminWorkspace({
   useEffect(() => {
     if (adminProfile && Object.keys(adminProfile).length > 0) setProfForm(adminProfile);
   }, [adminProfile]);
-
-  useEffect(() => {
-    if (systemPrefs && Object.keys(systemPrefs).length > 0) setPrefsForm(systemPrefs);
-  }, [systemPrefs]);
 
   // Load live team members from MySQL
   const loadUsers = async () => {
@@ -208,11 +181,15 @@ export default function AdminWorkspace({
     const nameVal = validateRequiredText(compForm.name, "Company Legal Name", 2);
     if (!nameVal.isValid) errs.name = nameVal.error;
 
-    const gstinVal = validateGSTIN(compForm.gstin, true);
-    if (!gstinVal.isValid) errs.gstin = gstinVal.error;
+    if (compForm.gstin && compForm.gstin.trim()) {
+      const gstinVal = validateGSTIN(compForm.gstin, false);
+      if (!gstinVal.isValid) errs.gstin = gstinVal.error;
+    }
 
-    const panVal = validatePAN(compForm.pan, true);
-    if (!panVal.isValid) errs.pan = panVal.error;
+    if (compForm.pan && compForm.pan.trim()) {
+      const panVal = validatePAN(compForm.pan, false);
+      if (!panVal.isValid) errs.pan = panVal.error;
+    }
 
     const emailVal = validateEmail(compForm.email, true);
     if (!emailVal.isValid) errs.email = emailVal.error;
@@ -231,7 +208,9 @@ export default function AdminWorkspace({
     setCompErrors({});
     try {
       const res = await erpApi.syncCompany(compForm);
-      if (setCompany) setCompany(compForm);
+      const saved = res?.data || compForm;
+      if (setCompany) setCompany(saved);
+      localStorage.setItem("le_company", JSON.stringify(saved));
       showNotification("✓ Company Profile saved directly in MySQL Database!");
     } catch (err) {
       showNotification(`⚠️ Failed to save company: ${err.message}`);
@@ -336,12 +315,6 @@ export default function AdminWorkspace({
   };
 
   // 4. SAVE SYSTEM PREFERENCES
-  const handleSavePrefs = (e) => {
-    e.preventDefault();
-    if (setSystemPrefs) setSystemPrefs(prefsForm);
-    localStorage.setItem("le_system_prefs", JSON.stringify(prefsForm));
-    showNotification("✓ Operational rules & warehouse preferences saved!");
-  };
 
   // 5. ADD TEAM MEMBER DIRECTLY TO MYSQL
   const handleAddMember = async (e) => {
@@ -416,40 +389,32 @@ export default function AdminWorkspace({
       {/* Navigation Tabs */}
       <div className="admin-tab-nav">
         <button 
+          type="button"
           className={`admin-tab-btn ${activeTab === "company" ? "active" : ""}`}
           onClick={() => setActiveTab("company")}
         >
           <Building2 size={16} /> Company Legal & Tax Registry
         </button>
         <button 
+          type="button"
           className={`admin-tab-btn ${activeTab === "admin" ? "active" : ""}`}
           onClick={() => setActiveTab("admin")}
         >
           <ShieldCheck size={16} /> Admin Profile & Password Security
         </button>
         <button 
+          type="button"
           className={`admin-tab-btn ${activeTab === "roles" ? "active" : ""}`}
           onClick={() => setActiveTab("roles")}
         >
-          <UserCheck size={16} /> Team Access & MySQL Users ({teamMembers.length})
+          <UserCheck size={16} /> Team Access & MySQL Users <span className="admin-tab-badge">{teamMembers.length}</span>
         </button>
         <button 
-          className={`admin-tab-btn ${activeTab === "preferences" ? "active" : ""}`}
-          onClick={() => setActiveTab("preferences")}
-        >
-          <Sliders size={16} /> System & Warehouse Policies
-        </button>
-        <button 
+          type="button"
           className={`admin-tab-btn ${activeTab === "targets" ? "active" : ""}`}
           onClick={() => setActiveTab("targets")}
         >
           <Target size={16} /> Fiscal Sales Targets
-        </button>
-        <button 
-          className={`admin-tab-btn ${activeTab === "consistency" ? "active" : ""}`}
-          onClick={() => setActiveTab("consistency")}
-        >
-          <CheckCheck size={16} /> Data Consistency Engine
         </button>
       </div>
 
@@ -490,7 +455,7 @@ export default function AdminWorkspace({
             </div>
 
             <div className="form-group">
-              <label>Goods & Services Tax (GSTIN) <RequiredStar /></label>
+              <label>Goods & Services Tax (GSTIN) <small style={{ color: "var(--text-muted)", fontWeight: "normal" }}>(Optional)</small></label>
               <input 
                 className={`form-input uppercase ${compErrors.gstin ? "is-invalid" : ""}`} 
                 value={compForm.gstin || ""} 
@@ -504,7 +469,7 @@ export default function AdminWorkspace({
             </div>
 
             <div className="form-group">
-              <label>Permanent Account Number (PAN) <RequiredStar /></label>
+              <label>Permanent Account Number (PAN) <small style={{ color: "var(--text-muted)", fontWeight: "normal" }}>(Optional)</small></label>
               <input 
                 className={`form-input uppercase ${compErrors.pan ? "is-invalid" : ""}`} 
                 value={compForm.pan || ""} 
@@ -556,6 +521,66 @@ export default function AdminWorkspace({
                 }} 
               />
               <FieldError error={compErrors.address} />
+            </div>
+
+            <div className="form-group full" style={{ marginTop: 12, borderTop: "1px dashed var(--border)", paddingTop: 16 }}>
+              <div style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--text-main)", marginBottom: 4 }}>
+                Bank Account & Payment Remittance Details (Optional)
+              </div>
+              <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: 0 }}>
+                Printed on Tax Invoices and Purchase Vouchers for RTGS/NEFT/IMPS customer payments.
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label>Bank Name</label>
+              <input 
+                className="form-input" 
+                placeholder="e.g. Bank of India / State Bank of India"
+                value={compForm.bankName || ""} 
+                onChange={(e) => setCompForm({ ...compForm, bankName: e.target.value })} 
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Branch Name & City</label>
+              <input 
+                className="form-input" 
+                placeholder="e.g. Shendra Industrial Estate Branch, Chh. Sambhajinagar"
+                value={compForm.bankBranch || ""} 
+                onChange={(e) => setCompForm({ ...compForm, bankBranch: e.target.value })} 
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Bank Account Number</label>
+              <input 
+                className="form-input" 
+                placeholder="e.g. 068510110008573"
+                value={compForm.accountNumber || ""} 
+                onChange={(e) => setCompForm({ ...compForm, accountNumber: e.target.value })} 
+              />
+            </div>
+
+            <div className="form-group">
+              <label>IFSC Code</label>
+              <input 
+                className="form-input uppercase" 
+                placeholder="e.g. BKID0000685"
+                maxLength={11}
+                value={compForm.ifscCode || ""} 
+                onChange={(e) => setCompForm({ ...compForm, ifscCode: e.target.value.toUpperCase() })} 
+              />
+            </div>
+
+            <div className="form-group full">
+              <label>Account Beneficiary Name</label>
+              <input 
+                className="form-input" 
+                placeholder="e.g. Laxmi Enterprises / Renuka Krushna Shinde"
+                value={compForm.accountName || ""} 
+                onChange={(e) => setCompForm({ ...compForm, accountName: e.target.value })} 
+              />
             </div>
           </div>
 
@@ -842,70 +867,7 @@ export default function AdminWorkspace({
         </div>
       )}
 
-      {/* TAB 4: SYSTEM & WAREHOUSE PREFERENCES */}
-      {activeTab === "preferences" && (
-        <form onSubmit={handleSavePrefs} className="workspace-card">
-          <div className="workspace-card-title">
-            <Sliders size={18} style={{ color: "var(--primary)" }} />
-            System & Warehouse Operating Policies
-          </div>
-          <p className="workspace-card-subtitle">
-            Configure default billing parameters, stock threshold limits, and numbering sequences.
-          </p>
-
-          <div className="form-grid">
-            <div className="form-group">
-              <label>Low Stock Replenishment Threshold (Units)</label>
-              <input 
-                type="number" 
-                className="form-input" 
-                value={prefsForm.minStockThreshold || 20} 
-                onChange={(e) => setPrefsForm({ ...prefsForm, minStockThreshold: Number(e.target.value) })} 
-              />
-              <span className="form-help">Products falling below this quantity trigger dashboard restock alerts</span>
-            </div>
-
-            <div className="form-group">
-              <label>Default Payment Terms</label>
-              <select 
-                className="form-input" 
-                value={prefsForm.paymentTerms || "Net 30 Days"}
-                onChange={(e) => setPrefsForm({ ...prefsForm, paymentTerms: e.target.value })}
-              >
-                <option value="Immediate">Immediate / Advance</option>
-                <option value="Net 15 Days">Net 15 Days</option>
-                <option value="Net 30 Days">Net 30 Days</option>
-                <option value="Net 45 Days">Net 45 Days</option>
-                <option value="Net 60 Days">Net 60 Days</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Sales Invoice Auto-Number Prefix</label>
-              <input 
-                className="form-input" 
-                value={prefsForm.invoicePrefix || "LE-INV-"} 
-                onChange={(e) => setPrefsForm({ ...prefsForm, invoicePrefix: e.target.value })} 
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Default Dispatch Warehouse</label>
-              <input 
-                className="form-input" 
-                value={prefsForm.dispatchWarehouse || "Central Warehouse - Bay A"} 
-                onChange={(e) => setPrefsForm({ ...prefsForm, dispatchWarehouse: e.target.value })} 
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end" }}>
-            <button type="submit" className="primary">
-              <Save size={16} /> Save Operating Policies
-            </button>
-          </div>
-        </form>
-      )}
+      
 
       {/* TAB 5: FISCAL SALES TARGETS (MYSQL-BACKED) */}
       {activeTab === "targets" && (
@@ -1062,132 +1024,6 @@ export default function AdminWorkspace({
               </button>
             </div>
           </form>
-        </div>
-      )}
-
-      {/* TAB 6: DATA CONSISTENCY CHECK */}
-      {activeTab === "consistency" && (
-        <div className="workspace-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
-            <div>
-              <div className="workspace-card-title">
-                <CheckCheck size={20} style={{ color: "var(--primary)" }} />
-                Enterprise Data Consistency Verification Engine
-              </div>
-              <p className="workspace-card-subtitle">
-                Automated 11-point mathematical reconciliation verifying ledger equilibrium across Sales, Revenue, Dashboard, Purchases, and Inventory.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              className="primary"
-              onClick={loadConsistencyReport}
-              disabled={isLoadingConsistency}
-              style={{ display: "flex", alignItems: "center", gap: 8 }}
-            >
-              <RefreshCw size={15} className={isLoadingConsistency ? "spin-animation" : ""} />
-              {isLoadingConsistency ? "Re-running Audit..." : "Re-run Consistency Check"}
-            </button>
-          </div>
-
-          {/* Status summary banner */}
-          {consistencyReport && (
-            <div style={{
-              marginTop: 18,
-              padding: "16px 20px",
-              borderRadius: "var(--radius-md)",
-              background: consistencyReport.allPassed ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.08)",
-              border: consistencyReport.allPassed ? "1px solid rgba(16, 185, 129, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: 12
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                {consistencyReport.allPassed ? (
-                  <CheckCircle2 size={28} style={{ color: "#10b981" }} />
-                ) : (
-                  <XCircle size={28} style={{ color: "#ef4444" }} />
-                )}
-                <div>
-                  <h4 style={{ margin: 0, color: consistencyReport.allPassed ? "#10b981" : "#ef4444", fontWeight: 700 }}>
-                    {consistencyReport.allPassed ? "ALL ${consistencyReport.totalChecks} CHECKS PASSED — 100% LEDGER CONSISTENCY" : `${consistencyReport.failedCount} CHECKS FAILED RECONCILIATION`}
-                  </h4>
-                  <small style={{ color: "var(--text-muted)" }}>
-                    As of Anchor Date: ${consistencyReport.asOfDate || "01/11/2026"} (IST) | Fiscal Year: ${consistencyReport.fiscalYear || "FY"} | Source of Truth: MySQL Database
-                  </small>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <span className="badge success" style={{ fontSize: 13, padding: "6px 12px" }}>
-                  {consistencyReport.passedCount} Passed
-                </span>
-                {consistencyReport.failedCount > 0 && (
-                  <span className="badge danger" style={{ fontSize: 13, padding: "6px 12px" }}>
-                    {consistencyReport.failedCount} Failed
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Consistency Checks Table */}
-          <div style={{ marginTop: 20, overflowX: "auto" }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ width: 60 }}>#</th>
-                  <th style={{ width: 220 }}>Check Name</th>
-                  <th>Mathematical Rule / Definition</th>
-                  <th style={{ width: 110, textAlign: "center" }}>Status</th>
-                  <th style={{ width: 110, textAlign: "right" }}>Difference</th>
-                  <th>Audit Verification Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoadingConsistency && !consistencyReport && (
-                  <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: 32, color: "var(--text-muted)" }}>
-                      <RefreshCw size={20} className="spin-animation" style={{ display: "inline-block", marginRight: 8 }} />
-                      Executing mathematical consistency checks on live MySQL database...
-                    </td>
-                  </tr>
-                )}
-
-                {consistencyReport?.checks?.map((chk) => (
-                  <tr key={chk.id}>
-                    <td><strong>{chk.id}</strong></td>
-                    <td style={{ fontWeight: 600, color: "var(--text-main)" }}>{chk.name}</td>
-                    <td style={{ fontSize: 13, color: "var(--text-muted)" }}>{chk.description}</td>
-                    <td style={{ textAlign: "center" }}>
-                      {chk.passed ? (
-                        <span className="badge success" style={{ fontWeight: 700, padding: "4px 10px" }}>
-                          ✓ PASS
-                        </span>
-                      ) : (
-                        <span className="badge danger" style={{ fontWeight: 700, padding: "4px 10px" }}>
-                          ✕ FAIL
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ textAlign: "right", fontFamily: "monospace", fontWeight: 700, color: chk.difference === 0 ? "#10b981" : "#ef4444" }}>
-                      {chk.difference === 0 ? "0" : chk.difference.toFixed(2)}
-                    </td>
-                    <td style={{ fontSize: 12, color: "var(--text-main)" }}>
-                      <code>{chk.details}</code>
-                      {chk.expected !== undefined && chk.actual !== undefined && (
-                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-                          Expected: <strong>{String(chk.expected)}</strong> | Actual: <strong>{String(chk.actual)}</strong>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 

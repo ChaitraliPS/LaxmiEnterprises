@@ -133,9 +133,6 @@ export default function Revenue({
             <RotateCcw size={14} className={loading ? "spin" : ""} /> Sync Live Ledger
           </button>
 
-          <button className="primary" onClick={() => setIsInvoiceModalOpen(true)}>
-            <Plus size={16} /> Log Invoice
-          </button>
         </div>
       </div>
 

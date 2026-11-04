@@ -325,7 +325,7 @@ export default function VendorModal({
                 </div>
 
                 <div className="form-group">
-                  <label>Primary Phone / WhatsApp <RequiredStar /></label>
+                  <label>Primary Phone <RequiredStar /></label>
                   <input
                     className={`form-input ${errors.phone ? "is-invalid" : ""}`}
                     value={form.phone}
@@ -378,7 +378,7 @@ export default function VendorModal({
 
               <div className="form-grid">
                 <div className="form-group">
-                  <label>Vendor GSTIN (15 characters)</label>
+                  <label>Vendor GSTIN <small style={{ color: "var(--text-muted)", fontWeight: "normal" }}>(Optional)</small></label>
                   <input
                     className={`form-input ${errors.gstin ? "is-invalid" : ""}`}
                     value={form.gstin}
@@ -391,7 +391,7 @@ export default function VendorModal({
                 </div>
 
                 <div className="form-group">
-                  <label>PAN Number (10 characters)</label>
+                  <label>PAN Number <small style={{ color: "var(--text-muted)", fontWeight: "normal" }}>(Optional)</small></label>
                   <input
                     className={`form-input ${errors.pan ? "is-invalid" : ""}`}
                     value={form.pan}

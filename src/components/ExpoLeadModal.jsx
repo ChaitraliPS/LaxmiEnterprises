@@ -17,6 +17,7 @@ export default function ExpoLeadModal({
   onSave,
   leadToEdit = null,
   nextId = "EXP-001",
+  defaultExpoName = "",
   company = {}
 }) {
   const isEditing = !!leadToEdit;
@@ -32,7 +33,7 @@ export default function ExpoLeadModal({
       category: "Farmers", // "Animal Feed Shop" | "Dairy" | "Farmers" | "General"
       taluka: "",
       district: "Pune",
-      expoName: "Kisan Agri Expo 2026 - Pune",
+      expoName: defaultExpoName || "",
       date: todayLocal(),
       status: "New Lead", // "New Lead" | "Followed Up" | "Interested" | "Converted"
       email: "",
@@ -55,6 +56,9 @@ export default function ExpoLeadModal({
 
   const validateForm = () => {
     const errs = {};
+
+    const expoVal = validateRequiredText(form.expoName, "Expo / Exhibition Name", 2);
+    if (!expoVal.isValid) errs.expoName = expoVal.error;
 
     const nameVal = validateRequiredText(form.name, "Visitor Full Name", 2);
     if (!nameVal.isValid) errs.name = nameVal.error;
@@ -88,6 +92,7 @@ export default function ExpoLeadModal({
     try {
       await onSave({
         ...form,
+        expoName: form.expoName.trim(),
         name: form.name.trim(),
         village: form.village.trim(),
         mobile: form.mobile.trim(),
@@ -109,7 +114,7 @@ export default function ExpoLeadModal({
       setErrors((prev) => ({ ...prev, mobile: mobVal.error }));
       return;
     }
-    const sampleMsg = `Namaskar ${form.name || "Customer"} ji! Greetings from ${company.name || "Laxmi Enterprises"} regarding your visit at ${form.expoName}. Note: ${form.remark || "Thank you for connecting!"}.`;
+    const sampleMsg = `Namaskar ${form.name || "Customer"} ji! Greetings from ${company.name || "Laxmi Enterprises"} regarding your visit at ${form.expoName || "the exhibition"}. Note: ${form.remark || "Thank you for connecting!"}.`;
     const url = getWhatsAppUrl(form.mobile, sampleMsg);
     window.open(url, "_blank");
   };
@@ -162,19 +167,19 @@ export default function ExpoLeadModal({
             {/* EVENT & CATEGORY */}
             <div className="form-grid" style={{ marginBottom: 16 }}>
               <div className="form-group">
-                <label>Expo / Exhibition Event <RequiredStar /></label>
-                <select
-                  className="form-select"
+                <label>Expo / Exhibition Event Name <RequiredStar /></label>
+                <input
+                  type="text"
+                  className={`form-input ${errors.expoName ? "is-invalid" : ""}`}
                   value={form.expoName}
-                  onChange={(e) => setForm({ ...form, expoName: e.target.value })}
+                  onChange={(e) => {
+                    setForm({ ...form, expoName: e.target.value });
+                    clearError("expoName");
+                  }}
+                  placeholder="e.g. Kisan Agri Expo 2026 - Pune"
                   required
-                >
-                  <option value="Kisan Agri Expo 2026 - Pune">Kisan Agri Expo 2026 - Pune</option>
-                  <option value="Maha Dairy Mela 2026 - Kolhapur">Maha Dairy Mela 2026 - Kolhapur</option>
-                  <option value="Krishi Mahotsav 2026 - Baramati">Krishi Mahotsav 2026 - Baramati</option>
-                  <option value="AgriTech Agro Expo 2026 - Nashik">AgriTech Agro Expo 2026 - Nashik</option>
-                  <option value="Pashu Palan Mela 2026 - Sangli">Pashu Palan Mela 2026 - Sangli</option>
-                </select>
+                />
+                <FieldError error={errors.expoName} />
               </div>
 
               <div className="form-group">

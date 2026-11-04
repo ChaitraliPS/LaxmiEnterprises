@@ -1,50 +1,46 @@
-// Adjust these two lines to match how your other API calls work.
-const API_BASE = "/api";
-const getToken = () => localStorage.getItem("token");
+import { apiClient } from "./api.js";
 
-const buildHeaders = (json = true) => {
-  const h = {};
-  if (json) h["Content-Type"] = "application/json";
-  const token = getToken();
-  if (token) h.Authorization = `Bearer ${token}`;
-  return h;
+/**
+ * Expo API service integrated with backend database via apiClient
+ */
+
+export const getExpoLeads = async () => {
+  const res = await apiClient.get("/expo");
+  return res && res.data !== undefined ? res.data : res;
 };
 
-async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}/expo${path}`, options);
-  let body = null;
-  try {
-    body = await res.json();
-  } catch {
-    /* empty response */
-  }
-  if (!res.ok) throw new Error(body?.message || `Request failed (${res.status})`);
-  return body && body.data !== undefined ? body.data : body;
-}
+export const createExpoLead = async (data) => {
+  const res = await apiClient.post("/expo", data);
+  return res && res.data !== undefined ? res.data : res;
+};
 
-export const createExpoLead = (data) =>
-  request("", { method: "POST", headers: buildHeaders(), body: JSON.stringify(data) });
-
-export const updateExpoLead = (id, data) =>
-  request(`/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    headers: buildHeaders(),
-    body: JSON.stringify(data),
-  });
+export const updateExpoLead = async (id, data) => {
+  const res = await apiClient.put(`/expo/${encodeURIComponent(id)}`, data);
+  return res && res.data !== undefined ? res.data : res;
+};
 
 // Manual mode logging
-export const markBroadcastSent = (ids) =>
-  request("/broadcast", { method: "POST", headers: buildHeaders(), body: JSON.stringify({ ids }) });
+export const markBroadcastSent = async (ids) => {
+  const res = await apiClient.post("/expo/broadcast", { ids });
+  return res && res.data !== undefined ? res.data : res;
+};
 
 // Automatic mode (WhatsApp Cloud API)
-export const getBroadcastConfig = () =>
-  request("/broadcast/config", { headers: buildHeaders(false) });
+export const getBroadcastConfig = async () => {
+  const res = await apiClient.get("/expo/broadcast/config");
+  return res && res.data !== undefined ? res.data : res;
+};
 
-export const sendBroadcast = (payload) =>
-  request("/broadcast/send", { method: "POST", headers: buildHeaders(), body: JSON.stringify(payload) });
+export const sendBroadcast = async (payload) => {
+  const res = await apiClient.post("/expo/broadcast/send", payload);
+  return res && res.data !== undefined ? res.data : res;
+};
 
-export const uploadExpoImage = (file) => {
+export const uploadExpoImage = async (file) => {
   const fd = new FormData();
   fd.append("image", file);
-  return request("/media", { method: "POST", headers: buildHeaders(false), body: fd });
+  const res = await apiClient.post("/expo/media", fd, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return res && res.data !== undefined ? res.data : res;
 };

@@ -17,12 +17,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Frontend field names -> database columns
 const toColumns = (b) => {
   const c = {};
-  if (b.name !== undefined) c.visitorName = String(b.name).trim();
-  if (b.mobile !== undefined) c.contact = cleanMobile(b.mobile);
-  if (b.remark !== undefined) c.notes = String(b.remark).trim();
+  const name = b.name ?? b.visitorName;
+  if (name !== undefined) c.visitorName = String(name).trim();
+
+  const phone = b.mobile ?? b.contact ?? b.phone;
+  if (phone !== undefined) c.contact = cleanMobile(phone);
+
+  const note = b.remark ?? b.notes ?? b.note;
+  if (note !== undefined) c.notes = String(note).trim();
+
   for (const f of ["village", "taluka", "district", "category", "expoName", "email", "status"]) {
     if (b[f] !== undefined) c[f] = typeof b[f] === "string" ? b[f].trim() : b[f];
   }
+  if (!c.expoName) c.expoName = "Agri Expo";
   return c;
 };
 
@@ -47,9 +54,17 @@ const validate = (c, partial = false) => {
 };
 
 const nextLeadId = async () => {
-  const last = await ExpoLead.findOne({ order: [["id", "DESC"]] });
-  const n = last ? parseInt(String(last.leadId).match(/\d+$/)?.[0] || "0", 10) + 1 : 1;
-  return `EXP-${String(n).padStart(3, "0")}`;
+  const leads = await ExpoLead.findAll({ attributes: ["leadId", "id"] });
+  let maxN = 0;
+  for (const l of leads) {
+    const m = String(l.leadId || "").match(/\d+$/);
+    if (m) {
+      const val = parseInt(m[0], 10);
+      if (!isNaN(val) && val > maxN) maxN = val;
+    }
+    if (l.id && l.id > maxN) maxN = Math.max(maxN, l.id);
+  }
+  return `EXP-${String(maxN + 1).padStart(3, "0")}`;
 };
 
 /** Get all exhibition leads */
@@ -80,8 +95,16 @@ export const createLead = asyncHandler(async (req, res) => {
 
 /** Update a lead (edit details or status). There is intentionally no delete. */
 export const updateLead = asyncHandler(async (req, res) => {
-  const lead = await ExpoLead.findOne({ where: { leadId: req.params.id } });
-  if (!lead) throw ApiError.notFound(`Lead not found with id: ${req.params.id}`);
+  const targetId = req.params.id;
+  const lead = await ExpoLead.findOne({
+    where: {
+      [Op.or]: [
+        { leadId: targetId },
+        ...(!isNaN(targetId) ? [{ id: Number(targetId) }] : []),
+      ],
+    },
+  });
+  if (!lead) throw ApiError.notFound(`Lead not found with id: ${targetId}`);
 
   const cols = toColumns(req.body);
   validate(cols, true);

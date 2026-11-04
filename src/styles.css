@@ -1539,6 +1539,91 @@ td b {
   flex-wrap: wrap;
 }
 
+/* ==========================================================================
+   ADMIN WORKSPACE TAB NAVIGATION
+   ========================================================================== */
+.admin-tab-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.admin-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.admin-tab-btn:hover {
+  color: var(--text-main);
+  background: rgba(0, 91, 181, 0.06);
+  border-color: rgba(0, 91, 181, 0.12);
+  transform: translateY(-1px);
+}
+
+.admin-tab-btn.active {
+  background: linear-gradient(135deg, #005bb5 0%, #0077e6 100%);
+  color: #ffffff !important;
+  font-weight: 700;
+  border-color: #005bb5;
+  box-shadow: 0 4px 14px rgba(0, 91, 181, 0.28);
+  transform: translateY(-1px);
+}
+
+.admin-tab-btn.active svg {
+  color: #ffffff !important;
+}
+
+.admin-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.07);
+  color: inherit;
+  margin-left: 2px;
+}
+
+.admin-tab-btn.active .admin-tab-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .admin-tab-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 6px;
+  }
+  .admin-tab-btn {
+    padding: 8px 14px;
+    font-size: 12.5px;
+    flex-shrink: 0;
+  }
+}
+
 .admin-tabs {
   display: flex;
   gap: 8px;
@@ -2929,20 +3014,6 @@ td b {
   justify-content: center;
 }
 
-/* Data Hub Cards */
-.data-hub-page .card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.data-hub-page .card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-@media (max-width: 900px) {
-  .data-hub-page div[style*="gridTemplateColumns: 1.1fr 0.9fr"] {
-    grid-template-columns: 1fr !important;
-  }
-}
 
 /* ==========================================================================
    CLIENT & REVENUE FINANCIAL INTELLIGENCE STYLES

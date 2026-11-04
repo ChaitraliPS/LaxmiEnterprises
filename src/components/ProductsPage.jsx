@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
-  Package, Plus, Search, Pencil, AlertTriangle, X,
+  Package, Plus, Search, Pencil, Eye, AlertTriangle, X,
   Calculator, IndianRupee, Tag, CheckCircle2, RefreshCw
 } from "lucide-react";
 import ProductModal from "./ProductModal";
+import ProductDetailsModal from "./ProductDetailsModal";
 import ExportMenu from "./ExportMenu";
 import MobileRecordCard from "./responsive/MobileRecordCard";
 import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
@@ -30,6 +31,7 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [viewingProduct, setViewingProduct] = useState(null);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg) => {
@@ -360,8 +362,12 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
                           </td>
                           <td>
                             <div className="row-actions">
-                              <button title="Edit Product Details" onClick={() => handleOpenEdit(p)}>
-                                <Pencil size={14} />
+                              <button
+                                title={`View full details of ${p.name}`}
+                                onClick={() => setViewingProduct(p)}
+                                style={{ color: "var(--accent)" }}
+                              >
+                                <Eye size={14} />
                               </button>
                             </div>
                           </td>
@@ -432,6 +438,16 @@ export default function ProductsPage({ products = [], onSaveProducts, inventory 
           />
         )}
       </div>
+
+      <ProductDetailsModal
+        isOpen={!!viewingProduct}
+        onClose={() => setViewingProduct(null)}
+        product={viewingProduct}
+        onEdit={(p) => {
+          setViewingProduct(null);
+          handleOpenEdit(p);
+        }}
+      />
 
       <ProductModal
         key={editingProduct ? (editingProduct.id || editingProduct.productId) : "new-product"}

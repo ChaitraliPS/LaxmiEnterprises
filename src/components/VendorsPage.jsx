@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from "react";
 import {
-  Truck, Plus, Search, Pencil, Download,
-  Phone, Mail, MapPin, Building2, CreditCard, MessageCircle,
+  Truck, Plus, Search, Pencil, Eye, Download,
+  Phone, Mail, MapPin, Building2, CreditCard,
   CheckCircle2, AlertTriangle, X, ShieldCheck, Milk, Tractor, Wheat, Store
 } from "lucide-react";
 import VendorModal from "./VendorModal";
+import VendorDetailsModal from "./VendorDetailsModal";
 import ExportMenu from "./ExportMenu";
 import MobileRecordCard from "./responsive/MobileRecordCard";
 import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
@@ -25,6 +26,7 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState(null);
+  const [viewingVendor, setViewingVendor] = useState(null);
   const [toast, setToast] = useState(null);
 
   const showToast = (msg) => {
@@ -284,7 +286,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
                     {filtered.map(v => {
                       const idStr = v.vendorId || v.id;
                       const isActive = (v.status || "Active") === "Active";
-                      const cleanPhone = (v.phone || v.contact || "").replace(/\D/g, "");
 
                       return (
                         <tr key={idStr}>
@@ -364,29 +365,12 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
 
                           <td>
                             <div className="row-actions" style={{ justifyContent: "center" }}>
-                              {cleanPhone && (
-                                <a
-                                  href={`https://wa.me/91${cleanPhone.slice(-10)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="Chat on WhatsApp"
-                                  style={{
-                                    color: "#059669",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    padding: 6,
-                                    borderRadius: 6,
-                                  }}
-                                >
-                                  <MessageCircle size={15} />
-                                </a>
-                              )}
                               <button
-                                title="Edit Vendor"
-                                onClick={() => handleOpenEdit(v)}
-                                style={{ padding: 6 }}
+                                title={`View full profile of ${v.name || v.companyName}`}
+                                onClick={() => setViewingVendor(v)}
+                                style={{ color: "var(--accent)" }}
                               >
-                                <Pencil size={14} />
+                                <Eye size={14} />
                               </button>
                             </div>
                           </td>
@@ -403,7 +387,6 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
                 {filtered.map(v => {
                   const idStr = v.vendorId || v.id;
                   const isActive = (v.status || "Active") === "Active";
-                  const cleanPhone = (v.phone || v.contact || "").replace(/\D/g, "");
 
                   return (
                     <MobileRecordCard
@@ -443,27 +426,14 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
                         </div>
                       }
                       actions={
-                        <>
-                          {cleanPhone && (
-                            <a
-                              href={`https://wa.me/91${cleanPhone.slice(-10)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="outline"
-                              style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#059669" }}
-                            >
-                              <MessageCircle size={15} /> WhatsApp
-                            </a>
-                          )}
-                          <button
-                            type="button"
-                            className="primary"
-                            onClick={() => handleOpenEdit(v)}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                          >
-                            <Pencil size={14} /> Edit Vendor
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          className="outline btn-sm"
+                          onClick={() => setViewingVendor(v)}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                        >
+                          <Eye size={14} /> View Details
+                        </button>
                       }
                     />
                   );
@@ -473,6 +443,17 @@ export default function VendorsPage({ vendors = [], onSaveVendors }) {
           />
         )}
       </div>
+
+      {/* VENDOR DETAILS VIEW MODAL */}
+      <VendorDetailsModal
+        isOpen={!!viewingVendor}
+        onClose={() => setViewingVendor(null)}
+        vendor={viewingVendor}
+        onEdit={(v) => {
+          setViewingVendor(null);
+          handleOpenEdit(v);
+        }}
+      />
 
       {/* VENDOR MODAL */}
       <VendorModal

@@ -3,7 +3,7 @@ import {
   Receipt, Download, Plus, Search, X,
   CheckCircle2, AlertTriangle, TrendingUp, IndianRupee, Clock,
   Eye, RefreshCw, Printer, ShieldCheck, Filter, ArrowUpRight, ChevronDown, FileText, Calendar,
-  CreditCard, Edit3
+  CreditCard
 } from "lucide-react";
 import { generateInvoicePDF } from "../services/pdfService";
 import { erpApi } from "../services/api";
@@ -15,6 +15,7 @@ import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
 import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
 import { formatIndianCurrency, formatDate } from "../utils/formatters";
 import { getToday, getFiscalYearFormatted, getFiscalYearOptions } from "../constants/erpConstants";
+import "./InvoicesPage.css";
 
 export default function InvoicesPage({
   invoices = [],
@@ -387,8 +388,8 @@ export default function InvoicesPage({
               <p>No collection records match your search for {selectedFY}.</p>
             </div>
           ) : (
-            <div className="table-wrap">
-              <table className="data-table">
+            <div className="table-wrap invoices-table-wrap">
+              <table className="data-table invoices-table">
                 <thead>
                   <tr>
                     <th>Collection #</th>
@@ -457,23 +458,23 @@ export default function InvoicesPage({
         ) : (
           <ResponsiveDataTable
             hasRecords={filteredInvoices.length > 0}
-            /* DESKTOP TABLE VIEW (Preserved all 11 columns) */
+            /* DESKTOP TABLE VIEW */
             desktopView={
-              <div className="table-wrap">
-                <table>
+              <div className="table-wrap invoices-table-wrap">
+                <table className="invoices-table">
                   <thead>
                     <tr>
-                      <th>Invoice ID</th>
-                      <th>Client Account</th>
-                      <th>Category</th>
-                      <th>Payment Mode</th>
-                      <th>Invoice Date</th>
-                      <th>Due Date</th>
-                      <th style={{ textAlign: "right" }}>Taxable (₹)</th>
-                      <th style={{ textAlign: "right" }}>GST (₹)</th>
-                      <th style={{ textAlign: "right" }}>Grand Total (₹)</th>
-                      <th style={{ textAlign: "center" }}>Derived Status</th>
-                      <th style={{ textAlign: "center" }}>Actions</th>
+                      <th className="col-invid">Invoice ID</th>
+                      <th className="col-client">Client Account</th>
+                      <th className="col-category">Category</th>
+                      <th className="col-paymode">Payment Mode</th>
+                      <th className="col-date">Invoice Date</th>
+                      <th className="col-duedate">Due Date</th>
+                      <th className="col-taxable" style={{ textAlign: "right" }}>Taxable (₹)</th>
+                      <th className="col-gst" style={{ textAlign: "right" }}>GST (₹)</th>
+                      <th className="col-total" style={{ textAlign: "right" }}>Grand Total (₹)</th>
+                      <th className="col-status" style={{ textAlign: "center" }}>Derived Status</th>
+                      <th className="col-actions" style={{ textAlign: "center" }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -485,73 +486,71 @@ export default function InvoicesPage({
 
                       return (
                         <tr key={invId}>
-                          <td>
+                          <td className="col-invid">
                             <button
                               type="button"
+                              className="invoice-id-btn"
                               onClick={() => setSelectedInvoice(inv)}
                               style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+                              title={`View ${invId}`}
                             >
-                              <code style={{
-                                color: "var(--primary)",
-                                fontWeight: 700,
-                                background: "rgba(0, 91, 181, 0.08)",
-                                padding: "3px 8px",
-                                borderRadius: 4
-                              }}>
+                              <code className="invoice-id-badge">
                                 {invId}
                               </code>
                             </button>
                           </td>
 
-                          <td>
-                            <div className="person">
-                              <div className="mini-avatar" style={{ background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
+                          <td className="col-client">
+                            <div className="person" style={{ gap: 8 }}>
+                              <div className="mini-avatar" style={{ width: 28, height: 28, minWidth: 28, fontSize: 11.5, background: "rgba(0, 91, 181, 0.12)", color: "var(--primary)" }}>
                                 {inv.clientName ? inv.clientName[0] : "C"}
                               </div>
-                              <div>
-                                <b>{inv.clientName}</b>
-                                {inv.clientId && (
-                                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                                    {inv.clientId} {client?.clientType ? `• ${client.clientType}` : ""}
-                                  </div>
-                                )}
+                              <div style={{ minWidth: 0 }}>
+                                <b style={{ fontSize: "12.5px", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 170 }} title={inv.clientName}>
+                                  {inv.clientName}
+                                </b>
+                                <div style={{ fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                                  {inv.clientId ? `${inv.clientId} • ` : ""}{inv.clientType || client?.clientType || "Feed Shop"}
+                                </div>
                               </div>
                             </div>
                           </td>
 
-                          <td>
-                            <span style={{ fontSize: "12.5px", fontWeight: 600 }}>
+                          <td className="col-category">
+                            <span style={{ fontSize: "12px", fontWeight: 600 }}>
                               {inv.clientType || client?.clientType || "Feed Shop"}
                             </span>
                           </td>
 
-                          <td>
+                          <td className="col-paymode">
                             <span style={{ fontSize: "12px", color: inv.paymentMode ? "var(--text-main)" : "var(--text-muted)" }}>
                               {inv.paymentMode || "—"}
                             </span>
                           </td>
 
-                          <td style={{ fontSize: "12.5px" }}>{formatDate(inv.invoiceDate || inv.date)}</td>
+                          <td className="col-date" style={{ fontSize: "12px", whiteSpace: "nowrap" }}>
+                            {formatDate(inv.invoiceDate || inv.date)}
+                          </td>
 
-                          <td style={{ fontSize: "12.5px", color: isOverdue ? "var(--danger)" : "inherit", fontWeight: isOverdue ? 700 : "normal" }}>
+                          <td className="col-duedate" style={{ fontSize: "12px", color: isOverdue ? "var(--danger)" : "inherit", fontWeight: isOverdue ? 700 : "normal", whiteSpace: "nowrap" }}>
                             {formatDate(inv.dueDate || inv.invoiceDate)}
                           </td>
 
-                          <td className="money" style={{ textAlign: "right", color: "var(--text-muted)" }}>
+                          <td className="col-taxable money" style={{ textAlign: "right", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
                             {formatIndianCurrency(inv.taxableTotal ?? inv.subtotal ?? 0, { showSymbol: false })}
                           </td>
 
-                          <td className="money" style={{ textAlign: "right", color: "var(--text-muted)", fontSize: "12px" }}>
+                          <td className="col-gst money" style={{ textAlign: "right", color: "var(--text-muted)", fontSize: "12px", whiteSpace: "nowrap" }}>
                             {formatIndianCurrency(inv.gstTotal ?? inv.tax ?? 0, { showSymbol: false })}
                           </td>
 
-                          <td className="money" style={{ textAlign: "right" }}>
-                            <b style={{ color: "var(--primary)", fontSize: "13.5px" }}>
+                          <td className="col-total money" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                            <b style={{ color: "var(--primary)", fontSize: "13px" }}>
                               {formatIndianCurrency(inv.grandTotal ?? inv.total ?? 0)}
                             </b>
                           </td>
 
-                          <td style={{ textAlign: "center" }}>
+                          <td className="col-status" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                             <span className={`badge ${
                               status === "Paid" ? "paid" : (status === "Overdue" ? "overdue" : "pending-payment")
                             }`}>
@@ -570,49 +569,16 @@ export default function InvoicesPage({
                             </span>
                           </td>
 
-                          <td style={{ textAlign: "center" }}>
-                            <div className="row-actions" style={{ justifyContent: "center", gap: 6 }}>
-                              {Number(inv.balanceDue ?? Math.max(0, Number(inv.grandTotal || 0) - Number(inv.paidAmount || 0))) > 0 && !inv.isCancelled && (
-                                <button
-                                  type="button"
-                                  title={`Record payment for ${invId}`}
-                                  onClick={() => setPaymentInvoice(inv)}
-                                  style={{
-                                    color: "#059669",
-                                    background: "rgba(5, 150, 105, 0.1)",
-                                    border: "1px solid rgba(5, 150, 105, 0.25)",
-                                    borderRadius: 4,
-                                    padding: "3px 8px",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 4,
-                                    fontSize: 11.5,
-                                    fontWeight: 700,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  <CreditCard size={13} />
-                                  <span>Pay</span>
-                                </button>
-                              )}
+                          <td className="col-actions" style={{ textAlign: "center" }}>
+                            <div className="row-actions" style={{ justifyContent: "center" }}>
                               <button
                                 type="button"
-                                title={`Edit ${invId}`}
-                                onClick={() => {
-                                  setEditInvoice(inv);
-                                  setIsCreateModalOpen(true);
-                                }}
-                                style={{ color: "var(--text-muted)" }}
-                              >
-                                <Edit3 size={15} />
-                              </button>
-                              <button
-                                type="button"
+                                className="table-action-btn view-btn"
                                 title={`View & print ${invId}`}
                                 onClick={() => setSelectedInvoice(inv)}
-                                style={{ color: "var(--primary)" }}
                               >
-                                <Eye size={15} />
+                                <Eye size={14} />
+                                <span>View</span>
                               </button>
                             </div>
                           </td>
@@ -675,16 +641,6 @@ export default function InvoicesPage({
                       }
                       actions={
                         <>
-                          {balance > 0 && !inv.isCancelled && (
-                            <button
-                              type="button"
-                              className="outline"
-                              onClick={() => setPaymentInvoice(inv)}
-                              style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "#059669", borderColor: "#059669" }}
-                            >
-                              <CreditCard size={14} /> Pay
-                            </button>
-                          )}
                           <button
                             type="button"
                             className="outline"
@@ -730,6 +686,10 @@ export default function InvoicesPage({
           setSelectedInvoice(null);
           setEditInvoice(inv);
           setIsCreateModalOpen(true);
+        }}
+        onRecordPayment={(inv) => {
+          setSelectedInvoice(null);
+          setPaymentInvoice(inv);
         }}
         showToast={notify}
         onRefresh={onRefresh}

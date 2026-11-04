@@ -108,6 +108,8 @@ export const erpApi = {
   getPurchases: () => apiClient.get("/purchases"),
   createPurchase: (data) => apiClient.post("/purchases", data),
   recordVendorPayment: (id, data) => apiClient.post(`/purchases/${id}/payment`, data),
+  updateVendorPayment: (id, paymentId, data) => apiClient.put(`/purchases/${id}/payments/${paymentId}`, data),
+  deleteVendorPayment: (id, paymentId) => apiClient.delete(`/purchases/${id}/payments/${paymentId}`),
   updatePurchase: (id, data) => apiClient.put(`/purchases/${id}`, data),
   deletePurchase: (id) => apiClient.delete(`/purchases/${id}`),
 

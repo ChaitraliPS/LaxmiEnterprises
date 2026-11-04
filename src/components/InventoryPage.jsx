@@ -5,6 +5,7 @@ import {
   ListFilter, History, Layers, Package
 } from "lucide-react";
 import InventoryModal from "./InventoryModal";
+import InventoryDetailsModal from "./InventoryDetailsModal";
 import ProductModal from "./ProductModal";
 import ExportMenu from "./ExportMenu";
 import MobileRecordCard from "./responsive/MobileRecordCard";
@@ -21,6 +22,7 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
   const [statusFilter, setStatusFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
   const [productModalOpen, setProductModalOpen] = useState(false);
+  const [viewingInventoryProduct, setViewingInventoryProduct] = useState(null);
   const [selectedProductForModal, setSelectedProductForModal] = useState(null);
   const [toast, setToast] = useState(null);
   const [movements, setMovements] = useState([]);
@@ -597,11 +599,11 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
                             <td>
                               <div className="row-actions">
                                 <button
-                                  title="Record Inward / Outward Stock Movement"
-                                  onClick={() => handleOpenMovement(p.id || p.productId)}
-                                  style={{ color: "var(--primary)" }}
+                                  title={`View inventory profile of ${p.name}`}
+                                  onClick={() => setViewingInventoryProduct(p)}
+                                  style={{ color: "var(--accent)" }}
                                 >
-                                  <Pencil size={14} />
+                                  <Eye size={14} />
                                 </button>
                               </div>
                             </td>
@@ -661,6 +663,17 @@ export default function InventoryPage({ inventory = [], onSaveInventory, product
           )
         )}
       </div>
+
+      <InventoryDetailsModal
+        isOpen={!!viewingInventoryProduct}
+        onClose={() => setViewingInventoryProduct(null)}
+        product={viewingInventoryProduct}
+        movements={movements}
+        onRecordMovement={(pid) => {
+          setViewingInventoryProduct(null);
+          handleOpenMovement(pid);
+        }}
+      />
 
       <InventoryModal
         key={selectedProductForModal || "new-inventory"}

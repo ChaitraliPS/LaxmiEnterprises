@@ -36,7 +36,8 @@ export default function ExpoPage({
   onConvertToClient,
   company = {},
   showToast,
-  onRefresh
+  onRefresh,
+  onSaveExpoLeads
 }) {
   const [leads, setLeads] = useState(expoLeads || []);
 
@@ -99,35 +100,69 @@ export default function ExpoPage({
   const handleOpenEdit = (lead) => { setEditingLead(lead); setLeadModalOpen(true); };
 
   const handleSaveLead = async (data) => {
-    if (editingLead) {
-      const updated = await updateExpoLead(editingLead.id, data);
-      setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-      if (showToast) showToast(`✓ Updated details for ${updated.name}`);
-    } else {
-      const created = await createExpoLead(data);
-      setLeads((prev) => [created, ...prev]);
-      if (showToast) showToast(`✓ Added Expo Lead: ${created.name} (${created.village})`);
+    try {
+      if (editingLead) {
+        const targetId = editingLead.id || editingLead.leadId;
+        const updated = await updateExpoLead(targetId, data);
+        const newLeads = leads.map((l) =>
+          (l.id === targetId || l.leadId === targetId || l.id === updated.id) ? { ...l, ...updated } : l
+        );
+        setLeads(newLeads);
+        if (typeof onSaveExpoLeads === "function") onSaveExpoLeads(newLeads);
+        if (showToast) showToast(`✓ Updated details for ${updated.name || data.name}`);
+      } else {
+        const created = await createExpoLead(data);
+        const newLeads = [created, ...leads];
+        setLeads(newLeads);
+        if (typeof onSaveExpoLeads === "function") onSaveExpoLeads(newLeads);
+        if (showToast) showToast(`✓ Added Expo Lead: ${created.name || data.name} (${created.village || data.village})`);
+      }
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.error("Error saving expo lead:", err);
+      // Fallback local save in case of offline / temporary issue
+      const fallbackLead = {
+        ...data,
+        id: editingLead ? (editingLead.id || editingLead.leadId) : (data.id || nextLeadId),
+        leadId: editingLead ? (editingLead.leadId || editingLead.id) : (data.id || nextLeadId),
+        createdAt: new Date().toISOString(),
+      };
+      let newLeads;
+      if (editingLead) {
+        newLeads = leads.map((l) =>
+          l.id === fallbackLead.id || l.leadId === fallbackLead.leadId ? { ...l, ...fallbackLead } : l
+        );
+      } else {
+        newLeads = [fallbackLead, ...leads];
+      }
+      setLeads(newLeads);
+      if (typeof onSaveExpoLeads === "function") onSaveExpoLeads(newLeads);
+      if (showToast) showToast(`✓ Saved: ${fallbackLead.name} (${fallbackLead.village})`);
     }
-    if (onRefresh) onRefresh();
   };
 
   const handleStatusChange = async (leadId, newStatus) => {
     const before = leads;
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, status: newStatus } : l)));
-    setViewingLead((v) => (v && v.id === leadId ? { ...v, status: newStatus } : v));
+    const newLeads = leads.map((l) => (l.id === leadId || l.leadId === leadId ? { ...l, status: newStatus } : l));
+    setLeads(newLeads);
+    if (typeof onSaveExpoLeads === "function") onSaveExpoLeads(newLeads);
+    setViewingLead((v) => (v && (v.id === leadId || v.leadId === leadId) ? { ...v, status: newStatus } : v));
     try {
       await updateExpoLead(leadId, { status: newStatus });
     } catch (err) {
       setLeads(before);
-      setViewingLead((v) => (v && v.id === leadId ? before.find((l) => l.id === leadId) || v : v));
+      if (typeof onSaveExpoLeads === "function") onSaveExpoLeads(before);
+      setViewingLead((v) => (v && (v.id === leadId || v.leadId === leadId) ? before.find((l) => l.id === leadId || l.leadId === leadId) || v : v));
       if (showToast) showToast(`⚠ Could not update status: ${err.message}`);
     }
   };
 
   const handleBroadcastLogged = (updatedLeads = []) => {
     if (updatedLeads.length) {
-      const byId = new Map(updatedLeads.map((l) => [l.id, l]));
-      setLeads((prev) => prev.map((l) => byId.get(l.id) || l));
+      const byId = new Map(updatedLeads.map((l) => [l.id || l.leadId, l]));
+      const newLeads = leads.map((l) => byId.get(l.id || l.leadId) || l);
+      setLeads(newLeads);
+      if (typeof onSaveExpoLeads === "function") onSaveExpoLeads(newLeads);
     }
     if (onRefresh) onRefresh();
   };
@@ -551,11 +586,12 @@ export default function ExpoPage({
       {/* MODALS */}
       {leadModalOpen && (
         <ExpoLeadModal
-          key={editingLead ? editingLead.id : "new-expo-lead"}
+          key={editingLead ? (editingLead.id || editingLead.leadId) : "new-expo-lead"}
           onClose={() => { setLeadModalOpen(false); setEditingLead(null); }}
           onSave={handleSaveLead}
           leadToEdit={editingLead}
           nextId={nextLeadId}
+          defaultExpoName={eventFilter !== "All" ? eventFilter : (leads[0]?.expoName || "")}
           company={company}
         />
       )}

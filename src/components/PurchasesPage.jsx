@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   ShoppingCart, Plus, Search, Eye, Milk, Tractor, Wheat, MapPin, Phone,
-  TrendingUp, IndianRupee, AlertCircle, CheckCircle2, X, Building2, RefreshCw, Calendar
+  TrendingUp, IndianRupee, AlertCircle, CheckCircle2, X, Building2, RefreshCw, Calendar, Edit3
 } from "lucide-react";
 import PurchaseModal from "./PurchaseModal";
 import PurchaseViewModal from "./PurchaseViewModal";
+import RecordVendorPaymentModal from "./RecordVendorPaymentModal";
 import MobileRecordCard from "./responsive/MobileRecordCard";
 import ResponsiveKpiGrid from "./responsive/ResponsiveKpiGrid";
 import ResponsiveDataTable from "./responsive/ResponsiveDataTable";
@@ -35,6 +36,7 @@ export default function PurchasesPage({
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPurchase, setEditingPurchase] = useState(null);
   const [viewingPurchase, setViewingPurchase] = useState(null);
+  const [paymentPurchase, setPaymentPurchase] = useState(null);
 
   useEffect(() => {
     if (onRefresh) onRefresh();
@@ -483,7 +485,7 @@ export default function PurchasesPage({
                               type="button"
                               onClick={() => setViewingPurchase(pur)}
                               title="View Bill Voucher"
-                              style={{ color: "var(--primary)", background: "none", border: "none", cursor: "pointer" }}
+                              style={{ color: "var(--primary)", background: "none", border: "none", cursor: "pointer", padding: "4px" }}
                             >
                               <Eye size={16} />
                             </button>
@@ -563,7 +565,7 @@ export default function PurchasesPage({
                           type="button"
                           className="primary"
                           onClick={() => setViewingPurchase(pur)}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 6, width: "100%" }}
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", fontSize: "13px", padding: "8px 12px" }}
                         >
                           <Eye size={15} /> View Purchase Voucher
                         </button>
@@ -584,27 +586,44 @@ export default function PurchasesPage({
         purchase={viewingPurchase}
         company={company}
         vendor={vendorMap.get(viewingPurchase?.vendorId)}
+        onEdit={(pur) => {
+          setViewingPurchase(null);
+          setEditingPurchase(pur);
+          setModalOpen(true);
+        }}
+        onRecordPayment={(pur) => {
+          setViewingPurchase(null);
+          setPaymentPurchase(pur);
+        }}
         showToast={notify}
         onRefresh={onRefresh}
       />
 
-      {/* CREATE MODAL */}
+      {/* CREATE / EDIT MODAL */}
       <PurchaseModal
         isOpen={modalOpen}
         onClose={() => {
           setModalOpen(false);
           setEditingPurchase(null);
         }}
-        onSave={async (newPur) => {
+        purchaseToEdit={editingPurchase}
+        onSave={async (formData) => {
           try {
-            if (onCreatePurchase) {
-              await onCreatePurchase(newPur);
+            if (editingPurchase) {
+              const targetId = editingPurchase.purchaseId || editingPurchase.id;
+              await erpApi.updatePurchase(targetId, formData);
+              notify(`✓ Purchase ${targetId} updated successfully & synced with database!`);
             } else {
-              await erpApi.createPurchase(newPur);
+              if (onCreatePurchase) {
+                await onCreatePurchase(formData);
+              } else {
+                await erpApi.createPurchase(formData);
+              }
+              notify(`✓ Inward purchase recorded & saved to database!`);
             }
-            notify(`✓ Inward purchase recorded & saved to database!`);
             setModalOpen(false);
-            if (onRefresh) onRefresh();
+            setEditingPurchase(null);
+            if (onRefresh) await onRefresh();
           } catch (err) {
             const errMsg = err?.response?.data?.message || err.message;
             notify(`⚠️ ${errMsg}`);
@@ -615,6 +634,16 @@ export default function PurchasesPage({
         products={products}
         nextId={`LE-PUR-2026-${String((purchases?.length || 0) + 1).padStart(3, "0")}`}
         company={company}
+        showToast={notify}
+      />
+      {/* RECORD VENDOR PAYMENT MODAL */}
+      <RecordVendorPaymentModal
+        isOpen={!!paymentPurchase}
+        onClose={() => setPaymentPurchase(null)}
+        purchase={paymentPurchase}
+        onSuccess={async () => {
+          if (onRefresh) await onRefresh();
+        }}
         showToast={notify}
       />
     </div>
